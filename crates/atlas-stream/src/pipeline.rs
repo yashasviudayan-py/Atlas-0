@@ -1,8 +1,8 @@
 //! Frame processing pipeline.
 
+use crate::config::StreamConfig;
 use atlas_core::Frame;
 use crossbeam::channel::{self, Receiver, Sender};
-use crate::config::StreamConfig;
 
 /// A multi-producer, multi-consumer frame pipeline.
 ///

@@ -63,18 +63,37 @@ tests/integration # Cross-language integration tests
 - Commit messages: imperative mood, < 72 chars first line. Reference phase in body.
 - PRs require at least passing CI. Squash merge to main.
 
-### 8. Dependencies
+### 8. Pre-Push Verification (MANDATORY)
+**Before every `git push`, ALL of the following checks MUST pass locally. No exceptions. CI shall not fail.**
+
+**Rust checks:**
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all
+```
+
+**Python checks:**
+```bash
+ruff check python/
+ruff format --check python/
+pytest python/tests/ -v
+```
+
+If any check fails, fix the issue before pushing. Never push code that breaks CI.
+
+### 9. Dependencies
 - Pin all dependency versions. No `*` or `>=` ranges.
 - Rust: Use workspace dependencies in root `Cargo.toml`.
 - Python: Use `uv` for dependency management. Lock file must be committed.
 - Evaluate new dependencies carefully — prefer well-maintained crates/packages with permissive licenses (MIT/Apache-2.0).
 
-### 9. Safety & Security
+### 10. Safety & Security
 - No `unsafe` Rust without a `// SAFETY:` comment explaining the invariant.
 - Sanitize all external input (camera streams, API queries, config files).
 - No secrets in code or config files. Use env vars or a secrets manager.
 
-### 10. Documentation
+### 11. Documentation
 - Public Rust APIs must have doc comments with examples.
 - Python public functions must have docstrings (Google style).
 - Architecture decisions go in `docs/architecture/` as ADRs (Architecture Decision Records).

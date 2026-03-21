@@ -15,4 +15,4 @@ pub mod spatial;
 pub use error::{AtlasError, Result};
 pub use frame::{Frame, FrameId};
 pub use gaussian::{Gaussian3D, GaussianCloud};
-pub use spatial::{Pose, Point3};
+pub use spatial::{Point3, Pose};

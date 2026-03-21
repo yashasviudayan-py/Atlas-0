@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -37,6 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - uses: actions/setup-python@v5
         with:
@@ -44,6 +48,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          pip install --upgrade pip setuptools
           pip install -e ".[dev]"
 
       - name: Ruff lint

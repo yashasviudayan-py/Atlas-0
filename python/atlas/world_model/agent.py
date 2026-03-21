@@ -7,7 +7,7 @@ about the most likely physical failures in the current scene.
 from __future__ import annotations
 
 import asyncio
-import logging
+import contextlib
 from dataclasses import dataclass
 
 import structlog
@@ -49,10 +49,8 @@ class WorldModelAgent:
         self._running = False
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         logger.info("world_model_agent_stopped")
 
     async def _run_loop(self) -> None:

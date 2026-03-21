@@ -1,8 +1,7 @@
 """Tests for the Atlas-0 API server."""
 
-from fastapi.testclient import TestClient
-
 from atlas.api.server import app
+from fastapi.testclient import TestClient
 
 client = TestClient(app)
 
