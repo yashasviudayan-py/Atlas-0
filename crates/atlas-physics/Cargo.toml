@@ -1,0 +1,14 @@
+[package]
+name = "atlas-physics"
+description = "Causal physics simulation engine for Atlas-0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+atlas-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+nalgebra.workspace = true
+tracing.workspace = true
+rayon.workspace = true
