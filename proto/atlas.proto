@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package atlas;
+
+// Shared message types for Rust <-> Python IPC.
+
+message Point3 {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+message Pose {
+  Point3 position = 1;
+  // Quaternion (w, x, y, z)
+  float qw = 2;
+  float qx = 3;
+  float qy = 4;
+  float qz = 5;
+}
+
+message Gaussian {
+  Point3 center = 1;
+  repeated float covariance = 2;  // 6 elements (upper triangle)
+  repeated float sh_coefficients = 3;
+  float opacity = 4;
+  repeated float scale = 5;  // 3 elements
+  repeated float rotation = 6;  // 4 elements (quaternion)
+}
+
+message MapShard {
+  uint64 shard_id = 1;
+  repeated Gaussian gaussians = 2;
+  Pose camera_pose = 3;
+  uint64 timestamp_ns = 4;
+}
+
+message SemanticLabel {
+  uint64 object_id = 1;
+  string label = 2;
+  string material = 3;
+  float mass_kg = 4;
+  float fragility = 5;
+  float friction = 6;
+  float confidence = 7;
+  Point3 position = 8;
+}
+
+message RiskAssessment {
+  uint64 object_id = 1;
+  string risk_type = 2;
+  float probability = 3;
+  Point3 impact_point = 4;
+  string description = 5;
+}
+
+message SceneState {
+  repeated SemanticLabel objects = 1;
+  repeated RiskAssessment risks = 2;
+  Pose camera_pose = 3;
+  uint64 frame_id = 4;
+}

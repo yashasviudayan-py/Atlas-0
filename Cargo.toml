@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/atlas-core",
+    "crates/atlas-slam",
+    "crates/atlas-physics",
+    "crates/atlas-stream",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/yashasviudayan-py/Atlas-0"
+
+[workspace.dependencies]
+# Shared across crates
+thiserror = "2.0"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tokio = { version = "1", features = ["full"] }
+prost = "0.13"
+tonic = "0.12"
+nalgebra = "0.33"
+ndarray = "0.16"
+image = "0.25"
+memmap2 = "0.9"
+crossbeam = "0.8"
+rayon = "1.10"
+bytes = "1.9"
+
+# Workspace crates
+atlas-core = { path = "crates/atlas-core" }
+atlas-slam = { path = "crates/atlas-slam" }
+atlas-physics = { path = "crates/atlas-physics" }
+atlas-stream = { path = "crates/atlas-stream" }

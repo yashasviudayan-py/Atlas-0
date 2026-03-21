@@ -1,0 +1,23 @@
+services:
+  atlas:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8420:8420"
+    environment:
+      - ATLAS_VLM__OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - ollama
+    volumes:
+      - ../configs:/app/configs:ro
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  ollama_data:

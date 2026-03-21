@@ -1,0 +1,40 @@
+# Atlas-0 Default Configuration
+# Override with ATLAS_ prefixed environment variables
+
+[stream]
+target_fps = 60
+frame_width = 1280
+frame_height = 720
+buffer_size = 4
+device = "0"
+
+[slam]
+min_features = 100
+max_gaussians = 500000
+keyframe_translation_threshold = 0.1
+keyframe_rotation_threshold = 0.1
+optimization_iterations = 10
+enable_loop_closure = true
+
+[physics]
+timestep = 0.001
+gravity = 9.81
+max_steps = 1000
+rest_threshold = 0.01
+
+[vlm]
+model_name = "moondream"
+ollama_host = "http://localhost:11434"
+max_tokens = 256
+temperature = 0.1
+timeout_seconds = 10.0
+
+[world_model]
+assessment_interval_seconds = 1.0
+max_concurrent_queries = 3
+risk_threshold = 0.3
+
+[api]
+host = "0.0.0.0"
+port = 8420
+cors_origins = ["http://localhost:3000"]
