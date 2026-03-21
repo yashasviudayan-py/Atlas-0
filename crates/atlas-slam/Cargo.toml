@@ -1,0 +1,18 @@
+[package]
+name = "atlas-slam"
+description = "3D Gaussian Splatting SLAM pipeline for Atlas-0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+atlas-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+nalgebra.workspace = true
+ndarray.workspace = true
+image.workspace = true
+tracing.workspace = true
+rayon.workspace = true
+crossbeam.workspace = true
+memmap2.workspace = true
