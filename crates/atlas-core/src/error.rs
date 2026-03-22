@@ -31,6 +31,12 @@ pub enum StreamError {
 
     #[error("invalid frame dimensions: {width}x{height}")]
     InvalidDimensions { width: u32, height: u32 },
+
+    #[error("camera disconnected during capture")]
+    Disconnected,
+
+    #[error("camera format negotiation failed: {0}")]
+    FormatNegotiation(String),
 }
 
 #[derive(Debug, Error)]
