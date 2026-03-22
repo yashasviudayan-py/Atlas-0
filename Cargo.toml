@@ -32,6 +32,7 @@ memmap2 = "0.9"
 crossbeam = "0.8"
 rayon = "1.10"
 bytes = "1.9"
+nokhwa = { version = "0.10.10", features = ["input-native"] }
 
 # Workspace crates
 atlas-core = { path = "crates/atlas-core" }
