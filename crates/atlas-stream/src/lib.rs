@@ -3,6 +3,7 @@
 //! Handles camera capture, frame buffering, and distributing
 //! frames to downstream consumers (SLAM, VLM).
 
+pub mod capture;
 pub mod config;
 pub mod pipeline;
 
