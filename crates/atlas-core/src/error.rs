@@ -49,6 +49,9 @@ pub enum SlamError {
 
     #[error("map initialization failed: {0}")]
     InitFailed(String),
+
+    #[error("pose estimation failed: {0}")]
+    PoseEstimationFailed(String),
 }
 
 #[derive(Debug, Error)]
