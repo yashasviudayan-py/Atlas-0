@@ -79,9 +79,8 @@ impl StreamConfig {
     /// Returns [`StreamError::CameraOpen`] (re-used as a config error) when
     /// the file cannot be read or the TOML is malformed.
     pub fn from_file(path: &Path) -> Result<Self> {
-        let raw = std::fs::read_to_string(path).map_err(|e| {
-            StreamError::CameraOpen(format!("read config {}: {e}", path.display()))
-        })?;
+        let raw = std::fs::read_to_string(path)
+            .map_err(|e| StreamError::CameraOpen(format!("read config {}: {e}", path.display())))?;
         let top: AtlasTomlConfig = toml::from_str(&raw).map_err(|e| {
             StreamError::CameraOpen(format!("parse config {}: {e}", path.display()))
         })?;
@@ -99,7 +98,10 @@ impl StreamConfig {
     /// skipped and a warning is logged (never a hard error).
     pub fn load(path: &Path) -> Result<Self> {
         let mut cfg = Self::from_file(path).unwrap_or_else(|e| {
-            warn!("Could not load config from {}: {e} — using defaults", path.display());
+            warn!(
+                "Could not load config from {}: {e} — using defaults",
+                path.display()
+            );
             Self::default()
         });
         cfg.apply_env_overrides();

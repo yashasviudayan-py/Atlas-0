@@ -23,7 +23,7 @@ What does NOT exist yet (the actual work):
 
 ---
 
-## PHASE 1: THE EYE (Weeks 1–4)
+## PHASE 1: THE EYE (Parts 1–4)
 
 ### Goal
 Walk around a room with a camera. See a high-fidelity 3D Gaussian Splatting reconstruction generate on screen in < 100ms latency. The SLAM system tracks camera pose and builds the map in real-time.
@@ -33,7 +33,7 @@ Everything downstream (semantic labeling, physics simulation, risk prediction) r
 
 ---
 
-### Week 1: Camera Ingestion Pipeline
+### Part 1: Camera Ingestion Pipeline
 
 **Objective**: Capture live video frames at 60fps and distribute them through the pipeline with minimal latency.
 
@@ -80,7 +80,7 @@ Everything downstream (semantic labeling, physics simulation, risk prediction) r
 
 ---
 
-### Week 2: Feature Extraction & Visual Odometry
+### Part 2: Feature Extraction & Visual Odometry
 
 **Objective**: Extract visual features from each frame and estimate camera motion between consecutive frames.
 
@@ -124,7 +124,7 @@ Everything downstream (semantic labeling, physics simulation, risk prediction) r
 
 ---
 
-### Week 3: 3D Gaussian Splatting Reconstruction
+### Part 3: 3D Gaussian Splatting Reconstruction
 
 **Objective**: Build and incrementally update a 3D Gaussian map from tracked frames.
 
@@ -175,7 +175,7 @@ Everything downstream (semantic labeling, physics simulation, risk prediction) r
 
 ---
 
-### Week 4: Real-time Visualization & Integration
+### Part 4: Real-time Visualization & Integration
 
 **Objective**: Tie the full pipeline together. Visualize the 3D reconstruction in real-time as the camera moves.
 
@@ -225,7 +225,7 @@ Everything downstream (semantic labeling, physics simulation, risk prediction) r
 
 ---
 
-## PHASE 2: THE BRAIN (Weeks 5–8)
+## PHASE 2: THE BRAIN (Parts 5–8)
 
 ### Goal
 Feed shards of the 3D Gaussian map into a local VLM. Query the map with natural language ("Where is the most unstable object?") and get a correct spatial coordinate back. Every object in the scene has semantic metadata: mass, friction, fragility, material, relationships.
@@ -235,7 +235,7 @@ The Eye gives us geometry (where things are). The Brain gives us semantics (what
 
 ---
 
-### Week 5: Rust→Python IPC Bridge
+### Part 5: Rust→Python IPC Bridge
 
 **Objective**: Establish the real-time data bridge between the Rust spatial engine and the Python reasoning layer.
 
@@ -271,7 +271,7 @@ The Eye gives us geometry (where things are). The Brain gives us semantics (what
 
 ---
 
-### Week 6: VLM Integration & Semantic Labeling
+### Part 6: VLM Integration & Semantic Labeling
 
 **Objective**: Run a local VLM to understand what objects are in the scene and assign physical properties.
 
@@ -320,7 +320,7 @@ The Eye gives us geometry (where things are). The Brain gives us semantics (what
 
 ---
 
-### Week 7: Spatial Query Engine
+### Part 7: Spatial Query Engine
 
 **Objective**: Answer natural language questions about the 3D scene by combining spatial data with semantic labels.
 
@@ -368,7 +368,7 @@ The Eye gives us geometry (where things are). The Brain gives us semantics (what
 
 ---
 
-### Week 8: Integration, Benchmarking & Polish
+### Part 8: Integration, Benchmarking & Polish
 
 **Objective**: Wire Phase 1 and Phase 2 together into a seamless system. Benchmark and optimize.
 
@@ -411,7 +411,7 @@ The Eye gives us geometry (where things are). The Brain gives us semantics (what
 
 ---
 
-## PHASE 3: THE GHOST (Weeks 9–12)
+## PHASE 3: THE GHOST (Parts 9–12)
 
 ### Goal
 If the AI detects a glass on a ledge, it "ghosts" a simulation of it falling — calculating the impact zone, probability, and risk level. Real-time AR overlay shows predicted failure paths. The system alerts before things go wrong.
@@ -421,7 +421,7 @@ Physics simulation requires both geometry (Phase 1) and semantics (Phase 2). You
 
 ---
 
-### Week 9: Physics Simulation Engine
+### Part 9: Physics Simulation Engine
 
 **Objective**: Build a lightweight rigid-body physics simulator that can predict object trajectories.
 
@@ -469,7 +469,7 @@ Physics simulation requires both geometry (Phase 1) and semantics (Phase 2). You
 
 ---
 
-### Week 10: Risk Prediction Pipeline
+### Part 10: Risk Prediction Pipeline
 
 **Objective**: Continuously run physics simulations in the background and maintain a ranked list of physical risks in the scene.
 
@@ -512,7 +512,7 @@ Physics simulation requires both geometry (Phase 1) and semantics (Phase 2). You
 
 ---
 
-### Week 11: AR Overlay & Frontend
+### Part 11: AR Overlay & Frontend
 
 **Objective**: Build a real-time AR overlay that visualizes the AI's predictions — showing risk zones, predicted trajectories, and alerts.
 
@@ -555,7 +555,7 @@ Physics simulation requires both geometry (Phase 1) and semantics (Phase 2). You
 
 ---
 
-### Week 12: Integration, Optimization & Production Hardening
+### Part 12: Integration, Optimization & Production Hardening
 
 **Objective**: Full system integration test. Optimize for real-time performance. Harden for reliability.
 

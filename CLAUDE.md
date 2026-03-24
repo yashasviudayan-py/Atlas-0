@@ -102,15 +102,15 @@ Before every push, you must automatically run the protocol in .claude/review_cha
 
 ## Phase Development Plan
 
-### Phase 1: The Eye (Weeks 1-4) — Real-time 3DGS-SLAM
+### Phase 1: The Eye (Parts 1-4) — Real-time 3DGS-SLAM
 Focus: Camera ingestion, pose estimation, Gaussian splatting reconstruction.
 Target: Walk around a room, see 3D reconstruction < 100ms latency.
 
-### Phase 2: The Brain (Weeks 5-8) — Semantic Understanding
+### Phase 2: The Brain (Parts 5-8) — Semantic Understanding
 Focus: VLM integration, spatial queries, metadata assignment.
 Target: Query "where is the most unstable object?" and get a spatial coordinate.
 
-### Phase 3: The Ghost (Weeks 9-12) — Physics Simulation
+### Phase 3: The Ghost (Parts 9-12) — Physics Simulation
 Focus: Physics engine integration, risk prediction, AR overlay.
 Target: Real-time visual alerts for physical risks.
 
