@@ -34,7 +34,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use atlas_core::{error::StreamError, frame::{Frame, FrameId}};
+use atlas_core::{
+    error::StreamError,
+    frame::{Frame, FrameId},
+};
 use crossbeam::channel::Sender;
 use image::RgbImage;
 use tracing::{error, info, warn};
@@ -92,7 +95,11 @@ impl FileSource {
     /// * `sender` – Channel sender for the downstream frame pipeline.
     #[must_use]
     pub fn new(dir: PathBuf, config: StreamConfig, sender: Sender<Frame>) -> Self {
-        Self { dir, config, sender }
+        Self {
+            dir,
+            config,
+            sender,
+        }
     }
 
     /// Discover image files and start the playback thread.
@@ -243,8 +250,8 @@ fn run_playback_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
     use crate::{config::StreamConfig, pipeline::FramePipeline};
+    use std::time::Duration;
 
     fn write_test_image(dir: &Path, name: &str, width: u32, height: u32, value: u8) {
         let img: RgbImage =
@@ -261,9 +268,30 @@ mod tests {
 
         let files = collect_image_files(dir.path()).expect("collect");
         assert_eq!(files.len(), 3);
-        assert!(files[0].file_name().unwrap().to_str().unwrap().contains("001"));
-        assert!(files[1].file_name().unwrap().to_str().unwrap().contains("002"));
-        assert!(files[2].file_name().unwrap().to_str().unwrap().contains("003"));
+        assert!(
+            files[0]
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("001")
+        );
+        assert!(
+            files[1]
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("002")
+        );
+        assert!(
+            files[2]
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("003")
+        );
     }
 
     #[test]
