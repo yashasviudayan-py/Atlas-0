@@ -319,6 +319,79 @@ mod tests {
         assert!(Frame::new(0, 640, 480, vec![0u8; 10]).is_none());
     }
 
+    #[test]
+    fn parse_device_index_empty_string_becomes_string_variant() {
+        // Arrange + Act
+        let idx = parse_device_index("");
+        // Assert — empty string cannot parse as u32, so treated as a path.
+        assert!(matches!(idx, CameraIndex::String(_)));
+    }
+
+    #[test]
+    fn parse_device_index_max_u32_becomes_index_variant() {
+        // Arrange + Act
+        let idx = parse_device_index("4294967295");
+        // Assert
+        assert!(matches!(idx, CameraIndex::Index(4294967295)));
+    }
+
+    #[test]
+    fn parse_device_index_u32_overflow_becomes_string_variant() {
+        // Arrange — one past the maximum u32 value.
+        let idx = parse_device_index("4294967296");
+        // Assert — overflow is not parseable as u32, so treated as path.
+        assert!(matches!(idx, CameraIndex::String(_)));
+    }
+
+    #[test]
+    fn frame_pixel_count_is_width_times_height() {
+        // Arrange
+        let (w, h) = (320u32, 240u32);
+        let data = vec![0u8; (w * h * 3) as usize];
+        let frame = Frame::new(0, w, h, data).unwrap();
+        // Act + Assert
+        assert_eq!(frame.pixel_count(), (w * h) as usize);
+    }
+
+    #[test]
+    fn frame_rejects_one_byte_short_buffer() {
+        // Arrange — exactly one byte less than required.
+        let (w, h) = (4u32, 4u32);
+        let too_short = vec![0u8; (w * h * 3) as usize - 1];
+        // Act + Assert
+        assert!(Frame::new(0, w, h, too_short).is_none());
+    }
+
+    #[test]
+    fn frame_rejects_one_byte_long_buffer() {
+        // Arrange — exactly one byte more than required.
+        let (w, h) = (4u32, 4u32);
+        let too_long = vec![0u8; (w * h * 3) as usize + 1];
+        // Act + Assert
+        assert!(Frame::new(0, w, h, too_long).is_none());
+    }
+
+    #[test]
+    fn frame_id_u64_max_wraps_on_add() {
+        // Arrange — simulate wrapping_add across the u64 boundary.
+        let max_id: FrameId = u64::MAX;
+        // Act
+        let next = max_id.wrapping_add(1);
+        // Assert — wraps to 0 without overflow panic.
+        assert_eq!(next, 0);
+    }
+
+    #[test]
+    fn frame_data_arc_shared_across_clones() {
+        // Arrange
+        let data = vec![1u8; 3]; // 1×1 pixel
+        let frame = Frame::new(0, 1, 1, data).unwrap();
+        // Act — clone shares the Arc (no copy).
+        let clone = frame.clone();
+        // Assert — both refer to identical data.
+        assert_eq!(frame.data.as_ref(), clone.data.as_ref());
+    }
+
     /// Requires a physical camera device — skipped in CI.
     #[test]
     #[ignore = "requires a physical camera device"]

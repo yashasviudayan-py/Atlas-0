@@ -166,6 +166,91 @@ mod tests {
     }
 
     #[test]
+    fn calibration_clone_equals_original() {
+        // Arrange
+        let original = CameraCalibration::default();
+        // Act
+        let cloned = original.clone();
+        // Assert
+        assert_eq!(original, cloned);
+    }
+
+    #[test]
+    fn intrinsic_fields_are_accessible() {
+        // Arrange
+        let cal = CameraCalibration::default();
+        // Assert — spot-check against the known EuRoC defaults.
+        assert!((cal.intrinsics.fx - 458.654).abs() < 1e-3);
+        assert!((cal.intrinsics.fy - 457.296).abs() < 1e-3);
+        assert!((cal.intrinsics.cx - 367.215).abs() < 1e-3);
+        assert!((cal.intrinsics.cy - 248.375).abs() < 1e-3);
+    }
+
+    #[test]
+    fn distortion_fields_are_accessible() {
+        // Arrange
+        let cal = CameraCalibration::default();
+        // Assert — sign and magnitude correct for EuRoC defaults.
+        assert!(cal.distortion.k1 < 0.0, "k1 should be negative (barrel)");
+        assert!(cal.distortion.k2 > 0.0, "k2 should be positive");
+    }
+
+    #[test]
+    fn toml_missing_intrinsics_section_returns_error() {
+        // Arrange — [intrinsics] block is absent.
+        let toml_str = r#"
+            slam_width  = 640
+            slam_height = 480
+
+            [distortion]
+            k1 = -0.28
+            k2 =  0.07
+            p1 =  0.0
+            p2 =  0.0
+        "#;
+        // Act + Assert
+        let result: Result<CameraCalibration, _> = toml::from_str(toml_str);
+        assert!(result.is_err(), "missing [intrinsics] should fail to parse");
+    }
+
+    #[test]
+    fn toml_missing_distortion_section_returns_error() {
+        // Arrange — [distortion] block is absent.
+        let toml_str = r#"
+            slam_width  = 640
+            slam_height = 480
+
+            [intrinsics]
+            fx = 458.654
+            fy = 457.296
+            cx = 367.215
+            cy = 248.375
+        "#;
+        // Act + Assert
+        let result: Result<CameraCalibration, _> = toml::from_str(toml_str);
+        assert!(result.is_err(), "missing [distortion] should fail to parse");
+    }
+
+    #[test]
+    fn distortion_coefficients_round_trip_toml() {
+        // Arrange
+        let original = DistortionCoefficients {
+            k1: -0.5,
+            k2: 0.1,
+            p1: 0.002,
+            p2: -0.003,
+        };
+        // Act
+        let s = toml::to_string(&original).expect("serialize");
+        let back: DistortionCoefficients = toml::from_str(&s).expect("deserialize");
+        // Assert
+        assert!((back.k1 - original.k1).abs() < 1e-9);
+        assert!((back.k2 - original.k2).abs() < 1e-9);
+        assert!((back.p1 - original.p1).abs() < 1e-9);
+        assert!((back.p2 - original.p2).abs() < 1e-9);
+    }
+
+    #[test]
     fn deserialize_from_config_section() {
         let toml_str = r#"
             slam_width  = 640

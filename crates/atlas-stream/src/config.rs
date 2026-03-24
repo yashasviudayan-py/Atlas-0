@@ -257,6 +257,103 @@ mod tests {
     }
 
     #[test]
+    fn from_file_valid_toml_missing_stream_section_returns_error() {
+        // Arrange — valid TOML but no [stream] table.
+        let f = write_toml(
+            r#"
+            [other_section]
+            foo = 1
+            "#,
+        );
+        // Act + Assert
+        assert!(
+            StreamConfig::from_file(f.path()).is_err(),
+            "missing [stream] section should return an error"
+        );
+    }
+
+    #[test]
+    fn env_var_overrides_frame_width() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let f = write_toml(
+            r#"
+            [stream]
+            target_fps   = 60
+            frame_width  = 1280
+            frame_height = 720
+            buffer_size  = 4
+            device       = "0"
+            "#,
+        );
+        // SAFETY: ENV_LOCK serialises all env-mutating tests.
+        unsafe { std::env::set_var("ATLAS_STREAM_FRAME_WIDTH", "320") };
+        let cfg = StreamConfig::load(f.path()).expect("load");
+        unsafe { std::env::remove_var("ATLAS_STREAM_FRAME_WIDTH") };
+        assert_eq!(cfg.frame_width, 320);
+    }
+
+    #[test]
+    fn env_var_overrides_frame_height() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let f = write_toml(
+            r#"
+            [stream]
+            target_fps   = 60
+            frame_width  = 1280
+            frame_height = 720
+            buffer_size  = 4
+            device       = "0"
+            "#,
+        );
+        // SAFETY: ENV_LOCK serialises all env-mutating tests.
+        unsafe { std::env::set_var("ATLAS_STREAM_FRAME_HEIGHT", "240") };
+        let cfg = StreamConfig::load(f.path()).expect("load");
+        unsafe { std::env::remove_var("ATLAS_STREAM_FRAME_HEIGHT") };
+        assert_eq!(cfg.frame_height, 240);
+    }
+
+    #[test]
+    fn env_var_overrides_buffer_size() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let f = write_toml(
+            r#"
+            [stream]
+            target_fps   = 60
+            frame_width  = 1280
+            frame_height = 720
+            buffer_size  = 4
+            device       = "0"
+            "#,
+        );
+        // SAFETY: ENV_LOCK serialises all env-mutating tests.
+        unsafe { std::env::set_var("ATLAS_STREAM_BUFFER_SIZE", "16") };
+        let cfg = StreamConfig::load(f.path()).expect("load");
+        unsafe { std::env::remove_var("ATLAS_STREAM_BUFFER_SIZE") };
+        assert_eq!(cfg.buffer_size, 16);
+    }
+
+    #[test]
+    fn invalid_frame_width_env_var_is_ignored() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let f = write_toml(
+            r#"
+            [stream]
+            target_fps   = 60
+            frame_width  = 1280
+            frame_height = 720
+            buffer_size  = 4
+            device       = "0"
+            "#,
+        );
+        // SAFETY: ENV_LOCK serialises all env-mutating tests.
+        unsafe { std::env::set_var("ATLAS_STREAM_FRAME_WIDTH", "not_a_number") };
+        let cfg = StreamConfig::load(f.path()).expect("load");
+        unsafe { std::env::remove_var("ATLAS_STREAM_FRAME_WIDTH") };
+        // Bad value is silently ignored — original TOML value is kept.
+        assert_eq!(cfg.frame_width, 1280);
+    }
+
+    #[test]
     fn invalid_env_var_is_ignored() {
         let _guard = ENV_LOCK.lock().unwrap();
         let f = write_toml(

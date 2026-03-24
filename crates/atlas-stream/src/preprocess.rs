@@ -339,4 +339,137 @@ mod tests {
         let frame = solid_frame(0, 640, 480, 200);
         assert!(pp.process(&frame).is_ok());
     }
+
+    // --- rgb_to_gray BT.601 primary colour tests ---
+    // These test the private helper directly via `use super::*`.
+
+    #[test]
+    fn rgb_to_gray_pure_black_is_zero() {
+        // Arrange
+        let buf = vec![0u8, 0, 0]; // 1 pixel, R=0 G=0 B=0
+        // Act
+        let gray = rgb_to_gray(&buf, 1, 1);
+        // Assert — Y = 0.299*0 + 0.587*0 + 0.114*0 = 0
+        assert_eq!(gray, vec![0]);
+    }
+
+    #[test]
+    fn rgb_to_gray_pure_white_is_255() {
+        // Arrange
+        let buf = vec![255u8, 255, 255];
+        // Act
+        let gray = rgb_to_gray(&buf, 1, 1);
+        // Assert — Y = 0.299*255 + 0.587*255 + 0.114*255 = 255
+        assert_eq!(gray, vec![255]);
+    }
+
+    #[test]
+    fn rgb_to_gray_pure_red_bt601() {
+        // Arrange
+        let buf = vec![255u8, 0, 0];
+        // Act
+        let gray = rgb_to_gray(&buf, 1, 1);
+        // Assert — Y = round(0.299 * 255) = round(76.245) = 76
+        assert_eq!(gray, vec![76]);
+    }
+
+    #[test]
+    fn rgb_to_gray_pure_green_bt601() {
+        // Arrange
+        let buf = vec![0u8, 255, 0];
+        // Act
+        let gray = rgb_to_gray(&buf, 1, 1);
+        // Assert — Y = round(0.587 * 255) = round(149.685) = 150
+        assert_eq!(gray, vec![150]);
+    }
+
+    #[test]
+    fn rgb_to_gray_pure_blue_bt601() {
+        // Arrange
+        let buf = vec![0u8, 0, 255];
+        // Act
+        let gray = rgb_to_gray(&buf, 1, 1);
+        // Assert — Y = round(0.114 * 255) = round(29.07) = 29
+        assert_eq!(gray, vec![29]);
+    }
+
+    #[test]
+    fn rgb_to_gray_multiple_pixels_length_matches() {
+        // Arrange — 3 pixels
+        let buf = vec![
+            255u8, 0, 0, // red
+            0, 255, 0, // green
+            0, 0, 255, // blue
+        ];
+        // Act
+        let gray = rgb_to_gray(&buf, 3, 1);
+        // Assert — one luma value per pixel
+        assert_eq!(gray.len(), 3);
+        assert_eq!(gray[0], 76);
+        assert_eq!(gray[1], 150);
+        assert_eq!(gray[2], 29);
+    }
+
+    #[test]
+    fn preprocessor_calibration_accessor_returns_same_values() {
+        // Arrange
+        let cal = calibration(320, 240);
+        let pp = FramePreprocessor::new(cal.clone());
+        // Act + Assert
+        assert_eq!(pp.calibration().slam_width, 320);
+        assert_eq!(pp.calibration().slam_height, 240);
+    }
+
+    #[test]
+    fn process_is_deterministic() {
+        // Arrange
+        let pp = FramePreprocessor::new(calibration(64, 64));
+        let frame = solid_frame(0, 64, 64, 100);
+        // Act — process the same frame twice.
+        let out1 = pp.process(&frame).unwrap();
+        let out2 = pp.process(&frame).unwrap();
+        // Assert — identical pixel data both times.
+        assert_eq!(out1.color.as_ref(), out2.color.as_ref());
+        assert_eq!(out1.gray.as_ref(), out2.gray.as_ref());
+    }
+
+    #[test]
+    fn strong_distortion_does_not_panic() {
+        // Arrange — exaggerated k1 that pushes many pixels outside bounds.
+        let cal = CameraCalibration {
+            intrinsics: CameraIntrinsics {
+                fx: 320.0,
+                fy: 320.0,
+                cx: 320.0,
+                cy: 240.0,
+            },
+            distortion: DistortionCoefficients {
+                k1: 5.0,
+                k2: 2.0,
+                p1: 0.1,
+                p2: 0.1,
+            },
+            slam_width: 64,
+            slam_height: 48,
+        };
+        let pp = FramePreprocessor::new(cal);
+        // Act — must not panic even when most pixels map outside bounds.
+        let frame = solid_frame(0, 64, 48, 200);
+        assert!(pp.process(&frame).is_ok());
+    }
+
+    #[test]
+    fn processed_frame_clones_correctly() {
+        // Arrange
+        let pp = FramePreprocessor::new(calibration(32, 32));
+        let out = pp.process(&solid_frame(7, 32, 32, 50)).unwrap();
+        // Act
+        let cloned = out.clone();
+        // Assert — clone has same metadata and data.
+        assert_eq!(cloned.id, out.id);
+        assert_eq!(cloned.width, out.width);
+        assert_eq!(cloned.height, out.height);
+        assert_eq!(cloned.color.as_ref(), out.color.as_ref());
+        assert_eq!(cloned.gray.as_ref(), out.gray.as_ref());
+    }
 }

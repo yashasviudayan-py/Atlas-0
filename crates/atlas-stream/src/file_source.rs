@@ -350,6 +350,118 @@ mod tests {
     }
 
     #[test]
+    fn load_frame_returns_none_for_corrupted_file() {
+        // Arrange — file has a .png extension but contains garbage bytes.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let bad = dir.path().join("corrupt.png");
+        std::fs::write(&bad, b"this is not a valid PNG file!!").unwrap();
+        // Act
+        let result = load_frame(&bad, 0);
+        // Assert — returns None without panicking.
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn load_frame_decodes_jpeg() {
+        // Arrange — save a JPEG image.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("frame.jpg");
+        let img: RgbImage = image::ImageBuffer::from_pixel(8, 8, image::Rgb([100u8, 100, 100]));
+        img.save(&path).expect("save jpeg");
+        // Act
+        let frame = load_frame(&path, 3).expect("load jpeg frame");
+        // Assert
+        assert_eq!(frame.id, 3);
+        assert_eq!(frame.width, 8);
+        assert_eq!(frame.height, 8);
+    }
+
+    #[test]
+    fn all_supported_extensions_are_collected() {
+        // Arrange — one file per supported extension.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let extensions = ["png", "jpg", "jpeg", "bmp", "tiff", "tif"];
+        for ext in &extensions {
+            write_test_image(dir.path(), &format!("frame.{ext}"), 2, 2, 0);
+        }
+        // Act
+        let files = collect_image_files(dir.path()).expect("collect");
+        // Assert — every extension was picked up.
+        assert_eq!(
+            files.len(),
+            extensions.len(),
+            "expected {} files, got {}",
+            extensions.len(),
+            files.len()
+        );
+    }
+
+    #[test]
+    fn corrupted_image_in_sequence_is_skipped_not_aborted() {
+        // Arrange — mix one corrupt file between two valid images.
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_test_image(dir.path(), "f001.png", 4, 4, 10);
+        std::fs::write(dir.path().join("f002.png"), b"garbage").unwrap();
+        write_test_image(dir.path(), "f003.png", 4, 4, 30);
+
+        let config = StreamConfig {
+            target_fps: 240,
+            buffer_size: 8,
+            ..StreamConfig::default()
+        };
+        let pipeline = FramePipeline::new(config.clone());
+        let source = FileSource::new(dir.path().to_path_buf(), config, pipeline.sender());
+        let _handle = source.start().expect("start");
+
+        // Act — collect whatever frames arrive within 5 s.
+        let mut received_ids = Vec::new();
+        while let Ok(frame) = pipeline
+            .receiver()
+            .recv_timeout(std::time::Duration::from_secs(5))
+        {
+            received_ids.push(frame.id);
+            if received_ids.len() == 2 {
+                break;
+            }
+        }
+
+        // Assert — exactly 2 valid frames emitted (the corrupt one was skipped).
+        assert_eq!(received_ids.len(), 2);
+        // IDs are 0 and 1 (corrupt frame increments but is not emitted, so
+        // valid frames get consecutive IDs 0 and 2 — but frame_id still
+        // increments, giving ids 0 and 2).
+        assert!(received_ids.contains(&0));
+        assert!(received_ids.contains(&2));
+    }
+
+    #[test]
+    fn dropped_receiver_stops_source_cleanly() {
+        // Arrange — large sequence so the loop doesn't finish on its own.
+        let dir = tempfile::tempdir().expect("tempdir");
+        for i in 0..50u32 {
+            write_test_image(dir.path(), &format!("f{i:03}.png"), 4, 4, 0);
+        }
+        let config = StreamConfig {
+            target_fps: 240,
+            buffer_size: 2,
+            ..StreamConfig::default()
+        };
+        let pipeline = FramePipeline::new(config.clone());
+        let receiver = pipeline.receiver();
+        let source = FileSource::new(dir.path().to_path_buf(), config, pipeline.sender());
+        let handle = source.start().expect("start");
+
+        // Act — receive one frame then drop the receiver, causing disconnect.
+        let _frame = receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("first frame");
+        drop(receiver);
+
+        // Assert — stop() returns in finite time (source detected disconnect).
+        handle.stop();
+    }
+
+    #[test]
     fn non_image_files_are_ignored() {
         let dir = tempfile::tempdir().expect("tempdir");
         write_test_image(dir.path(), "frame.png", 2, 2, 0);
