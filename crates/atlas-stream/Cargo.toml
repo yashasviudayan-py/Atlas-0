@@ -16,3 +16,6 @@ tokio.workspace = true
 crossbeam.workspace = true
 bytes.workspace = true
 nokhwa.workspace = true
+
+[dev-dependencies]
+tempfile = "3.14"

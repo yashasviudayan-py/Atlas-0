@@ -6,6 +6,7 @@
 pub mod calibration;
 pub mod capture;
 pub mod config;
+pub mod file_source;
 pub mod pipeline;
 pub mod preprocess;
 
