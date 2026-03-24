@@ -8,6 +8,22 @@ frame_height = 720
 buffer_size = 4
 device = "0"
 
+[camera]
+slam_width = 640
+slam_height = 480
+
+[camera.intrinsics]
+fx = 458.654
+fy = 457.296
+cx = 367.215
+cy = 248.375
+
+[camera.distortion]
+k1 = -0.283408
+k2 = 0.073959
+p1 = 0.000194
+p2 = 0.000018
+
 [slam]
 min_features = 100
 max_gaussians = 500000
