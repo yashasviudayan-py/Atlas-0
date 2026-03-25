@@ -9,12 +9,24 @@
 
 use atlas_core::{Frame, GaussianCloud, Point3, Pose};
 use nalgebra::{Matrix3, Matrix4, Rotation3, UnitQuaternion};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::config::SlamConfig;
 use crate::features::{Descriptor, FeatureExtractor, KeyPoint};
 use crate::matching::FeatureMatcher;
 use crate::pose_estimation::PoseEstimator;
+
+// ─── Keyframe ────────────────────────────────────────────────────────────────
+
+/// A stored reference frame used for relocalization.
+struct Keyframe {
+    /// World-space pose of this keyframe.
+    pose: Pose,
+    /// Keypoints extracted from the frame.
+    keypoints: Vec<KeyPoint>,
+    /// Corresponding BRIEF descriptors.
+    descriptors: Vec<Descriptor>,
+}
 
 // ─── Tracker ─────────────────────────────────────────────────────────────────
 
@@ -32,6 +44,10 @@ pub struct Tracker {
     // State from the previous frame.
     prev_keypoints: Vec<KeyPoint>,
     prev_descriptors: Vec<Descriptor>,
+    // Keyframe store for relocalization.
+    keyframes: Vec<Keyframe>,
+    /// Pose at the time of the last keyframe insertion.
+    last_keyframe_pose: Option<Pose>,
 }
 
 impl Tracker {
@@ -60,6 +76,8 @@ impl Tracker {
             estimator,
             prev_keypoints: Vec::new(),
             prev_descriptors: Vec::new(),
+            keyframes: Vec::new(),
+            last_keyframe_pose: None,
         }
     }
 
@@ -93,6 +111,14 @@ impl Tracker {
             .match_descriptors(&descs, &self.prev_descriptors);
 
         if matches.len() < self.config.min_features {
+            // Too few matches — attempt relocalization before giving up.
+            if let Some(recovered_pose) = self.try_relocalize(&kps, &descs, frame.id) {
+                self.current_pose = recovered_pose;
+                self.prev_keypoints = kps;
+                self.prev_descriptors = descs;
+                warn!(frame_id = frame.id, "tracking recovered via relocalization");
+                return Ok(self.current_pose);
+            }
             return Err(SlamError::InsufficientFeatures {
                 found: matches.len(),
                 required: self.config.min_features,
@@ -115,15 +141,40 @@ impl Tracker {
             .collect();
 
         // 4. Estimate relative pose (prev → current).
-        let relative_pose = self
-            .estimator
-            .estimate_pose(&correspondences, frame.id)?
-            .ok_or(SlamError::TrackingLost { frame_id: frame.id })?;
+        let relative_pose = match self.estimator.estimate_pose(&correspondences, frame.id)? {
+            Some(p) => p,
+            None => {
+                // Insufficient inliers — try relocalization.
+                if let Some(recovered_pose) = self.try_relocalize(&kps, &descs, frame.id) {
+                    self.current_pose = recovered_pose;
+                    self.prev_keypoints = kps;
+                    self.prev_descriptors = descs;
+                    warn!(frame_id = frame.id, "tracking recovered via relocalization");
+                    return Ok(self.current_pose);
+                }
+                return Err(SlamError::TrackingLost { frame_id: frame.id });
+            }
+        };
 
         // 5. Compose with the accumulated world pose.
         self.current_pose = compose_poses(&self.current_pose, &relative_pose);
 
-        // 6. Store current frame features for the next iteration.
+        // 6. Insert a keyframe if the camera has moved far enough from the last one.
+        if self.should_insert_keyframe(&self.current_pose) {
+            self.keyframes.push(Keyframe {
+                pose: self.current_pose,
+                keypoints: kps.clone(),
+                descriptors: descs.clone(),
+            });
+            self.last_keyframe_pose = Some(self.current_pose);
+            info!(
+                frame_id = frame.id,
+                total_keyframes = self.keyframes.len(),
+                "keyframe inserted"
+            );
+        }
+
+        // 7. Store current frame features for the next iteration.
         self.prev_keypoints = kps;
         self.prev_descriptors = descs;
 
@@ -182,12 +233,86 @@ impl Tracker {
 
         info!(features = kps.len(), "first frame features extracted");
 
+        // Store the first frame as an initial keyframe for relocalization.
+        self.keyframes.push(Keyframe {
+            pose: Pose::identity(),
+            keypoints: kps.clone(),
+            descriptors: descs.clone(),
+        });
+        self.last_keyframe_pose = Some(Pose::identity());
+
         self.prev_keypoints = kps;
         self.prev_descriptors = descs;
         // Initial pose is the world origin.
         self.current_pose = Pose::identity();
         self.is_initialized = true;
         Ok(())
+    }
+
+    /// Decide whether to insert a new keyframe at `pose`.
+    ///
+    /// A keyframe is inserted when:
+    /// - No keyframe has been inserted yet, or
+    /// - The camera has translated by more than `keyframe_translation_threshold`,
+    ///   or rotated by more than `keyframe_rotation_threshold` since the last one.
+    fn should_insert_keyframe(&self, pose: &Pose) -> bool {
+        match &self.last_keyframe_pose {
+            None => true,
+            Some(kf_pose) => {
+                let dt = translation_distance(kf_pose, pose);
+                let dr = rotation_distance(kf_pose, pose);
+                dt >= self.config.keyframe_translation_threshold
+                    || dr >= self.config.keyframe_rotation_threshold
+            }
+        }
+    }
+
+    /// Attempt to recover tracking by matching `kps`/`descs` against stored
+    /// keyframes.
+    ///
+    /// For each keyframe the current features are matched, and the candidate
+    /// with the most matches has its relative pose estimated.  If that
+    /// succeeds the recovered world pose is returned; otherwise `None`.
+    fn try_relocalize(
+        &self,
+        kps: &[KeyPoint],
+        descs: &[Descriptor],
+        frame_id: u64,
+    ) -> Option<Pose> {
+        // Find the keyframe with the most descriptor matches.
+        let (best_kf, best_matches) = self
+            .keyframes
+            .iter()
+            .map(|kf| {
+                let m = self.matcher.match_descriptors(descs, &kf.descriptors);
+                (kf, m)
+            })
+            .max_by_key(|(_, m)| m.len())?;
+
+        if best_matches.len() < self.config.min_features {
+            return None;
+        }
+
+        // 2D–2D pose estimation: keyframe points → current frame points.
+        let correspondences: Vec<([f64; 2], [f64; 2])> = best_matches
+            .iter()
+            .map(|m| {
+                let curr = &kps[m.query_idx];
+                let kf_kp = &best_kf.keypoints[m.train_idx];
+                (
+                    [kf_kp.x as f64, kf_kp.y as f64],
+                    [curr.x as f64, curr.y as f64],
+                )
+            })
+            .collect();
+
+        let relative_pose = self
+            .estimator
+            .estimate_pose(&correspondences, frame_id)
+            .ok()
+            .flatten()?;
+
+        Some(compose_poses(&best_kf.pose, &relative_pose))
     }
 }
 
@@ -225,6 +350,26 @@ fn matrix4_to_pose(m: &Matrix4<f32>) -> Pose {
         position: pos,
         rotation: [q.w, q.i, q.j, q.k],
     }
+}
+
+/// Euclidean distance between the translation components of two poses.
+fn translation_distance(a: &Pose, b: &Pose) -> f32 {
+    let dx = b.position.x - a.position.x;
+    let dy = b.position.y - a.position.y;
+    let dz = b.position.z - a.position.z;
+    (dx * dx + dy * dy + dz * dz).sqrt()
+}
+
+/// Angular distance (in radians) between the rotation components of two poses.
+///
+/// Computes `2 · acos(|q_a · q_b|)`, i.e. the geodesic angle on SO(3).
+fn rotation_distance(a: &Pose, b: &Pose) -> f32 {
+    let dot = a.rotation[0] * b.rotation[0]
+        + a.rotation[1] * b.rotation[1]
+        + a.rotation[2] * b.rotation[2]
+        + a.rotation[3] * b.rotation[3];
+    let dot = dot.abs().min(1.0);
+    2.0 * dot.acos()
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -289,6 +434,118 @@ mod tests {
         assert!((composed.position.y).abs() < 1e-5);
         assert!((composed.position.z).abs() < 1e-5);
         assert!((composed.rotation[0] - 1.0).abs() < 1e-5, "w should be ~1");
+    }
+
+    // ── Keyframe / relocalization helpers ─────────────────────────────────
+
+    #[test]
+    fn test_translation_distance_zero() {
+        let p = Pose::identity();
+        assert!((translation_distance(&p, &p)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_translation_distance_known() {
+        let a = Pose::identity();
+        let b = Pose {
+            position: atlas_core::Point3::new(3.0, 4.0, 0.0),
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        };
+        let d = translation_distance(&a, &b);
+        assert!((d - 5.0).abs() < 1e-5, "expected 5.0, got {d}");
+    }
+
+    #[test]
+    fn test_rotation_distance_identity() {
+        let p = Pose::identity();
+        assert!(rotation_distance(&p, &p) < 1e-5);
+    }
+
+    #[test]
+    fn test_should_insert_keyframe_no_previous() {
+        let config = SlamConfig::default();
+        let mut tracker = Tracker::new(config);
+        // Before initialization there is no last keyframe.
+        tracker.last_keyframe_pose = None;
+        let pose = Pose::identity();
+        assert!(
+            tracker.should_insert_keyframe(&pose),
+            "must insert when no previous keyframe exists"
+        );
+    }
+
+    #[test]
+    fn test_should_insert_keyframe_large_translation() {
+        let config = SlamConfig::default(); // threshold = 0.1 m
+        let mut tracker = Tracker::new(config);
+        let base = Pose::identity();
+        tracker.last_keyframe_pose = Some(base);
+
+        let far_pose = Pose {
+            position: atlas_core::Point3::new(1.0, 0.0, 0.0), // 1 m away
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        };
+        assert!(
+            tracker.should_insert_keyframe(&far_pose),
+            "must insert when translation exceeds threshold"
+        );
+    }
+
+    #[test]
+    fn test_should_not_insert_keyframe_small_motion() {
+        let config = SlamConfig::default(); // threshold = 0.1 m
+        let mut tracker = Tracker::new(config);
+        let base = Pose::identity();
+        tracker.last_keyframe_pose = Some(base);
+
+        let close_pose = Pose {
+            position: atlas_core::Point3::new(0.01, 0.0, 0.0), // only 1 cm
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        };
+        assert!(
+            !tracker.should_insert_keyframe(&close_pose),
+            "must not insert when motion is below threshold"
+        );
+    }
+
+    #[test]
+    fn test_first_frame_inserts_keyframe() {
+        // After the first frame with detectable features, one keyframe must
+        // have been stored.
+        let config = SlamConfig::default();
+        let mut tracker = Tracker::new(config);
+
+        let mut data = vec![30u8; 64 * 64 * 3];
+        let idx = (32 * 64 + 32) as usize * 3;
+        data[idx] = 200;
+        data[idx + 1] = 200;
+        data[idx + 2] = 200;
+
+        let frame = Frame::new(0, 64, 64, data).expect("valid frame");
+        tracker
+            .process_frame(&frame)
+            .expect("first frame with features must succeed");
+
+        assert_eq!(
+            tracker.keyframes.len(),
+            1,
+            "exactly one keyframe must be stored after initialization"
+        );
+    }
+
+    #[test]
+    fn test_try_relocalize_returns_none_without_keyframes() {
+        let config = SlamConfig::default();
+        let mut tracker = Tracker::new(config);
+        // Remove all keyframes to simulate a fresh (un-initialized) state.
+        tracker.keyframes.clear();
+
+        let kps: Vec<KeyPoint> = vec![];
+        let descs: Vec<crate::features::Descriptor> = vec![];
+        assert!(
+            tracker.try_relocalize(&kps, &descs, 0).is_none(),
+            "relocalization without keyframes must return None"
+        );
     }
 
     #[test]
