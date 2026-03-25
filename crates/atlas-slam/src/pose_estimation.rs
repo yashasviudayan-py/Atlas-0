@@ -140,6 +140,115 @@ impl PoseEstimator {
         self.decompose_essential(&e, &in_prev, &in_curr)
     }
 
+    /// Estimate the camera pose from 3D–2D correspondences (PnP).
+    ///
+    /// Each element of `correspondences` is `(world_point, [x_px, y_px])`.
+    /// Uses the Direct Linear Transform (DLT) algorithm inside a RANSAC loop.
+    ///
+    /// Returns `Ok(Some(pose))` on success.  Returns `Ok(None)` when there
+    /// are not enough correspondences or RANSAC cannot find a valid model
+    /// (fewer than 6 inliers).
+    ///
+    /// # Note on convention
+    /// The returned `Pose` encodes the world-to-camera transformation:
+    /// `x_cam = R · X_world + t`.  This matches the convention used by
+    /// [`estimate_pose`] for composing incremental transforms.
+    ///
+    /// # Errors
+    /// Returns [`atlas_core::error::SlamError::PoseEstimationFailed`] when
+    /// the DLT refit on inliers fails numerically.
+    pub fn solve_pnp(
+        &self,
+        correspondences: &[(Point3, [f64; 2])],
+        frame_id: u64,
+    ) -> crate::Result<Option<Pose>> {
+        use atlas_core::error::SlamError;
+
+        if correspondences.len() < 6 {
+            return Ok(None);
+        }
+
+        let pts2d_norm: Vec<[f64; 2]> = correspondences
+            .iter()
+            .map(|(_, [x, y])| self.to_normalised_arr(*x, *y))
+            .collect();
+        let pts3d: Vec<&Point3> = correspondences.iter().map(|(p, _)| p).collect();
+
+        let n = correspondences.len();
+        let mut rng = Lcg::new(0xBEEF_CAFE_1234_5678_u64);
+        let mut best_r: Option<Matrix3<f64>> = None;
+        let mut best_t: Option<Vector3<f64>> = None;
+        let mut best_inlier_count = 0usize;
+
+        for _ in 0..self.ransac_iterations {
+            let idx = sample_6(&mut rng, n);
+            let s3d: Vec<&Point3> = idx.iter().map(|&i| pts3d[i]).collect();
+            let s2d: Vec<[f64; 2]> = idx.iter().map(|&i| pts2d_norm[i]).collect();
+
+            let Some((r, t)) = dlt_pnp(&s3d, &s2d) else {
+                continue;
+            };
+
+            let inlier_count = pts3d
+                .iter()
+                .zip(&pts2d_norm)
+                .filter(|(p3, p2)| reprojection_error(&r, &t, p3, p2) < self.ransac_threshold)
+                .count();
+
+            if inlier_count > best_inlier_count {
+                best_inlier_count = inlier_count;
+                best_r = Some(r);
+                best_t = Some(t);
+            }
+        }
+
+        let (r_seed, t_seed) = match (best_r, best_t) {
+            (Some(r), Some(t)) if best_inlier_count >= 6 => (r, t),
+            _ => {
+                tracing::warn!(
+                    frame_id,
+                    "PnP failed: no RANSAC model with ≥6 inliers found"
+                );
+                return Ok(None);
+            }
+        };
+
+        // Refit on all inliers of the best model.
+        let inlier_3d: Vec<&Point3> = pts3d
+            .iter()
+            .zip(&pts2d_norm)
+            .filter(|(p3, p2)| reprojection_error(&r_seed, &t_seed, p3, p2) < self.ransac_threshold)
+            .map(|(p3, _)| *p3)
+            .collect();
+        let inlier_2d: Vec<[f64; 2]> = pts3d
+            .iter()
+            .zip(&pts2d_norm)
+            .filter(|(p3, p2)| reprojection_error(&r_seed, &t_seed, p3, p2) < self.ransac_threshold)
+            .map(|(_, p2)| *p2)
+            .collect();
+
+        if inlier_3d.len() < 6 {
+            return Ok(None);
+        }
+
+        let Some((r_final, t_final)) = dlt_pnp(&inlier_3d, &inlier_2d) else {
+            return Err(SlamError::PoseEstimationFailed(format!(
+                "PnP refit failed at frame {frame_id}"
+            )));
+        };
+
+        let rot = Rotation3::from_matrix_unchecked(r_final);
+        let uq = UnitQuaternion::from_rotation_matrix(&rot);
+        let q = uq.into_inner();
+
+        let pose = Pose {
+            position: Point3::new(t_final[0] as f32, t_final[1] as f32, t_final[2] as f32),
+            rotation: [q.w as f32, q.i as f32, q.j as f32, q.k as f32],
+        };
+
+        Ok(Some(pose))
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /// Convert a pixel coordinate to a normalised image coordinate using K⁻¹.
@@ -148,6 +257,14 @@ impl PoseEstimator {
             x: (x - self.intrinsics.cx) / self.intrinsics.fx,
             y: (y - self.intrinsics.cy) / self.intrinsics.fy,
         }
+    }
+
+    /// Convert a pixel coordinate to a normalised image coordinate (array form).
+    fn to_normalised_arr(&self, x: f64, y: f64) -> [f64; 2] {
+        [
+            (x - self.intrinsics.cx) / self.intrinsics.fx,
+            (y - self.intrinsics.cy) / self.intrinsics.fy,
+        ]
     }
 
     /// Run RANSAC over the 8-point algorithm and return the best `(E, inlier_mask)`.
@@ -421,6 +538,132 @@ fn positive_depth_check(p1: &Point2, p2: &Point2, r: &Matrix3<f64>, t: &Vector3<
     d1 > 0.0 && d2 > 0.0
 }
 
+// ─── PnP helpers ──────────────────────────────────────────────────────────────
+
+/// Solve PnP using the Direct Linear Transform (DLT) in normalised image coords.
+///
+/// Each correspondence `(X, x_norm)` contributes two rows to the 2N×12
+/// constraint matrix.  Solving Ap=0 via SVD gives the vectorised 3×4
+/// projection matrix P=[R|t].  R is made orthogonal via SVD.
+///
+/// Returns `None` when the computation is numerically degenerate.
+fn dlt_pnp(pts3d: &[&Point3], pts2d_norm: &[[f64; 2]]) -> Option<(Matrix3<f64>, Vector3<f64>)> {
+    let n = pts3d.len();
+    if n < 6 {
+        return None;
+    }
+
+    let mut a_data = Vec::with_capacity(n * 2 * 12);
+    for (p3, p2) in pts3d.iter().zip(pts2d_norm) {
+        let (x, y, z) = (p3.x as f64, p3.y as f64, p3.z as f64);
+        let (xn, yn) = (p2[0], p2[1]);
+        // Row for x_norm equation: [X, Y, Z, 1, 0…0, -xn·X, -xn·Y, -xn·Z, -xn]
+        a_data.extend_from_slice(&[
+            x,
+            y,
+            z,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            -xn * x,
+            -xn * y,
+            -xn * z,
+            -xn,
+        ]);
+        // Row for y_norm equation: [0…0, X, Y, Z, 1, -yn·X, -yn·Y, -yn·Z, -yn]
+        a_data.extend_from_slice(&[
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            x,
+            y,
+            z,
+            1.0,
+            -yn * x,
+            -yn * y,
+            -yn * z,
+            -yn,
+        ]);
+    }
+
+    let a = DMatrix::from_row_slice(2 * n, 12, &a_data);
+    let svd = a.svd(false, true);
+    let vt = svd.v_t?;
+
+    // Solution: last row of V^T (smallest singular value).
+    let last_row: Vec<f64> = vt.row(vt.nrows() - 1).iter().copied().collect();
+
+    // Reshape into 3×4 row-major: rows are [r1|t1], [r2|t2], [r3|t3].
+    let r_approx = Matrix3::from_row_slice(&[
+        last_row[0],
+        last_row[1],
+        last_row[2],
+        last_row[4],
+        last_row[5],
+        last_row[6],
+        last_row[8],
+        last_row[9],
+        last_row[10],
+    ]);
+    let t_raw = Vector3::new(last_row[3], last_row[7], last_row[11]);
+
+    // Check the sign of the raw approximate solution BEFORE orthogonalization.
+    // When the SVD picks up the negative-scale solution, r_approx ≈ -R and
+    // t_raw ≈ -t so the approximate z-depth is negative.  Negating both
+    // restores the correct orientation.
+    let pos_raw = pts3d
+        .iter()
+        .filter(|p| {
+            let x3 = Vector3::new(p.x as f64, p.y as f64, p.z as f64);
+            (r_approx * x3 + t_raw)[2] > 0.0
+        })
+        .count();
+    let (r_approx, t_raw) = if pos_raw * 2 < pts3d.len() {
+        (-r_approx, -t_raw)
+    } else {
+        (r_approx, t_raw)
+    };
+
+    // Extract proper rotation via SVD of the (sign-corrected) rotation block.
+    let svd_r = r_approx.svd(true, true);
+    let ru = svd_r.u?;
+    let rvt = svd_r.v_t?;
+    let sigma = svd_r.singular_values;
+    let scale = (sigma[0] + sigma[1] + sigma[2]) / 3.0;
+    if scale.abs() < 1e-10 {
+        return None;
+    }
+
+    // Proper rotation matrix: R = U · V^T.
+    let r = ru * rvt;
+    let r = if r.determinant() < 0.0 { -r } else { r };
+    let t = t_raw / scale;
+
+    Some((r, t))
+}
+
+/// Reprojection error (Euclidean distance in normalised image plane).
+fn reprojection_error(
+    r: &Matrix3<f64>,
+    t: &Vector3<f64>,
+    p3d: &&Point3,
+    p2d_norm: &[f64; 2],
+) -> f64 {
+    let x3d = Vector3::new(p3d.x as f64, p3d.y as f64, p3d.z as f64);
+    let cam = r * x3d + t;
+
+    if cam[2].abs() < 1e-10 {
+        return f64::MAX;
+    }
+
+    let dx = cam[0] / cam[2] - p2d_norm[0];
+    let dy = cam[1] / cam[2] - p2d_norm[1];
+    (dx * dx + dy * dy).sqrt()
+}
+
 // ─── PRNG helpers ─────────────────────────────────────────────────────────────
 
 /// Minimal linear congruential generator used for RANSAC sampling.
@@ -454,6 +697,18 @@ fn sample_8(rng: &mut Lcg, n: usize) -> [usize; 8] {
     }
     let mut out = [0usize; 8];
     out.copy_from_slice(&buf[..8]);
+    out
+}
+
+/// Sample 6 unique indices from `[0, n)` using a partial Fisher–Yates shuffle.
+fn sample_6(rng: &mut Lcg, n: usize) -> [usize; 6] {
+    let mut buf: Vec<usize> = (0..n).collect();
+    for i in 0..6 {
+        let j = i + rng.next_bounded(n - i);
+        buf.swap(i, j);
+    }
+    let mut out = [0usize; 6];
+    out.copy_from_slice(&buf[..6]);
     out
 }
 
@@ -519,6 +774,84 @@ mod tests {
             assert!(idx < 30, "index {idx} out of bounds");
             assert!(seen.insert(idx), "duplicate index {idx}");
         }
+    }
+
+    // ── PnP tests ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_solve_pnp_returns_none_for_too_few_points() {
+        let intrinsics = CameraIntrinsics::default();
+        let estimator = PoseEstimator::new(intrinsics, 200, 1e-3);
+        let corr: Vec<(Point3, [f64; 2])> = (0..5)
+            .map(|i| {
+                (
+                    Point3::new(i as f32, 0.0, 5.0),
+                    [320.0 + i as f64 * 10.0, 240.0],
+                )
+            })
+            .collect();
+        let result = estimator.solve_pnp(&corr, 0).unwrap();
+        assert!(result.is_none(), "fewer than 6 points must return None");
+    }
+
+    #[test]
+    fn test_solve_pnp_recovers_known_translation() {
+        // Camera at position (0, 0, 0) looking down +Z, translated by t=(0,0,1)
+        // in the world-to-camera sense.  3D points at Z=5 should project with
+        // a small shift in the image plane.
+        let intrinsics = CameraIntrinsics {
+            fx: 525.0,
+            fy: 525.0,
+            cx: 320.0,
+            cy: 240.0,
+        };
+        let estimator = PoseEstimator::new(intrinsics.clone(), 500, 1e-2);
+
+        // World-to-camera: R = I, t = [0, 0, 1].
+        // x_cam = X_world; y_cam = Y_world; z_cam = Z_world + 1.
+        let t_true = [0.0f64, 0.0, 1.0];
+
+        let world_pts: &[(f32, f32, f32)] = &[
+            (0.5, 0.3, 5.0),
+            (-0.2, 0.4, 4.5),
+            (0.1, -0.3, 6.0),
+            (-0.4, -0.2, 5.5),
+            (0.3, 0.1, 4.0),
+            (-0.1, 0.5, 7.0),
+            (0.6, -0.4, 5.0),
+            (-0.5, 0.2, 6.0),
+            (0.2, 0.6, 4.5),
+            (-0.3, -0.5, 5.5),
+        ];
+
+        let corr: Vec<(Point3, [f64; 2])> = world_pts
+            .iter()
+            .map(|&(x, y, z)| {
+                let z_cam = z as f64 + t_true[2];
+                let x_n = x as f64 / z_cam;
+                let y_n = y as f64 / z_cam;
+                let u = intrinsics.fx * x_n + intrinsics.cx;
+                let v = intrinsics.fy * y_n + intrinsics.cy;
+                (Point3::new(x, y, z), [u, v])
+            })
+            .collect();
+
+        let result = estimator.solve_pnp(&corr, 1).unwrap();
+        assert!(
+            result.is_some(),
+            "PnP must succeed for 10 consistent correspondences"
+        );
+
+        let pose = result.unwrap();
+        // The recovered translation should be close to [0, 0, 1].
+        let t_err = ((pose.position.x as f64 - t_true[0]).powi(2)
+            + (pose.position.y as f64 - t_true[1]).powi(2)
+            + (pose.position.z as f64 - t_true[2]).powi(2))
+        .sqrt();
+        assert!(
+            t_err < 0.1,
+            "translation error {t_err:.4} exceeds tolerance 0.1"
+        );
     }
 
     #[test]
