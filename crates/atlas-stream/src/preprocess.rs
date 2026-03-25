@@ -170,7 +170,7 @@ fn undistort_rgb(src: &[u8], width: u32, height: u32, map: &[(f32, f32)]) -> Vec
                 + p01 * (1.0 - fx) * fy
                 + p11 * fx * fy;
 
-            dst[idx * 3 + c] = value.round() as u8;
+            dst[idx * 3 + c] = value.clamp(0.0, 255.0).round() as u8;
         }
     }
 

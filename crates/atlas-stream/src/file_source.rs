@@ -111,6 +111,12 @@ impl FileSource {
     /// - [`StreamError::CameraOpen`] – directory not found, no images found,
     ///   or thread could not be spawned.
     pub fn start(self) -> Result<FileSourceHandle> {
+        if self.config.target_fps == 0 {
+            return Err(StreamError::CameraOpen(
+                "target_fps must be greater than zero".to_string(),
+            ));
+        }
+
         let files = collect_image_files(&self.dir)?;
         info!(
             dir = %self.dir.display(),
@@ -212,7 +218,7 @@ fn run_playback_loop(
         let deadline = Instant::now() + frame_interval;
 
         let Some(frame) = load_frame(path, frame_id) else {
-            frame_id = frame_id.wrapping_add(1);
+            // Do not advance frame_id — keep IDs sequential for downstream.
             continue;
         };
 
@@ -427,11 +433,9 @@ mod tests {
 
         // Assert — exactly 2 valid frames emitted (the corrupt one was skipped).
         assert_eq!(received_ids.len(), 2);
-        // IDs are 0 and 1 (corrupt frame increments but is not emitted, so
-        // valid frames get consecutive IDs 0 and 2 — but frame_id still
-        // increments, giving ids 0 and 2).
+        // IDs must be consecutive: corrupt frames do not consume an ID.
         assert!(received_ids.contains(&0));
-        assert!(received_ids.contains(&2));
+        assert!(received_ids.contains(&1));
     }
 
     #[test]
@@ -459,6 +463,61 @@ mod tests {
 
         // Assert — stop() returns in finite time (source detected disconnect).
         handle.stop();
+    }
+
+    #[test]
+    fn zero_target_fps_returns_error_not_panic() {
+        // Arrange
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_test_image(dir.path(), "f001.png", 4, 4, 0);
+        let config = StreamConfig {
+            target_fps: 0,
+            ..StreamConfig::default()
+        };
+        let pipeline = FramePipeline::new(StreamConfig::default());
+        let source = FileSource::new(dir.path().to_path_buf(), config, pipeline.sender());
+        // Act
+        let result = source.start();
+        // Assert — clean error, no panic.
+        let Err(e) = result else {
+            panic!("expected error, got Ok")
+        };
+        assert!(
+            format!("{e}").contains("target_fps"),
+            "error should mention target_fps, got: {e}"
+        );
+    }
+
+    #[test]
+    fn corrupted_image_in_sequence_has_sequential_ids() {
+        // Arrange — corrupt middle file.
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_test_image(dir.path(), "f001.png", 4, 4, 10);
+        std::fs::write(dir.path().join("f002.png"), b"garbage").unwrap();
+        write_test_image(dir.path(), "f003.png", 4, 4, 30);
+
+        let config = StreamConfig {
+            target_fps: 240,
+            buffer_size: 8,
+            ..StreamConfig::default()
+        };
+        let pipeline = FramePipeline::new(config.clone());
+        let source = FileSource::new(dir.path().to_path_buf(), config, pipeline.sender());
+        let _handle = source.start().expect("start");
+
+        let mut ids = Vec::new();
+        while let Ok(frame) = pipeline
+            .receiver()
+            .recv_timeout(std::time::Duration::from_secs(5))
+        {
+            ids.push(frame.id);
+            if ids.len() == 2 {
+                break;
+            }
+        }
+
+        // Assert — IDs are sequential (0, 1), not (0, 2).
+        assert_eq!(ids, vec![0, 1]);
     }
 
     #[test]

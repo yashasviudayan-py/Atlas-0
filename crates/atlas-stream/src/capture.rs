@@ -110,6 +110,12 @@ impl CameraCapture {
     /// - [`StreamError::CameraOpen`] – stream could not be started or the
     ///   capture thread could not be spawned.
     pub fn start(self) -> Result<CaptureHandle> {
+        if self.config.target_fps == 0 {
+            return Err(StreamError::CameraOpen(
+                "target_fps must be greater than zero".to_string(),
+            ));
+        }
+
         // One-shot channel: thread sends `Ok(())` once the camera is open and
         // streaming, or `Err(…)` if initialization fails.
         let (init_tx, init_rx) = crossbeam::channel::bounded::<Result<()>>(1);
@@ -390,6 +396,27 @@ mod tests {
         let clone = frame.clone();
         // Assert — both refer to identical data.
         assert_eq!(frame.data.as_ref(), clone.data.as_ref());
+    }
+
+    #[test]
+    fn zero_target_fps_returns_error_not_panic() {
+        // Arrange — target_fps = 0 must not cause a Division by zero / Inf panic.
+        let config = StreamConfig {
+            target_fps: 0,
+            ..StreamConfig::default()
+        };
+        let (tx, _rx) = crossbeam::channel::bounded(1);
+        let capture = CameraCapture::new(config, tx);
+        // Act
+        let result = capture.start();
+        // Assert — clean error, no panic.
+        let Err(e) = result else {
+            panic!("expected error, got Ok")
+        };
+        assert!(
+            format!("{e}").contains("target_fps"),
+            "error should mention target_fps, got: {e}"
+        );
     }
 
     /// Requires a physical camera device — skipped in CI.
