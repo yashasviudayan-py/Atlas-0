@@ -1,30 +1,36 @@
-//! Camera pose tracker using visual odometry.
+//! Camera pose tracker with integrated 3DGS reconstruction.
 //!
-//! The [`Tracker`] maintains the SLAM state across frames:
-//! - Extracts FAST+BRIEF features from each frame.
-//! - Matches them against the previous frame using Hamming-distance BF matching.
-//! - Estimates the relative camera pose via the 8-point essential-matrix algorithm.
-//! - Accumulates poses so that `current_pose()` always reflects the camera's
-//!   estimated position and orientation in world space.
+//! The [`Tracker`] maintains the full SLAM state across frames:
+//!
+//! 1. Extracts FAST+BRIEF features from each frame.
+//! 2. Matches them against the previous frame.
+//! 3. Estimates the relative camera pose via the 8-point essential-matrix algorithm.
+//! 4. On keyframe insertion: triangulates depth, initialises new Gaussians, and runs
+//!    the photometric optimizer.
+//! 5. Provides relocalization fallback when tracking is lost.
 
 use atlas_core::{Frame, GaussianCloud, Point3, Pose};
 use nalgebra::{Matrix3, Matrix4, Rotation3, UnitQuaternion};
 use tracing::{info, warn};
 
 use crate::config::SlamConfig;
+use crate::depth::DepthEstimator;
 use crate::features::{Descriptor, FeatureExtractor, KeyPoint};
-use crate::matching::FeatureMatcher;
+use crate::gaussian_init::{GaussianInitConfig, GaussianInitializer};
+use crate::keyframe::KeyframeGraph;
+use crate::matching::{DMatch, FeatureMatcher};
+use crate::optimizer::{GaussianOptimizer, OptimizerConfig};
 use crate::pose_estimation::PoseEstimator;
 
-// ─── Keyframe ────────────────────────────────────────────────────────────────
+// ─── Legacy relocalization keyframe (private, same-file only) ────────────────
 
-/// A stored reference frame used for relocalization.
-struct Keyframe {
-    /// World-space pose of this keyframe.
+/// A stored reference frame used *only* for relocalization.
+///
+/// Separate from [`KeyframeGraph`] so the existing relocalization logic and its
+/// unit tests are not disrupted.
+struct RelocalKeyframe {
     pose: Pose,
-    /// Keypoints extracted from the frame.
     keypoints: Vec<KeyPoint>,
-    /// Corresponding BRIEF descriptors.
     descriptors: Vec<Descriptor>,
 }
 
@@ -34,19 +40,30 @@ struct Keyframe {
 pub struct Tracker {
     config: SlamConfig,
     current_pose: Pose,
+    /// Previous frame's estimated pose (used for triangulation).
+    prev_pose: Pose,
     map: GaussianCloud,
     frame_count: u64,
     is_initialized: bool,
-    // Feature pipeline components.
+
+    // ── Feature pipeline ─────────────────────────────────────────────────────
     extractor: FeatureExtractor,
     matcher: FeatureMatcher,
     estimator: PoseEstimator,
-    // State from the previous frame.
+
+    // ── Part 3: depth / Gaussian init / optimization ─────────────────────────
+    depth_estimator: DepthEstimator,
+    gaussian_init: GaussianInitializer,
+    optimizer: GaussianOptimizer,
+    /// Keyframe graph tracking co-visibility for Gaussian densification.
+    keyframe_graph: KeyframeGraph,
+
+    // ── State from the previous frame ────────────────────────────────────────
     prev_keypoints: Vec<KeyPoint>,
     prev_descriptors: Vec<Descriptor>,
-    // Keyframe store for relocalization.
-    keyframes: Vec<Keyframe>,
-    /// Pose at the time of the last keyframe insertion.
+
+    // ── Relocalization store (legacy, keeps existing tests green) ─────────────
+    keyframes: Vec<RelocalKeyframe>,
     last_keyframe_pose: Option<Pose>,
 }
 
@@ -54,7 +71,7 @@ impl Tracker {
     /// Create a new tracker with the given configuration.
     ///
     /// The tracker starts uninitialised; the first call to [`process_frame`]
-    /// will capture the reference frame.
+    /// captures the reference frame.
     #[must_use]
     pub fn new(config: SlamConfig) -> Self {
         let extractor = FeatureExtractor::new(config.fast_threshold, config.max_features);
@@ -64,10 +81,25 @@ impl Tracker {
             config.ransac_iterations,
             config.ransac_threshold,
         );
+        let depth_estimator = DepthEstimator::new(config.camera.clone());
+        let gaussian_init = GaussianInitializer::new(GaussianInitConfig::default());
+        let optimizer = GaussianOptimizer::new(OptimizerConfig {
+            iterations: config.optimization_iterations,
+            ..OptimizerConfig::default()
+        });
+        let keyframe_graph = KeyframeGraph::new(
+            config.keyframe_translation_threshold,
+            config.keyframe_rotation_threshold,
+        );
 
         Self {
+            depth_estimator,
+            gaussian_init,
+            optimizer,
+            keyframe_graph,
             config,
             current_pose: Pose::identity(),
+            prev_pose: Pose::identity(),
             map: GaussianCloud::new(),
             frame_count: 0,
             is_initialized: false,
@@ -111,7 +143,6 @@ impl Tracker {
             .match_descriptors(&descs, &self.prev_descriptors);
 
         if matches.len() < self.config.min_features {
-            // Too few matches — attempt relocalization before giving up.
             if let Some(recovered_pose) = self.try_relocalize(&kps, &descs, frame.id) {
                 self.current_pose = recovered_pose;
                 self.prev_keypoints = kps;
@@ -125,14 +156,12 @@ impl Tracker {
             });
         }
 
-        // 3. Build (prev_pixel, curr_pixel) correspondence list for PnP/E-matrix.
-        //    Note: query = current frame, train = previous frame.
+        // 3. Build (prev_pixel, curr_pixel) correspondence list.
         let correspondences: Vec<([f64; 2], [f64; 2])> = matches
             .iter()
             .map(|m| {
                 let curr = &kps[m.query_idx];
                 let prev = &self.prev_keypoints[m.train_idx];
-                // (previous, current) — the estimator models motion from prev→curr.
                 (
                     [prev.x as f64, prev.y as f64],
                     [curr.x as f64, curr.y as f64],
@@ -144,7 +173,6 @@ impl Tracker {
         let relative_pose = match self.estimator.estimate_pose(&correspondences, frame.id)? {
             Some(p) => p,
             None => {
-                // Insufficient inliers — try relocalization.
                 if let Some(recovered_pose) = self.try_relocalize(&kps, &descs, frame.id) {
                     self.current_pose = recovered_pose;
                     self.prev_keypoints = kps;
@@ -157,24 +185,17 @@ impl Tracker {
         };
 
         // 5. Compose with the accumulated world pose.
-        self.current_pose = compose_poses(&self.current_pose, &relative_pose);
+        let new_pose = compose_poses(&self.current_pose, &relative_pose);
 
-        // 6. Insert a keyframe if the camera has moved far enough from the last one.
-        if self.should_insert_keyframe(&self.current_pose) {
-            self.keyframes.push(Keyframe {
-                pose: self.current_pose,
-                keypoints: kps.clone(),
-                descriptors: descs.clone(),
-            });
-            self.last_keyframe_pose = Some(self.current_pose);
-            info!(
-                frame_id = frame.id,
-                total_keyframes = self.keyframes.len(),
-                "keyframe inserted"
-            );
+        // 6. Keyframe insertion + Gaussian update.
+        if self.should_insert_keyframe(&new_pose) {
+            self.insert_keyframe_and_update_map(frame, &kps, &descs, &matches, &new_pose);
         }
 
-        // 7. Store current frame features for the next iteration.
+        self.prev_pose = self.current_pose;
+        self.current_pose = new_pose;
+
+        // 7. Store current features for the next iteration.
         self.prev_keypoints = kps;
         self.prev_descriptors = descs;
 
@@ -206,12 +227,15 @@ impl Tracker {
         self.frame_count
     }
 
+    /// Number of keyframes in the graph.
+    #[must_use]
+    pub fn keyframe_count(&self) -> usize {
+        self.keyframe_graph.len()
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /// Initialise the SLAM system from the first frame.
-    ///
-    /// Stores the feature set as the reference for subsequent frames and sets
-    /// the initial pose to the world origin.
     fn initialize(&mut self, frame: &Frame) -> crate::Result<()> {
         use atlas_core::error::SlamError;
 
@@ -233,28 +257,118 @@ impl Tracker {
 
         info!(features = kps.len(), "first frame features extracted");
 
-        // Store the first frame as an initial keyframe for relocalization.
-        self.keyframes.push(Keyframe {
+        // Store as the initial keyframe for relocalization and the graph.
+        self.keyframes.push(RelocalKeyframe {
             pose: Pose::identity(),
             keypoints: kps.clone(),
             descriptors: descs.clone(),
         });
+        self.keyframe_graph
+            .insert(Pose::identity(), kps.clone(), descs.clone(), 0);
         self.last_keyframe_pose = Some(Pose::identity());
 
         self.prev_keypoints = kps;
         self.prev_descriptors = descs;
-        // Initial pose is the world origin.
         self.current_pose = Pose::identity();
+        self.prev_pose = Pose::identity();
         self.is_initialized = true;
         Ok(())
     }
 
+    /// Insert a keyframe, triangulate depth, spawn new Gaussians, and optimize.
+    fn insert_keyframe_and_update_map(
+        &mut self,
+        frame: &Frame,
+        kps_curr: &[KeyPoint],
+        descs_curr: &[Descriptor],
+        matches: &[DMatch],
+        pose_curr: &Pose,
+    ) {
+        // 1. Insert into both the legacy relocalization store and the graph.
+        self.keyframes.push(RelocalKeyframe {
+            pose: *pose_curr,
+            keypoints: kps_curr.to_vec(),
+            descriptors: descs_curr.to_vec(),
+        });
+        self.keyframe_graph.insert(
+            *pose_curr,
+            kps_curr.to_vec(),
+            descs_curr.to_vec(),
+            self.map.len(),
+        );
+        self.last_keyframe_pose = Some(*pose_curr);
+
+        info!(
+            total_keyframes = self.keyframes.len(),
+            gaussians = self.map.len(),
+            "keyframe inserted"
+        );
+
+        // 2. Triangulate depth from the current and previous frame.
+        let depth_map = self.depth_estimator.estimate(
+            &self.prev_keypoints,
+            kps_curr,
+            matches,
+            &self.prev_pose,
+            pose_curr,
+            frame.width,
+            frame.height,
+        );
+
+        if depth_map.world_points.is_empty() {
+            return; // No triangulated points — nothing to add.
+        }
+
+        // 3. Look up RGB colour at each triangulated pixel.
+        let new_points: Vec<(Point3, [f32; 3])> = depth_map
+            .world_points
+            .iter()
+            .map(|(pos, px, py)| {
+                let color = sample_pixel_rgb(&frame.data, frame.width, frame.height, *px, *py);
+                (*pos, color)
+            })
+            .collect();
+
+        // 4. Initialise new Gaussians and add them to the map.
+        let new_gaussians = self.gaussian_init.from_point_cloud(&new_points);
+        let new_count = new_gaussians.len();
+        for g in new_gaussians {
+            if self.map.len() < self.config.max_gaussians {
+                self.map.add(g);
+            }
+        }
+
+        info!(
+            new_gaussians = new_count,
+            total_gaussians = self.map.len(),
+            "Gaussians added from triangulation"
+        );
+
+        // 5. Optimize the map against the current frame.
+        if !self.map.is_empty() {
+            self.optimizer.optimize(
+                &mut self.map.gaussians,
+                &frame.data,
+                frame.width,
+                frame.height,
+                pose_curr,
+                &self.config.camera,
+            );
+        }
+
+        // 6. Prune any Gaussians that have grown over the map limit.
+        if self.map.len() > self.config.max_gaussians {
+            // Keep the highest-opacity Gaussians.
+            self.map.gaussians.sort_by(|a, b| {
+                b.opacity
+                    .partial_cmp(&a.opacity)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            self.map.gaussians.truncate(self.config.max_gaussians);
+        }
+    }
+
     /// Decide whether to insert a new keyframe at `pose`.
-    ///
-    /// A keyframe is inserted when:
-    /// - No keyframe has been inserted yet, or
-    /// - The camera has translated by more than `keyframe_translation_threshold`,
-    ///   or rotated by more than `keyframe_rotation_threshold` since the last one.
     fn should_insert_keyframe(&self, pose: &Pose) -> bool {
         match &self.last_keyframe_pose {
             None => true,
@@ -267,19 +381,13 @@ impl Tracker {
         }
     }
 
-    /// Attempt to recover tracking by matching `kps`/`descs` against stored
-    /// keyframes.
-    ///
-    /// For each keyframe the current features are matched, and the candidate
-    /// with the most matches has its relative pose estimated.  If that
-    /// succeeds the recovered world pose is returned; otherwise `None`.
+    /// Attempt to recover tracking by matching against stored keyframes.
     fn try_relocalize(
         &self,
         kps: &[KeyPoint],
         descs: &[Descriptor],
         frame_id: u64,
     ) -> Option<Pose> {
-        // Find the keyframe with the most descriptor matches.
         let (best_kf, best_matches) = self
             .keyframes
             .iter()
@@ -293,7 +401,6 @@ impl Tracker {
             return None;
         }
 
-        // 2D–2D pose estimation: keyframe points → current frame points.
         let correspondences: Vec<([f64; 2], [f64; 2])> = best_matches
             .iter()
             .map(|m| {
@@ -316,21 +423,34 @@ impl Tracker {
     }
 }
 
+// ─── Pixel sampling ───────────────────────────────────────────────────────────
+
+/// Sample an RGB pixel from `data` (row-major, 3 bytes per pixel) and return
+/// it as a `[f32; 3]` in the range \[0, 1\].
+fn sample_pixel_rgb(data: &[u8], width: u32, height: u32, x: u32, y: u32) -> [f32; 3] {
+    if x >= width || y >= height {
+        return [0.5, 0.5, 0.5];
+    }
+    let idx = (y * width + x) as usize * 3;
+    if idx + 2 >= data.len() {
+        return [0.5, 0.5, 0.5];
+    }
+    [
+        data[idx] as f32 / 255.0,
+        data[idx + 1] as f32 / 255.0,
+        data[idx + 2] as f32 / 255.0,
+    ]
+}
+
 // ─── Pose composition helpers ─────────────────────────────────────────────────
 
-/// Compose two poses: `result = base ∘ relative`.
-///
-/// Multiplies the two 4×4 SE(3) transformation matrices and converts the
-/// result back to the `Pose` representation.
 fn compose_poses(base: &Pose, relative: &Pose) -> Pose {
     let m = base.to_matrix() * relative.to_matrix();
     matrix4_to_pose(&m)
 }
 
-/// Extract a [`Pose`] from a 4×4 homogeneous transformation matrix.
 fn matrix4_to_pose(m: &Matrix4<f32>) -> Pose {
     let pos = Point3::new(m[(0, 3)], m[(1, 3)], m[(2, 3)]);
-
     let rot_mat = Matrix3::new(
         m[(0, 0)],
         m[(0, 1)],
@@ -345,14 +465,12 @@ fn matrix4_to_pose(m: &Matrix4<f32>) -> Pose {
     let rot = Rotation3::from_matrix_unchecked(rot_mat);
     let uq: UnitQuaternion<f32> = UnitQuaternion::from_rotation_matrix(&rot);
     let q = uq.into_inner();
-
     Pose {
         position: pos,
         rotation: [q.w, q.i, q.j, q.k],
     }
 }
 
-/// Euclidean distance between the translation components of two poses.
 fn translation_distance(a: &Pose, b: &Pose) -> f32 {
     let dx = b.position.x - a.position.x;
     let dy = b.position.y - a.position.y;
@@ -360,16 +478,12 @@ fn translation_distance(a: &Pose, b: &Pose) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
-/// Angular distance (in radians) between the rotation components of two poses.
-///
-/// Computes `2 · acos(|q_a · q_b|)`, i.e. the geodesic angle on SO(3).
 fn rotation_distance(a: &Pose, b: &Pose) -> f32 {
     let dot = a.rotation[0] * b.rotation[0]
         + a.rotation[1] * b.rotation[1]
         + a.rotation[2] * b.rotation[2]
         + a.rotation[3] * b.rotation[3];
-    let dot = dot.abs().min(1.0);
-    2.0 * dot.acos()
+    2.0 * dot.abs().min(1.0).acos()
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -393,12 +507,10 @@ mod tests {
 
     #[test]
     fn test_process_first_frame_uniform_fails_gracefully() {
-        // A uniform (featureless) first frame should fail with InitFailed.
         let config = SlamConfig::default();
         let mut tracker = Tracker::new(config);
         let frame = make_frame(0, 320, 240, 128);
         let result = tracker.process_frame(&frame);
-        // Uniform image → no FAST corners → InitFailed.
         assert!(
             result.is_err(),
             "uniform first frame should fail with InitFailed"
@@ -408,8 +520,6 @@ mod tests {
 
     #[test]
     fn test_process_first_frame_with_features_succeeds() {
-        // An isolated bright pixel on a dark background is guaranteed to produce
-        // at least one FAST corner (all 16 circle pixels are below centre−threshold).
         let config = SlamConfig::default();
         let mut tracker = Tracker::new(config);
 
@@ -429,14 +539,11 @@ mod tests {
     fn test_compose_poses_identity() {
         let identity = Pose::identity();
         let composed = compose_poses(&identity, &identity);
-        // Identity ∘ Identity = Identity
         assert!((composed.position.x).abs() < 1e-5);
         assert!((composed.position.y).abs() < 1e-5);
         assert!((composed.position.z).abs() < 1e-5);
         assert!((composed.rotation[0] - 1.0).abs() < 1e-5, "w should be ~1");
     }
-
-    // ── Keyframe / relocalization helpers ─────────────────────────────────
 
     #[test]
     fn test_translation_distance_zero() {
@@ -465,53 +572,37 @@ mod tests {
     fn test_should_insert_keyframe_no_previous() {
         let config = SlamConfig::default();
         let mut tracker = Tracker::new(config);
-        // Before initialization there is no last keyframe.
         tracker.last_keyframe_pose = None;
         let pose = Pose::identity();
-        assert!(
-            tracker.should_insert_keyframe(&pose),
-            "must insert when no previous keyframe exists"
-        );
+        assert!(tracker.should_insert_keyframe(&pose));
     }
 
     #[test]
     fn test_should_insert_keyframe_large_translation() {
-        let config = SlamConfig::default(); // threshold = 0.1 m
+        let config = SlamConfig::default();
         let mut tracker = Tracker::new(config);
-        let base = Pose::identity();
-        tracker.last_keyframe_pose = Some(base);
-
+        tracker.last_keyframe_pose = Some(Pose::identity());
         let far_pose = Pose {
-            position: atlas_core::Point3::new(1.0, 0.0, 0.0), // 1 m away
+            position: atlas_core::Point3::new(1.0, 0.0, 0.0),
             rotation: [1.0, 0.0, 0.0, 0.0],
         };
-        assert!(
-            tracker.should_insert_keyframe(&far_pose),
-            "must insert when translation exceeds threshold"
-        );
+        assert!(tracker.should_insert_keyframe(&far_pose));
     }
 
     #[test]
     fn test_should_not_insert_keyframe_small_motion() {
-        let config = SlamConfig::default(); // threshold = 0.1 m
+        let config = SlamConfig::default();
         let mut tracker = Tracker::new(config);
-        let base = Pose::identity();
-        tracker.last_keyframe_pose = Some(base);
-
+        tracker.last_keyframe_pose = Some(Pose::identity());
         let close_pose = Pose {
-            position: atlas_core::Point3::new(0.01, 0.0, 0.0), // only 1 cm
+            position: atlas_core::Point3::new(0.01, 0.0, 0.0),
             rotation: [1.0, 0.0, 0.0, 0.0],
         };
-        assert!(
-            !tracker.should_insert_keyframe(&close_pose),
-            "must not insert when motion is below threshold"
-        );
+        assert!(!tracker.should_insert_keyframe(&close_pose));
     }
 
     #[test]
     fn test_first_frame_inserts_keyframe() {
-        // After the first frame with detectable features, one keyframe must
-        // have been stored.
         let config = SlamConfig::default();
         let mut tracker = Tracker::new(config);
 
@@ -537,15 +628,11 @@ mod tests {
     fn test_try_relocalize_returns_none_without_keyframes() {
         let config = SlamConfig::default();
         let mut tracker = Tracker::new(config);
-        // Remove all keyframes to simulate a fresh (un-initialized) state.
         tracker.keyframes.clear();
 
         let kps: Vec<KeyPoint> = vec![];
         let descs: Vec<crate::features::Descriptor> = vec![];
-        assert!(
-            tracker.try_relocalize(&kps, &descs, 0).is_none(),
-            "relocalization without keyframes must return None"
-        );
+        assert!(tracker.try_relocalize(&kps, &descs, 0).is_none());
     }
 
     #[test]
@@ -554,5 +641,44 @@ mod tests {
         let pose = matrix4_to_pose(&m);
         assert!((pose.position.x).abs() < 1e-5);
         assert!((pose.rotation[0] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_keyframe_count_increments_on_init() {
+        let config = SlamConfig::default();
+        let mut tracker = Tracker::new(config);
+
+        let mut data = vec![30u8; 64 * 64 * 3];
+        let idx = (32 * 64 + 32) as usize * 3;
+        data[idx] = 200;
+        data[idx + 1] = 200;
+        data[idx + 2] = 200;
+
+        let frame = Frame::new(0, 64, 64, data).expect("valid frame");
+        tracker.process_frame(&frame).expect("init must succeed");
+        assert_eq!(tracker.keyframe_count(), 1);
+    }
+
+    #[test]
+    fn test_sample_pixel_rgb_in_bounds() {
+        let width = 4u32;
+        let height = 4u32;
+        let mut data = vec![0u8; (width * height * 3) as usize];
+        // Set pixel (2, 1) to (255, 128, 64).
+        let idx = (width + 2) as usize * 3;
+        data[idx] = 255;
+        data[idx + 1] = 128;
+        data[idx + 2] = 64;
+        let rgb = sample_pixel_rgb(&data, width, height, 2, 1);
+        assert!((rgb[0] - 1.0).abs() < 1e-3);
+        assert!((rgb[1] - 128.0 / 255.0).abs() < 1e-3);
+        assert!((rgb[2] - 64.0 / 255.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_sample_pixel_rgb_out_of_bounds_returns_grey() {
+        let data = vec![255u8; 12];
+        let rgb = sample_pixel_rgb(&data, 2, 2, 5, 5);
+        assert!((rgb[0] - 0.5).abs() < 1e-6);
     }
 }

@@ -32,6 +32,20 @@ keyframe_rotation_threshold = 0.1
 optimization_iterations = 10
 enable_loop_closure = true
 
+[gaussian]
+# Initial opacity for newly triangulated Gaussians.
+initial_opacity = 0.5
+# Gaussian scale floor / ceiling (metres).
+min_scale = 0.001
+max_scale = 1.0
+
+[gaussian.optimizer]
+# Adam learning rates for differentiable 3DGS optimization.
+lr_opacity = 0.05
+lr_color = 0.01
+# Gaussians below this opacity are pruned after each keyframe.
+min_opacity = 0.005
+
 [physics]
 timestep = 0.001
 gravity = 9.81

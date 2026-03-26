@@ -6,8 +6,12 @@
 //! - Keyframe management and map optimization
 
 pub mod config;
+pub mod depth;
 pub mod features;
+pub mod gaussian_init;
+pub mod keyframe;
 pub mod matching;
+pub mod optimizer;
 pub mod pose_estimation;
 pub mod tracker;
 
