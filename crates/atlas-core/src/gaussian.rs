@@ -1,7 +1,11 @@
 //! 3D Gaussian primitives for Gaussian Splatting.
 
-use crate::spatial::Point3;
+use std::collections::HashMap;
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
+
+use crate::spatial::Point3;
 
 // ─── Bounding box ─────────────────────────────────────────────────────────────
 
@@ -82,27 +86,76 @@ impl Gaussian3D {
     }
 }
 
+// ─── GaussianCloud ────────────────────────────────────────────────────────────
+
 /// A collection of 3D Gaussians representing a scene or scene fragment.
-#[derive(Debug, Clone, Default)]
+///
+/// Spatial queries use a uniform-grid index that is rebuilt lazily whenever
+/// the Gaussian list is mutated.  The grid (and dirty flag) are excluded from
+/// serialisation — they are reconstructed on the first query after loading.
+///
+/// # Persistence
+///
+/// ```no_run
+/// # use atlas_core::gaussian::GaussianCloud;
+/// # use std::path::Path;
+/// let mut cloud = GaussianCloud::new();
+/// cloud.save(Path::new("/tmp/map.json")).unwrap();
+/// let _loaded = GaussianCloud::load(Path::new("/tmp/map.json")).unwrap();
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GaussianCloud {
     pub gaussians: Vec<Gaussian3D>,
+
+    // ── Spatial index (not serialised) ────────────────────────────────────────
+    /// Side length of each grid cell in metres.  Smaller = finer, but more
+    /// memory.  Default: 0.5 m.
+    #[serde(default = "default_cell_size")]
+    grid_cell_size: f32,
+    /// Uniform-grid spatial index: cell key → list of Gaussian indices.
+    #[serde(skip)]
+    grid: HashMap<(i32, i32, i32), Vec<usize>>,
+    /// Set to `true` whenever `gaussians` is mutated so the next
+    /// `query_region` call triggers a full index rebuild.
+    #[serde(skip)]
+    grid_dirty: bool,
+}
+
+fn default_cell_size() -> f32 {
+    0.5
+}
+
+impl Default for GaussianCloud {
+    fn default() -> Self {
+        Self {
+            gaussians: Vec::new(),
+            grid_cell_size: default_cell_size(),
+            grid: HashMap::new(),
+            grid_dirty: false,
+        }
+    }
 }
 
 impl GaussianCloud {
+    /// Create an empty cloud with the default grid cell size (0.5 m).
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Add a single Gaussian and mark the spatial index as dirty.
     pub fn add(&mut self, gaussian: Gaussian3D) {
         self.gaussians.push(gaussian);
+        self.grid_dirty = true;
     }
 
+    /// Number of Gaussians in this cloud.
     #[must_use]
     pub fn len(&self) -> usize {
         self.gaussians.len()
     }
 
+    /// Return `true` when the cloud contains no Gaussians.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.gaussians.is_empty()
@@ -112,15 +165,31 @@ impl GaussianCloud {
 
     /// Return the indices of all Gaussians whose centres lie inside `bbox`.
     ///
-    /// Uses a linear scan; suitable for sparse maps. For dense maps (> 1M
-    /// Gaussians) consider adding an octree index.
-    #[must_use]
-    pub fn query_region(&self, bbox: &BoundingBox3D) -> Vec<usize> {
-        self.gaussians
-            .iter()
-            .enumerate()
-            .filter_map(|(i, g)| bbox.contains(&g.center).then_some(i))
-            .collect()
+    /// Uses a uniform hash-grid index for sub-linear average-case performance.
+    /// The index is rebuilt lazily on the first call after any mutation.
+    pub fn query_region(&mut self, bbox: &BoundingBox3D) -> Vec<usize> {
+        if self.grid_dirty || (self.grid.is_empty() && !self.gaussians.is_empty()) {
+            self.rebuild_grid();
+        }
+
+        let min_key = Self::cell_key(&bbox.min, self.grid_cell_size);
+        let max_key = Self::cell_key(&bbox.max, self.grid_cell_size);
+
+        let mut result = Vec::new();
+        for ix in min_key.0..=max_key.0 {
+            for iy in min_key.1..=max_key.1 {
+                for iz in min_key.2..=max_key.2 {
+                    if let Some(indices) = self.grid.get(&(ix, iy, iz)) {
+                        for &idx in indices {
+                            if bbox.contains(&self.gaussians[idx].center) {
+                                result.push(idx);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        result
     }
 
     /// Remove all Gaussians whose opacity is below `min_opacity`.
@@ -129,6 +198,7 @@ impl GaussianCloud {
     /// optimizer has driven toward transparent get culled to keep the map lean.
     pub fn prune(&mut self, min_opacity: f32) {
         self.gaussians.retain(|g| g.opacity >= min_opacity);
+        self.grid_dirty = true;
     }
 
     /// Merge Gaussians whose centres are within `threshold` metres of each
@@ -142,7 +212,6 @@ impl GaussianCloud {
     pub fn merge_near(&mut self, threshold: f32) {
         let threshold_sq = threshold * threshold;
         let n = self.gaussians.len();
-        // Mark the lower-opacity duplicate in each close pair for removal.
         let mut remove = vec![false; n];
 
         for i in 0..n {
@@ -159,7 +228,6 @@ impl GaussianCloud {
                 let dy = gi.center.y - gj.center.y;
                 let dz = gi.center.z - gj.center.z;
                 if dx * dx + dy * dy + dz * dz < threshold_sq {
-                    // Keep the more opaque one; absorb the other.
                     if gi.opacity >= gj.opacity {
                         let max_opacity = gi.opacity.max(gj.opacity);
                         self.gaussians[i].opacity = max_opacity;
@@ -168,7 +236,7 @@ impl GaussianCloud {
                         let max_opacity = gi.opacity.max(gj.opacity);
                         self.gaussians[j].opacity = max_opacity;
                         remove[i] = true;
-                        break; // i is gone — stop looking for j partners
+                        break;
                     }
                 }
             }
@@ -180,6 +248,73 @@ impl GaussianCloud {
             idx += 1;
             keep
         });
+        self.grid_dirty = true;
+    }
+
+    // ── Persistence ───────────────────────────────────────────────────────────
+
+    /// Serialise the map to `path` as a JSON file.
+    ///
+    /// The spatial index is not stored — it is rebuilt lazily after loading.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AtlasError::Io`] on file-system errors or
+    /// [`AtlasError::Serialization`] on encoding failures.
+    ///
+    /// [`AtlasError::Io`]: crate::error::AtlasError::Io
+    /// [`AtlasError::Serialization`]: crate::error::AtlasError::Serialization
+    pub fn save(&self, path: &Path) -> crate::Result<()> {
+        use std::io::BufWriter;
+        let file = std::fs::File::create(path)?;
+        let writer = BufWriter::new(file);
+        serde_json::to_writer(writer, self)
+            .map_err(|e| crate::error::AtlasError::Serialization(e.to_string()))
+    }
+
+    /// Load a map previously saved with [`save`].
+    ///
+    /// The spatial index starts dirty and is rebuilt on the first
+    /// [`query_region`] call.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AtlasError::Io`] on file-system errors or
+    /// [`AtlasError::Serialization`] on decoding failures.
+    ///
+    /// [`query_region`]: GaussianCloud::query_region
+    /// [`AtlasError::Io`]: crate::error::AtlasError::Io
+    /// [`AtlasError::Serialization`]: crate::error::AtlasError::Serialization
+    pub fn load(path: &Path) -> crate::Result<Self> {
+        use std::io::BufReader;
+        let file = std::fs::File::open(path)?;
+        let reader = BufReader::new(file);
+        let mut cloud: Self = serde_json::from_reader(reader)
+            .map_err(|e| crate::error::AtlasError::Serialization(e.to_string()))?;
+        // Mark dirty so the first query_region rebuilds the index.
+        cloud.grid_dirty = true;
+        Ok(cloud)
+    }
+
+    // ── Grid index helpers ────────────────────────────────────────────────────
+
+    /// Rebuild the uniform-grid spatial index from scratch.
+    fn rebuild_grid(&mut self) {
+        self.grid.clear();
+        for (idx, g) in self.gaussians.iter().enumerate() {
+            let key = Self::cell_key(&g.center, self.grid_cell_size);
+            self.grid.entry(key).or_default().push(idx);
+        }
+        self.grid_dirty = false;
+    }
+
+    /// Map a world-space point to its grid cell key.
+    fn cell_key(p: &Point3, cell_size: f32) -> (i32, i32, i32) {
+        (
+            (p.x / cell_size).floor() as i32,
+            (p.y / cell_size).floor() as i32,
+            (p.z / cell_size).floor() as i32,
+        )
     }
 }
 
@@ -223,7 +358,8 @@ mod tests {
         cloud.add(make_gaussian(0.0, 0.0, 0.0, 0.8));
         cloud.add(make_gaussian(0.5, 0.5, 0.5, 0.6));
         let bbox = BoundingBox3D::new(Point3::new(-1.0, -1.0, -1.0), Point3::new(1.0, 1.0, 1.0));
-        let hits = cloud.query_region(&bbox);
+        let mut hits = cloud.query_region(&bbox);
+        hits.sort_unstable();
         assert_eq!(hits, vec![0, 1]);
     }
 
@@ -239,7 +375,7 @@ mod tests {
 
     #[test]
     fn test_query_region_empty_cloud() {
-        let cloud = GaussianCloud::new();
+        let mut cloud = GaussianCloud::new();
         let bbox = BoundingBox3D::new(Point3::new(-1.0, -1.0, -1.0), Point3::new(1.0, 1.0, 1.0));
         assert!(cloud.query_region(&bbox).is_empty());
     }
@@ -249,11 +385,10 @@ mod tests {
     #[test]
     fn test_prune_removes_low_opacity() {
         let mut cloud = GaussianCloud::new();
-        cloud.add(make_gaussian(0.0, 0.0, 0.0, 0.001)); // below threshold
-        cloud.add(make_gaussian(1.0, 0.0, 0.0, 0.5)); // above
-        cloud.add(make_gaussian(2.0, 0.0, 0.0, 0.01)); // exactly on threshold
+        cloud.add(make_gaussian(0.0, 0.0, 0.0, 0.001));
+        cloud.add(make_gaussian(1.0, 0.0, 0.0, 0.5));
+        cloud.add(make_gaussian(2.0, 0.0, 0.0, 0.01));
         cloud.prune(0.01);
-        // 0.001 is removed; 0.5 and 0.01 stay.
         assert_eq!(cloud.len(), 2);
     }
 
@@ -280,9 +415,8 @@ mod tests {
     fn test_merge_near_removes_duplicate() {
         let mut cloud = GaussianCloud::new();
         cloud.add(make_gaussian(0.0, 0.0, 0.0, 0.8));
-        // Very close to the first — should be merged.
         cloud.add(make_gaussian(0.001, 0.0, 0.0, 0.6));
-        cloud.add(make_gaussian(5.0, 0.0, 0.0, 0.5)); // far away
+        cloud.add(make_gaussian(5.0, 0.0, 0.0, 0.5));
         cloud.merge_near(0.1);
         assert_eq!(cloud.len(), 2, "close pair collapses to 1; far one remains");
     }
@@ -291,7 +425,7 @@ mod tests {
     fn test_merge_near_keeps_higher_opacity() {
         let mut cloud = GaussianCloud::new();
         cloud.add(make_gaussian(0.0, 0.0, 0.0, 0.4));
-        cloud.add(make_gaussian(0.0, 0.0, 0.001, 0.9)); // closer, higher opacity
+        cloud.add(make_gaussian(0.0, 0.0, 0.001, 0.9));
         cloud.merge_near(0.1);
         assert_eq!(cloud.len(), 1);
         assert!((cloud.gaussians[0].opacity - 0.9).abs() < 1e-5);
@@ -305,5 +439,61 @@ mod tests {
         cloud.add(make_gaussian(0.0, 1.0, 0.0, 0.5));
         cloud.merge_near(0.1);
         assert_eq!(cloud.len(), 3);
+    }
+
+    // ── save / load ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_save_and_load_round_trip() {
+        let mut cloud = GaussianCloud::new();
+        cloud.add(make_gaussian(1.0, 2.0, 3.0, 0.7));
+        cloud.add(make_gaussian(-1.0, 0.0, 0.5, 0.3));
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("atlas_test_cloud.json");
+        cloud.save(&path).expect("save failed");
+
+        let loaded = GaussianCloud::load(&path).expect("load failed");
+        assert_eq!(loaded.len(), cloud.len());
+        assert!((loaded.gaussians[0].center.x - 1.0).abs() < 1e-6);
+        assert!((loaded.gaussians[1].opacity - 0.3).abs() < 1e-6);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_load_missing_file_returns_error() {
+        let result = GaussianCloud::load(Path::new("/nonexistent/atlas_test.json"));
+        assert!(result.is_err());
+    }
+
+    // ── grid index ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_query_region_uses_grid_after_rebuild() {
+        let mut cloud = GaussianCloud::new();
+        for i in 0..20 {
+            cloud.add(make_gaussian(i as f32 * 2.0, 0.0, 0.0, 0.5));
+        }
+        // Query a narrow region — only x in [0, 1] should match (index 0).
+        let bbox = BoundingBox3D::new(Point3::new(-0.1, -0.1, -0.1), Point3::new(1.0, 0.1, 0.1));
+        let hits = cloud.query_region(&bbox);
+        assert_eq!(
+            hits,
+            vec![0],
+            "grid query should return only the first point"
+        );
+    }
+
+    #[test]
+    fn test_grid_stays_consistent_after_prune() {
+        let mut cloud = GaussianCloud::new();
+        cloud.add(make_gaussian(0.0, 0.0, 0.0, 0.001)); // will be pruned
+        cloud.add(make_gaussian(0.0, 0.0, 0.0, 0.8)); // stays
+        cloud.prune(0.01);
+        // After prune the grid must be dirty; a query should rebuild cleanly.
+        let bbox = BoundingBox3D::new(Point3::new(-1.0, -1.0, -1.0), Point3::new(1.0, 1.0, 1.0));
+        let hits = cloud.query_region(&bbox);
+        assert_eq!(hits.len(), 1);
     }
 }
