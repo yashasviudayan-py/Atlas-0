@@ -43,6 +43,10 @@ max_scale = 1.0
 # Adam learning rates for differentiable 3DGS optimization.
 lr_opacity = 0.05
 lr_color = 0.01
+# Adam learning rate for Gaussian centre position (metres / step).
+lr_position = 0.0001
+# Adam learning rate for covariance upper-triangle entries.
+lr_covariance = 0.0005
 # Gaussians below this opacity are pruned after each keyframe.
 min_opacity = 0.005
 

@@ -7,8 +7,8 @@
 //!    back.
 //! 2. **Compute** the photometric MSE loss between the rendered image and the
 //!    actual camera frame.
-//! 3. **Backpropagate** analytical gradients for *opacity* and *SH DC colour*
-//!    coefficients and apply [Adam] updates.
+//! 3. **Backpropagate** analytical gradients for *opacity*, *SH DC colour*,
+//!    *position*, and *covariance* and apply [Adam] updates.
 //! 4. **Prune** Gaussians whose opacity has fallen below a configurable floor.
 //!
 //! [Adam]: https://arxiv.org/abs/1412.6980
@@ -27,6 +27,10 @@ pub struct OptimizerConfig {
     pub lr_opacity: f32,
     /// Adam learning rate for the SH DC colour coefficients.
     pub lr_color: f32,
+    /// Adam learning rate for Gaussian centre position (metres / step).
+    pub lr_position: f32,
+    /// Adam learning rate for the covariance upper-triangle entries.
+    pub lr_covariance: f32,
     /// Gaussians with opacity below this threshold are pruned.
     pub min_opacity: f32,
     /// Number of optimization steps to run per keyframe.
@@ -38,6 +42,8 @@ impl Default for OptimizerConfig {
         Self {
             lr_opacity: 0.05,
             lr_color: 0.01,
+            lr_position: 1e-4,
+            lr_covariance: 5e-4,
             min_opacity: 0.005,
             iterations: 10,
         }
@@ -101,6 +107,10 @@ pub struct GaussianOptimizer {
     config: OptimizerConfig,
     opacity_adam: AdamState,
     color_adam: AdamState,
+    /// Adam state for centre position (x, y, z) — 3 entries per Gaussian.
+    position_adam: AdamState,
+    /// Adam state for covariance upper triangle — 6 entries per Gaussian.
+    covariance_adam: AdamState,
 }
 
 impl GaussianOptimizer {
@@ -111,6 +121,8 @@ impl GaussianOptimizer {
             config,
             opacity_adam: AdamState::new(0),
             color_adam: AdamState::new(0),
+            position_adam: AdamState::new(0),
+            covariance_adam: AdamState::new(0),
         }
     }
 
@@ -163,8 +175,9 @@ impl GaussianOptimizer {
         }
 
         self.opacity_adam.ensure_capacity(n_gauss);
-        // Each Gaussian has 3 colour channels.
         self.color_adam.ensure_capacity(n_gauss * 3);
+        self.position_adam.ensure_capacity(n_gauss * 3);
+        self.covariance_adam.ensure_capacity(n_gauss * 6);
 
         // ── Forward pass ──────────────────────────────────────────────────────
         let (rendered_f, transmittance) = render_float(gaussians, width, height, pose, intrinsics);
@@ -187,6 +200,8 @@ impl GaussianOptimizer {
         // dL/d(rendered_color[px][c]) = 2/(N*3) * (rendered - target)
         let mut opacity_grads = vec![0.0f32; n_gauss];
         let mut color_grads = vec![[0.0f32; 3]; n_gauss];
+        let mut pos_grads = vec![[0.0f32; 3]; n_gauss];
+        let mut cov_grads = vec![[0.0f32; 6]; n_gauss];
 
         for splat in &splats {
             let g = &gaussians[splat.gauss_idx];
@@ -196,15 +211,23 @@ impl GaussianOptimizer {
                 continue;
             }
             let inv_det = 1.0 / det;
-            let inv00 = cov[2] * inv_det;
-            let inv01 = -cov[1] * inv_det;
-            let inv11 = cov[0] * inv_det;
+            let inv00 = cov[2] * inv_det; // (Σ₂D⁻¹)₀₀
+            let inv01 = -cov[1] * inv_det; // (Σ₂D⁻¹)₀₁
+            let inv11 = cov[0] * inv_det; // (Σ₂D⁻¹)₁₁
 
             let sigma = (cov[0].max(cov[2])).sqrt() * 3.0;
             let x_min = ((splat.px - sigma) as i32).max(0) as u32;
             let x_max = ((splat.px + sigma) as i32 + 1).min(width as i32) as u32;
             let y_min = ((splat.py - sigma) as i32).max(0) as u32;
             let y_max = ((splat.py + sigma) as i32 + 1).min(height as i32) as u32;
+
+            // Accumulators for position / covariance over this splat's pixels.
+            let mut dl_d_px_acc = 0.0f32;
+            let mut dl_d_py_acc = 0.0f32;
+            // dL/d(Σ₂D⁻¹) entries accumulated over pixels.
+            let mut dl_d_inv00 = 0.0f32;
+            let mut dl_d_inv01 = 0.0f32;
+            let mut dl_d_inv11 = 0.0f32;
 
             for y in y_min..y_max {
                 for x in x_min..x_max {
@@ -220,29 +243,122 @@ impl GaussianOptimizer {
                     let px_idx = (y * width + x) as usize;
                     let t = transmittance[px_idx];
 
-                    // dL/d(rendered_c) for each channel.
+                    // ── Per-channel photometric gradients ──────────────────────
+                    let mut dl_d_gauss_val = 0.0f32;
                     for c in 0..3 {
                         let rendered_c = rendered_f[px_idx][c];
                         let target_c = target_rgb[px_idx * 3 + c] as f32 / 255.0;
                         let dl_dr = 2.0 / (n_pixels * 3.0) * (rendered_c - target_c);
 
-                        // Gradient w.r.t. SH DC colour: contribution is T·α·dl_dr.
                         color_grads[splat.gauss_idx][c] += t * alpha * dl_dr;
-
-                        // Gradient w.r.t. opacity: gauss_val * T * color * dl_dr.
                         opacity_grads[splat.gauss_idx] += gauss_val * t * splat.color[c] * dl_dr;
+                        dl_d_gauss_val += t * g.opacity * splat.color[c] * dl_dr;
+                    }
+
+                    // dL/d(power) = gauss_val · dL/d(gauss_val)
+                    let dl_d_power = gauss_val * dl_d_gauss_val;
+
+                    // ── Position gradient ──────────────────────────────────────
+                    // power = -0.5 * (inv00·dx² + 2·inv01·dx·dy + inv11·dy²)
+                    // d(power)/d(px) = -0.5 * (-2·inv00·dx - 2·inv01·dy) = (inv00·dx + inv01·dy)
+                    dl_d_px_acc += dl_d_power * (inv00 * dx + inv01 * dy);
+                    dl_d_py_acc += dl_d_power * (inv01 * dx + inv11 * dy);
+
+                    // ── Covariance gradient via Σ₂D⁻¹ ─────────────────────────
+                    // d(power)/d(inv00) = -0.5 * dx²
+                    dl_d_inv00 += dl_d_power * (-0.5 * dx * dx);
+                    dl_d_inv01 += dl_d_power * (-dx * dy);
+                    dl_d_inv11 += dl_d_power * (-0.5 * dy * dy);
+                }
+            }
+
+            // ── Project position gradient to world space ───────────────────────
+            // px = fx·pc_x·inv_z + cx  →  d(px)/d(pc_x) = fx·inv_z
+            //                              d(px)/d(pc_z) = −fx·pc_x·inv_z²
+            let j00 = splat.jacobian[0];
+            let j02 = splat.jacobian[1];
+            let j11 = splat.jacobian[2];
+            let j12 = splat.jacobian[3];
+            let dl_d_pc_x = j00 * dl_d_px_acc;
+            let dl_d_pc_y = j11 * dl_d_py_acc;
+            let dl_d_pc_z = j02 * dl_d_px_acc + j12 * dl_d_py_acc;
+            // pc = R_cw · pw + t  →  d(pc)/d(pw) = R_cw  →  dL/d(pw) = R_cw^T · dL/d(pc)
+            let r = &splat.cam_rot;
+            let gi = splat.gauss_idx;
+            pos_grads[gi][0] += r[0][0] * dl_d_pc_x + r[1][0] * dl_d_pc_y + r[2][0] * dl_d_pc_z;
+            pos_grads[gi][1] += r[0][1] * dl_d_pc_x + r[1][1] * dl_d_pc_y + r[2][1] * dl_d_pc_z;
+            pos_grads[gi][2] += r[0][2] * dl_d_pc_x + r[1][2] * dl_d_pc_y + r[2][2] * dl_d_pc_z;
+
+            // ── Project covariance gradient through the inverse-of-2×2 ─────────
+            // For symmetric M = [[a,b],[b,c]], M⁻¹ = [[c,-b],[-b,a]] / det
+            // d(M⁻¹)/d(a) = [[0,0],[0,-1/det]] + (diag terms), simplified:
+            //   d(inv00)/d(s11) = −inv00·inv00
+            //   d(inv00)/d(s12) = 2·inv00·inv01
+            //   d(inv00)/d(s22) = −inv01·inv01
+            //   etc.
+            let di00_ds11 = -inv00 * inv00;
+            let di00_ds12 = 2.0 * inv00 * inv01;
+            let di00_ds22 = -inv01 * inv01;
+            let di01_ds11 = -inv00 * inv01;
+            let di01_ds12 = inv00 * inv11 + inv01 * inv01;
+            let di01_ds22 = -inv01 * inv11;
+            let di11_ds11 = -inv01 * inv01;
+            let di11_ds12 = 2.0 * inv01 * inv11;
+            let di11_ds22 = -inv11 * inv11;
+
+            let dl_d_s11 = dl_d_inv00 * di00_ds11 + dl_d_inv01 * di01_ds11 + dl_d_inv11 * di11_ds11;
+            let dl_d_s12 = dl_d_inv00 * di00_ds12 + dl_d_inv01 * di01_ds12 + dl_d_inv11 * di11_ds12;
+            let dl_d_s22 = dl_d_inv00 * di00_ds22 + dl_d_inv01 * di01_ds22 + dl_d_inv11 * di11_ds22;
+
+            // Σ₂D = J · Σ_cam · J^T  →  d(Σ₂D[i,j])/d(Σ_cam[k,l]) = J[i,k]·J[j,l]
+            // Aggregate the 2x2 cov2d gradient back through J to get dL/d(Σ_cam):
+            //   dl_d_cov_cam[k][l] += sum_{i,j} dl_d_s_{ij} * J[i,k] * J[j,l]
+            let j = [[j00, 0.0, j02], [0.0, j11, j12]];
+            let mut dl_d_cc = [[0.0f32; 3]; 3];
+            for i in 0..2usize {
+                for jj in 0..2usize {
+                    let dl = if i == 0 && jj == 0 {
+                        dl_d_s11
+                    } else if i == 1 && jj == 1 {
+                        dl_d_s22
+                    } else {
+                        dl_d_s12
+                    };
+                    for k in 0..3usize {
+                        for l in 0..3usize {
+                            dl_d_cc[k][l] += dl * j[i][k] * j[jj][l];
+                        }
                     }
                 }
+            }
+
+            // Σ_cam = R · Σ₃D · R^T  →  d(Σ_cam[r,c])/d(Σ₃D[k,l]) = R[r,k]·R[c,l]
+            // dL/d(Σ₃D[k,l]) = sum_{r,c} dl_d_cc[r][c] * R[r,k] * R[c,l]
+            // Stored upper-triangle: [σ_xx,σ_xy,σ_xz,σ_yy,σ_yz,σ_zz] → indices (0,0),(0,1),(0,2),(1,1),(1,2),(2,2)
+            let tri_idx = [(0usize, 0usize), (0, 1), (0, 2), (1, 1), (1, 2), (2, 2)];
+            for (t_i, &(k, l)) in tri_idx.iter().enumerate() {
+                let mut grad = 0.0f32;
+                for rr in 0..3usize {
+                    for cc in 0..3usize {
+                        grad += dl_d_cc[rr][cc] * r[rr][k] * r[cc][l];
+                    }
+                }
+                // Off-diagonal entries appear symmetrically — factor of 2.
+                let scale = if k == l { 1.0 } else { 2.0 };
+                cov_grads[gi][t_i] += scale * grad;
             }
         }
 
         // ── Adam updates ──────────────────────────────────────────────────────
         self.opacity_adam.advance();
         self.color_adam.advance();
+        self.position_adam.advance();
+        self.covariance_adam.advance();
 
         const C0: f32 = 0.282_094_8;
+        const MIN_VARIANCE: f32 = 1e-6;
         for (i, g) in gaussians.iter_mut().enumerate() {
-            // Opacity update (clamp to (0, 1)).
+            // Opacity update (clamp to [0, 1]).
             let d_op = self
                 .opacity_adam
                 .delta(i, opacity_grads[i], self.config.lr_opacity);
@@ -254,12 +370,37 @@ impl GaussianOptimizer {
                     let d_sh = self.color_adam.delta(i * 3 + c, cg, self.config.lr_color);
                     g.sh_coefficients[c] -= d_sh;
                 }
-                // Keep the resulting colour plausible.
-                let max_sh = 0.5 / C0; // maps to colour = 1.0 after SH → RGB
+                let max_sh = 0.5 / C0;
                 for sh in g.sh_coefficients.iter_mut().take(3) {
                     *sh = sh.clamp(-max_sh, max_sh);
                 }
             }
+
+            // Position update.
+            let dp_x = self
+                .position_adam
+                .delta(i * 3, pos_grads[i][0], self.config.lr_position);
+            let dp_y =
+                self.position_adam
+                    .delta(i * 3 + 1, pos_grads[i][1], self.config.lr_position);
+            let dp_z =
+                self.position_adam
+                    .delta(i * 3 + 2, pos_grads[i][2], self.config.lr_position);
+            g.center.x -= dp_x;
+            g.center.y -= dp_y;
+            g.center.z -= dp_z;
+
+            // Covariance update — clamp diagonal entries to stay positive-semidefinite.
+            for (k, &cg) in cov_grads[i].iter().enumerate() {
+                let d_cov = self
+                    .covariance_adam
+                    .delta(i * 6 + k, cg, self.config.lr_covariance);
+                g.covariance[k] -= d_cov;
+            }
+            // Diagonal indices in the upper-triangle layout: 0 = σ_xx, 3 = σ_yy, 5 = σ_zz.
+            g.covariance[0] = g.covariance[0].max(MIN_VARIANCE);
+            g.covariance[3] = g.covariance[3].max(MIN_VARIANCE);
+            g.covariance[5] = g.covariance[5].max(MIN_VARIANCE);
         }
 
         loss
@@ -304,6 +445,14 @@ struct ProjectedSplat {
     cov2d: [f32; 3],
     /// View-independent colour (SH DC → RGB, clamped to [0, 1]).
     color: [f32; 3],
+
+    // ── Backward-pass cache ───────────────────────────────────────────────────
+    /// Camera-rotation matrix (world→cam, row-major 3×3) — needed to rotate
+    /// screen-space position gradients back to world space.
+    cam_rot: [[f32; 3]; 3],
+    /// Jacobian row entries [j00, j02, j11, j12] — needed for the position
+    /// and covariance backward pass.
+    jacobian: [f32; 4],
 }
 
 // ─── Rendering helpers ────────────────────────────────────────────────────────
@@ -432,6 +581,12 @@ fn project_splats(
             depth: pc[2],
             cov2d: [s11, s12, s22],
             color,
+            cam_rot: [
+                [cam_rot[(0, 0)], cam_rot[(0, 1)], cam_rot[(0, 2)]],
+                [cam_rot[(1, 0)], cam_rot[(1, 1)], cam_rot[(1, 2)]],
+                [cam_rot[(2, 0)], cam_rot[(2, 1)], cam_rot[(2, 2)]],
+            ],
+            jacobian: [j00, j02, j11, j12],
         });
     }
 
