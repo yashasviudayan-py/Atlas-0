@@ -33,6 +33,7 @@ crossbeam = "0.8"
 rayon = "1.10"
 bytes = "1.9"
 nokhwa = { version = "0.10.10", features = ["input-native"] }
+criterion = { version = "0.5", features = ["html_reports"] }
 
 # Workspace crates
 atlas-core = { path = "crates/atlas-core" }

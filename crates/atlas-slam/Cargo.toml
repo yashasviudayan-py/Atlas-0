@@ -16,3 +16,10 @@ tracing.workspace = true
 rayon.workspace = true
 crossbeam.workspace = true
 memmap2.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "optimizer_bench"
+harness = false
