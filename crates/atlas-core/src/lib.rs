@@ -10,6 +10,7 @@ pub mod error;
 pub mod frame;
 pub mod gaussian;
 pub mod semantic;
+pub mod shared_mem;
 pub mod spatial;
 
 pub use error::{AtlasError, Result};

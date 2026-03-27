@@ -13,3 +13,4 @@ nalgebra.workspace = true
 tracing.workspace = true
 prost.workspace = true
 bytes.workspace = true
+memmap2.workspace = true
