@@ -1,15 +1,17 @@
-//! Criterion benchmarks for the 3DGS optimization step.
+//! Criterion benchmarks for the 3DGS optimization and rendering hot paths.
 //!
 //! Run with:  `cargo bench -p atlas-slam`
 //!
-//! Performance budget (from DEVELOPMENT_PLAN.md):
-//!   single optimize_step < 10 ms for 100 K Gaussians
+//! Performance budgets (from DEVELOPMENT_PLAN.md):
+//!   - `optimize_step`  < 10 ms for 100 K Gaussians
+//!   - `render`         < 10 ms for 100 K Gaussians at 64×64
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use atlas_core::{Gaussian3D, Point3, Pose};
 use atlas_slam::config::CameraIntrinsics;
 use atlas_slam::optimizer::{GaussianOptimizer, OptimizerConfig};
+use atlas_slam::renderer::SplatRenderer;
 
 const WIDTH: u32 = 64;
 const HEIGHT: u32 = 64;
@@ -35,6 +37,8 @@ fn make_gaussians(n: usize) -> Vec<Gaussian3D> {
         .collect()
 }
 
+// ─── optimize_step benchmark ──────────────────────────────────────────────────
+
 fn bench_optimize_step(c: &mut Criterion) {
     let intrinsics = CameraIntrinsics::default();
     let pose = Pose::identity();
@@ -56,5 +60,24 @@ fn bench_optimize_step(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_optimize_step);
+// ─── render benchmark ─────────────────────────────────────────────────────────
+
+fn bench_render(c: &mut Criterion) {
+    let intrinsics = CameraIntrinsics::default();
+    let pose = Pose::identity();
+    let renderer = SplatRenderer::new(intrinsics, WIDTH, HEIGHT);
+
+    let mut group = c.benchmark_group("render");
+    group.measurement_time(std::time::Duration::from_secs(10));
+
+    for n in [1_000usize, 10_000, 100_000] {
+        let gaussians = make_gaussians(n);
+        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
+            b.iter(|| renderer.render_rgb(&gaussians, &pose));
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(benches, bench_optimize_step, bench_render);
 criterion_main!(benches);

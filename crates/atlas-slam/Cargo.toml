@@ -25,6 +25,7 @@ minifb = { version = "0.27", optional = true }
 
 [dev-dependencies]
 criterion.workspace = true
+tracing-subscriber = { workspace = true }
 
 [[bench]]
 name = "optimizer_bench"
