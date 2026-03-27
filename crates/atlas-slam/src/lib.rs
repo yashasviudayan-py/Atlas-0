@@ -13,6 +13,7 @@ pub mod keyframe;
 pub mod matching;
 pub mod optimizer;
 pub mod pose_estimation;
+pub mod renderer;
 pub mod tracker;
 
 use atlas_core::error::SlamError;
