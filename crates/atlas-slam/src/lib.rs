@@ -16,6 +16,9 @@ pub mod pose_estimation;
 pub mod renderer;
 pub mod tracker;
 
+#[cfg(feature = "viewer")]
+pub mod viewer;
+
 use atlas_core::error::SlamError;
 
 pub type Result<T> = std::result::Result<T, SlamError>;

@@ -5,6 +5,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+## Enable the real-time `minifb` display window.
+## Not enabled by default to avoid X11/Wayland system-library requirements in CI.
+viewer = ["dep:minifb"]
+
 [dependencies]
 atlas-core.workspace = true
 thiserror.workspace = true
@@ -16,6 +21,7 @@ tracing.workspace = true
 rayon.workspace = true
 crossbeam.workspace = true
 memmap2.workspace = true
+minifb = { version = "0.27", optional = true }
 
 [dev-dependencies]
 criterion.workspace = true
