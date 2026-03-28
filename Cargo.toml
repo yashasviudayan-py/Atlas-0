@@ -24,6 +24,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tokio = { version = "1", features = ["full"] }
 prost = "0.13"
+prost-build = "0.13"
+protox = "0.7"
 tonic = "0.12"
 nalgebra = "0.33"
 ndarray = "0.16"

@@ -14,3 +14,7 @@ tracing.workspace = true
 prost.workspace = true
 bytes.workspace = true
 memmap2.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true
+protox.workspace = true

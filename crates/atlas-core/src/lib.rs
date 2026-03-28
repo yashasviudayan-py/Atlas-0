@@ -9,6 +9,7 @@
 pub mod error;
 pub mod frame;
 pub mod gaussian;
+pub mod proto;
 pub mod semantic;
 pub mod shared_mem;
 pub mod spatial;
