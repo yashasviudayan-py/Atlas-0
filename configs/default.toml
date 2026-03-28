@@ -72,3 +72,11 @@ risk_threshold = 0.3
 host = "0.0.0.0"
 port = 8420
 cors_origins = ["http://localhost:3000"]
+
+[ipc]
+# Path to the memory-mapped Gaussian snapshot file.
+mmap_path = "/tmp/atlas.mmap"
+# Per-buffer capacity (Gaussians). Both writer and reader must agree.
+max_gaussians = 100000
+# Write a snapshot every N keyframes (reduces IPC overhead).
+snapshot_interval_keyframes = 5
