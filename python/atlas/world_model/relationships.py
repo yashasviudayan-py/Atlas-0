@@ -344,15 +344,20 @@ class RelationshipDetector:
             return False
         return self._horizontal_overlap_fraction(bbox_b, bbox_a) >= self._horiz_overlap
 
-    def _is_leaning(self, obj: SemanticObject) -> bool:
-        """True when the object is tall/narrow with its CoM near a lateral edge.
+    def _is_leaning(self, obj: SemanticObject, aspect_threshold: float = 3.0) -> bool:
+        """True when the object is tall and narrow — a physics proxy for tip risk.
 
-        Heuristic: the object's height exceeds twice its smallest horizontal
-        dimension AND its XZ centre is shifted more than 35% of the half-width
-        from the bbox centre.
+        A bounding box alone cannot reveal the true lean angle.  We use the
+        height-to-minimum-footprint-dimension ratio as a proxy: objects with a
+        high aspect ratio (e.g. bottles, floor lamps, stacked boxes) have their
+        centre of mass well above their support polygon and are more likely to
+        tip over when perturbed.
 
         Args:
             obj: Object to test.
+            aspect_threshold: Minimum height / min(width, depth) ratio to be
+                considered leaning.  Default 3.0 means three times taller than
+                its narrowest horizontal dimension.
         """
         bbox = obj.bbox
         width = bbox.x_max - bbox.x_min
@@ -362,12 +367,4 @@ class RelationshipDetector:
         if width < 1e-6 or depth < 1e-6 or height < 1e-6:
             return False
 
-        # Must be a tall narrow object
-        if height < 2.0 * min(width, depth):
-            return False
-
-        cx, _, cz = bbox.center
-        near_x_edge = abs(cx - (bbox.x_min + width / 2.0)) > 0.35 * width
-        near_z_edge = abs(cz - (bbox.z_min + depth / 2.0)) > 0.35 * depth
-
-        return near_x_edge or near_z_edge
+        return height / min(width, depth) >= aspect_threshold
