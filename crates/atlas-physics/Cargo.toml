@@ -12,3 +12,10 @@ serde.workspace = true
 nalgebra.workspace = true
 tracing.workspace = true
 rayon.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "physics_bench"
+harness = false
