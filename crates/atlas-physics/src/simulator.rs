@@ -1,26 +1,48 @@
 //! Physics simulator for "what-if" scenario predictions.
 //!
-//! [`Simulator`] runs lightweight rigid-body simulations for each semantic
-//! object to assess whether it is physically stable.  Two perturbation
-//! strategies are applied per object:
+//! This module provides two main abstractions:
 //!
-//! 1. **Gravity-only** — is the object already unstable in its current pose?
-//! 2. **Horizontal nudge** — does a small push cause it to fall?
+//! - [`Simulator`] — stateless engine that runs lightweight rigid-body
+//!   simulations to assess whether scene objects are physically stable.
+//!   Callers can choose between a quick two-perturbation assessment
+//!   ([`Simulator::assess_risks`]) or the full four-perturbation variant with
+//!   trajectory data ([`Simulator::assess_risks_detailed`]).
 //!
-//! The worst-case displacement is mapped to a probability and the risk is
-//! classified by type (Fall, Spill, TripHazard, Instability).
-//!
-//! The returned list is sorted by probability (highest first).
+//! - [`RiskLoop`] — background thread that continuously re-evaluates scene
+//!   risks, triggered by scene-change events.  Uses a priority queue to
+//!   simulate the most likely at-risk objects first.
 
-use atlas_core::semantic::{MaterialType, RiskAssessment, RiskType, SemanticObject};
+use std::sync::{
+    Arc, Mutex, RwLock,
+    mpsc::{self, RecvTimeoutError},
+};
+use std::time::Duration;
+
+use atlas_core::semantic::{MaterialType, RelationType, RiskAssessment, RiskType, SemanticObject};
 use atlas_core::spatial::Point3;
-use tracing::{debug, instrument};
+use serde::{Deserialize, Serialize};
+use tracing::{debug, instrument, warn};
 
 use crate::collision::CollisionDetector;
 use crate::config::PhysicsConfig;
 use crate::integrator::Integrator;
+use crate::perturbations::Perturbation;
 use crate::rigid_body::RigidBody;
 use crate::surfaces::{PlaneType, Surface};
+use crate::trajectory::{TrajectoryRecorder, TrajectoryResult};
+
+// ─── DetailedRiskAssessment ───────────────────────────────────────────────────
+
+/// A risk assessment enriched with full trajectory data.
+///
+/// Produced by [`Simulator::assess_risks_detailed`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetailedRiskAssessment {
+    /// Base risk fields (mirrors [`RiskAssessment`]).
+    pub base: RiskAssessment,
+    /// Predicted trajectory for the worst-case perturbation scenario.
+    pub trajectory: TrajectoryResult,
+}
 
 // ─── Simulator ─────────────────────────────────────────────────────────────────
 
@@ -134,6 +156,87 @@ impl Simulator {
         risks
     }
 
+    /// Assess risks using the full four-perturbation set with trajectory
+    /// recording.
+    ///
+    /// Unlike [`assess_risks`], this method:
+    ///
+    /// - Applies all four strategies from [`Perturbation::standard_set`].
+    /// - Combines their displacement scores using weighted averaging.
+    /// - Records the worst-case trajectory including impact energy and spill zone.
+    ///
+    /// Returns assessments sorted by probability (highest first).
+    ///
+    /// [`assess_risks`]: Simulator::assess_risks
+    #[instrument(skip(self, objects), fields(object_count = objects.len()))]
+    pub fn assess_risks_detailed(&self, objects: &[SemanticObject]) -> Vec<DetailedRiskAssessment> {
+        let perturbations = Perturbation::standard_set();
+        let mut results: Vec<DetailedRiskAssessment> = Vec::new();
+
+        for object in objects {
+            debug!(
+                object_id = object.id,
+                label = %object.label,
+                "assessing risk (detailed)"
+            );
+
+            let body = RigidBody::from_semantic_object(object);
+            let is_liquid = matches!(object.properties.material, MaterialType::Liquid);
+
+            let mut perturbation_scores: Vec<(f32, f32)> = Vec::new();
+            let mut worst_disp = 0.0f32;
+            let mut worst_traj: Option<TrajectoryResult> = None;
+
+            for p in &perturbations {
+                let (disp, traj) = self.run_simulation_with_trajectory(&body, p, is_liquid);
+                perturbation_scores.push((disp, p.weight));
+                if disp > worst_disp {
+                    worst_disp = disp;
+                    worst_traj = Some(traj);
+                }
+            }
+
+            if worst_disp <= 0.05 {
+                continue;
+            }
+
+            let combined_prob = Perturbation::combined_score(&perturbation_scores);
+            let risk_type = classify_risk(object, worst_disp);
+            let trajectory = worst_traj.unwrap_or_else(|| TrajectoryRecorder::new(10).finish(None));
+            let impact_point = trajectory.impact_point;
+            let description = format!(
+                "{}'{}'  may {} — predicted displacement {:.2} m",
+                if object.confidence > 0.7 {
+                    ""
+                } else {
+                    "(uncertain) "
+                },
+                object.label,
+                risk_type_verb(&risk_type),
+                worst_disp,
+            );
+
+            results.push(DetailedRiskAssessment {
+                base: RiskAssessment {
+                    object_id: object.id,
+                    risk_type,
+                    probability: combined_prob,
+                    impact_point,
+                    description,
+                },
+                trajectory,
+            });
+        }
+
+        results.sort_by(|a, b| {
+            b.base
+                .probability
+                .partial_cmp(&a.base.probability)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        results
+    }
+
     // ── Private simulation kernel ─────────────────────────────────────────────
 
     /// Run one perturbation scenario for `body` and return
@@ -197,6 +300,66 @@ impl Simulator {
 
         (displacement, impact)
     }
+
+    /// Run one perturbation scenario with trajectory recording.
+    ///
+    /// Returns `(displacement_m, TrajectoryResult)`.
+    ///
+    /// The perturbation's `extra_gravity` is applied as additional X/Z
+    /// acceleration each step (on top of the simulator's downward gravity).
+    fn run_simulation_with_trajectory(
+        &self,
+        body: &RigidBody,
+        perturbation: &Perturbation,
+        is_liquid: bool,
+    ) -> (f32, TrajectoryResult) {
+        let mut sim = body.clone();
+        sim.velocity = perturbation.initial_velocity;
+
+        let start = sim.position;
+        let mut recorder = TrajectoryRecorder::new(10).with_liquid(is_liquid);
+
+        for _ in 0..self.config.max_steps {
+            // Apply horizontal extra-gravity from this perturbation scenario.
+            let dt = self.config.timestep;
+            sim.velocity[0] += perturbation.extra_gravity[0] * dt;
+            sim.velocity[2] += perturbation.extra_gravity[2] * dt;
+
+            let contacts: Vec<_> = self
+                .surfaces
+                .iter()
+                .filter_map(|s| CollisionDetector::body_vs_surface(&sim, s))
+                .collect();
+
+            if !contacts.is_empty() {
+                recorder.record_impact(&sim);
+            }
+
+            Integrator::step(&mut sim, &contacts, &self.config);
+            recorder.record_step(&sim);
+
+            if sim.is_at_rest(self.config.rest_threshold) {
+                break;
+            }
+            if sim.position[1] < -10.0 {
+                break;
+            }
+        }
+
+        let impact_point = Some(Point3::new(
+            sim.position[0],
+            sim.position[1],
+            sim.position[2],
+        ));
+        let traj = recorder.finish(impact_point);
+
+        let dx = sim.position[0] - start[0];
+        let dy = sim.position[1] - start[1];
+        let dz = sim.position[2] - start[2];
+        let displacement = (dx * dx + dy * dy + dz * dz).sqrt();
+
+        (displacement, traj)
+    }
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -246,6 +409,172 @@ fn risk_type_verb(rt: &RiskType) -> &'static str {
         RiskType::Collision => "collide",
         RiskType::TripHazard => "cause a trip",
         RiskType::Instability => "become unstable",
+    }
+}
+
+// ─── Priority scoring ─────────────────────────────────────────────────────────
+
+/// Heuristic priority score for scheduling objects in the risk loop.
+///
+/// Higher score → object is simulated first (more likely to be at risk).
+///
+/// Factors:
+/// - Centre-of-mass height (elevated objects first).
+/// - Material fragility.
+/// - Structural relationship bonuses (leaning, hanging, on-top-of).
+///
+/// Returns a value in `[0, 1]`.
+pub(crate) fn object_priority(obj: &SemanticObject) -> f32 {
+    let height_factor = (obj.position.y / 2.0).clamp(0.0, 1.0);
+    let fragility_factor = obj.properties.fragility.clamp(0.0, 1.0);
+
+    let relation_bonus: f32 = obj
+        .relationships
+        .iter()
+        .map(|r| match r.relation_type {
+            RelationType::Leaning => 0.30,
+            RelationType::OnTopOf => 0.20,
+            RelationType::Hanging => 0.25,
+            _ => 0.0,
+        })
+        .sum::<f32>()
+        .min(0.5);
+
+    (height_factor * 0.4 + fragility_factor * 0.3 + relation_bonus).clamp(0.0, 1.0)
+}
+
+// ─── RiskLoop ─────────────────────────────────────────────────────────────────
+
+/// Background risk-assessment loop.
+///
+/// Spawns a worker thread that continuously re-evaluates scene risks whenever
+/// [`RiskLoop::trigger`] is called (or every 5 seconds at minimum).  The
+/// thread uses a priority queue (sorted by [`object_priority`]) to simulate
+/// the most at-risk objects first.
+///
+/// # Example
+/// ```no_run
+/// use atlas_physics::{simulator::RiskLoop, config::PhysicsConfig};
+///
+/// let loop_ = RiskLoop::spawn(PhysicsConfig::default());
+/// // Update the scene:
+/// loop_.update_scene(vec![], vec![]);
+/// // Read the latest results:
+/// let risks = loop_.latest_risks();
+/// loop_.stop();
+/// ```
+pub struct RiskLoop {
+    objects: Arc<RwLock<Vec<SemanticObject>>>,
+    surfaces: Arc<RwLock<Vec<Surface>>>,
+    risks: Arc<RwLock<Vec<RiskAssessment>>>,
+    trigger_tx: mpsc::Sender<bool>,
+    thread_handle: Mutex<Option<std::thread::JoinHandle<()>>>,
+}
+
+impl RiskLoop {
+    /// Spawn the background risk-assessment loop.
+    ///
+    /// The loop immediately waits for a trigger (or a 5-second timeout) before
+    /// running the first assessment.
+    #[must_use]
+    pub fn spawn(config: PhysicsConfig) -> Self {
+        let objects: Arc<RwLock<Vec<SemanticObject>>> = Arc::new(RwLock::new(Vec::new()));
+        let surfaces: Arc<RwLock<Vec<Surface>>> = Arc::new(RwLock::new(default_surfaces()));
+        let risks: Arc<RwLock<Vec<RiskAssessment>>> = Arc::new(RwLock::new(Vec::new()));
+
+        let (trigger_tx, trigger_rx) = mpsc::channel::<bool>();
+
+        let objs_clone = Arc::clone(&objects);
+        let surfs_clone = Arc::clone(&surfaces);
+        let risks_clone = Arc::clone(&risks);
+
+        let handle = std::thread::spawn(move || {
+            loop {
+                let should_run = match trigger_rx.recv_timeout(Duration::from_secs(5)) {
+                    Ok(false) | Err(RecvTimeoutError::Disconnected) => break, // stop signal
+                    Ok(true) | Err(RecvTimeoutError::Timeout) => true,
+                };
+                if !should_run {
+                    break;
+                }
+
+                let objs = match objs_clone.read() {
+                    Ok(guard) => guard.clone(),
+                    Err(e) => {
+                        warn!("risk_loop_objects_lock_poisoned: {e}");
+                        continue;
+                    }
+                };
+                if objs.is_empty() {
+                    continue;
+                }
+
+                let surfs = match surfs_clone.read() {
+                    Ok(guard) => guard.clone(),
+                    Err(e) => {
+                        warn!("risk_loop_surfaces_lock_poisoned: {e}");
+                        continue;
+                    }
+                };
+
+                // Sort objects by heuristic priority (highest first).
+                let mut sorted = objs;
+                sorted.sort_by(|a, b| {
+                    object_priority(b)
+                        .partial_cmp(&object_priority(a))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                let mut sim = Simulator::new(config.clone());
+                sim.set_surfaces(surfs);
+                let new_risks = sim.assess_risks(&sorted);
+
+                match risks_clone.write() {
+                    Ok(mut guard) => *guard = new_risks,
+                    Err(e) => warn!("risk_loop_risks_lock_poisoned: {e}"),
+                }
+            }
+        });
+
+        Self {
+            objects,
+            surfaces,
+            risks,
+            trigger_tx,
+            thread_handle: Mutex::new(Some(handle)),
+        }
+    }
+
+    /// Replace the current scene and trigger an immediate re-assessment.
+    pub fn update_scene(&self, objects: Vec<SemanticObject>, surfaces: Vec<Surface>) {
+        if let Ok(mut guard) = self.objects.write() {
+            *guard = objects;
+        }
+        if let Ok(mut guard) = self.surfaces.write() {
+            *guard = surfaces;
+        }
+        self.trigger();
+    }
+
+    /// Trigger an immediate re-assessment without changing scene data.
+    pub fn trigger(&self) {
+        let _ = self.trigger_tx.send(true);
+    }
+
+    /// Return a snapshot of the latest risk assessments.
+    #[must_use]
+    pub fn latest_risks(&self) -> Vec<RiskAssessment> {
+        self.risks.read().map(|g| g.clone()).unwrap_or_default()
+    }
+
+    /// Signal the background thread to stop and wait for it to exit.
+    pub fn stop(&self) {
+        let _ = self.trigger_tx.send(false);
+        if let Ok(mut guard) = self.thread_handle.lock()
+            && let Some(handle) = guard.take()
+        {
+            let _ = handle.join();
+        }
     }
 }
 
@@ -478,5 +807,250 @@ mod tests {
                 "falling object should record an impact point"
             );
         }
+    }
+
+    // ── assess_risks_detailed ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_detailed_empty_scene_returns_empty() {
+        let sim = Simulator::new(PhysicsConfig::default());
+        assert!(sim.assess_risks_detailed(&[]).is_empty());
+    }
+
+    #[test]
+    fn test_detailed_falling_object_has_trajectory() {
+        let mut sim = Simulator::new(PhysicsConfig::default());
+        sim.set_surfaces(vec![]); // no floor → guaranteed fall
+        let obj = make_object(
+            40,
+            "vase",
+            [0.0, 5.0, 0.0],
+            0.1,
+            0.3,
+            0.9,
+            MaterialType::Glass,
+        );
+        let detailed = sim.assess_risks_detailed(&[obj]);
+        assert!(
+            !detailed.is_empty(),
+            "elevated vase with no support must produce a risk"
+        );
+        // Trajectory must have at least one waypoint.
+        assert!(
+            !detailed[0].trajectory.waypoints.is_empty(),
+            "trajectory must have waypoints"
+        );
+    }
+
+    #[test]
+    fn test_detailed_liquid_has_spill_zone() {
+        let mut sim = Simulator::new(PhysicsConfig::default());
+        sim.set_surfaces(vec![]); // no floor
+        let obj = make_object(
+            41,
+            "water_glass",
+            [0.0, 3.0, 0.0],
+            0.05,
+            0.2,
+            0.9,
+            MaterialType::Liquid,
+        );
+        let detailed = sim.assess_risks_detailed(&[obj]);
+        assert!(!detailed.is_empty());
+        assert!(
+            detailed[0].trajectory.spill_zone.is_some(),
+            "liquid object must have a spill zone"
+        );
+    }
+
+    #[test]
+    fn test_detailed_sorted_by_probability_descending() {
+        let mut sim = Simulator::new(PhysicsConfig::default());
+        sim.set_surfaces(vec![]); // all fall freely
+        let objects = vec![
+            make_object(
+                50,
+                "vase",
+                [0.0, 10.0, 0.0],
+                0.1,
+                0.2,
+                0.9,
+                MaterialType::Glass,
+            ),
+            make_object(
+                51,
+                "book",
+                [0.0, 2.0, 0.0],
+                0.15,
+                0.5,
+                0.2,
+                MaterialType::Wood,
+            ),
+        ];
+        let detailed = sim.assess_risks_detailed(&objects);
+        if detailed.len() >= 2 {
+            assert!(
+                detailed[0].base.probability >= detailed[1].base.probability,
+                "results must be sorted by probability descending"
+            );
+        }
+    }
+
+    // ── object_priority ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_priority_elevated_fragile_is_high() {
+        use super::object_priority;
+        use atlas_core::semantic::{ObjectRelation, RelationType};
+        let mut obj = make_object(
+            60,
+            "vase",
+            [0.0, 4.0, 0.0],
+            0.1,
+            0.3,
+            0.95,
+            MaterialType::Glass,
+        );
+        obj.relationships.push(ObjectRelation {
+            target_id: 0,
+            relation_type: RelationType::OnTopOf,
+        });
+        let p = object_priority(&obj);
+        assert!(
+            p > 0.5,
+            "elevated fragile object should have high priority, got {p}"
+        );
+    }
+
+    #[test]
+    fn test_priority_floor_level_low_fragility_is_low() {
+        use super::object_priority;
+        let obj = make_object(
+            61,
+            "block",
+            [0.0, 0.1, 0.0],
+            0.5,
+            5.0,
+            0.05,
+            MaterialType::Metal,
+        );
+        let p = object_priority(&obj);
+        assert!(
+            p < 0.5,
+            "low, robust object should have low priority, got {p}"
+        );
+    }
+
+    #[test]
+    fn test_priority_leaning_adds_bonus() {
+        use super::object_priority;
+        use atlas_core::semantic::{ObjectRelation, RelationType};
+        let base = make_object(
+            62,
+            "lamp",
+            [0.0, 1.0, 0.0],
+            0.1,
+            0.5,
+            0.5,
+            MaterialType::Plastic,
+        );
+        let mut leaning = base.clone();
+        leaning.relationships.push(ObjectRelation {
+            target_id: 0,
+            relation_type: RelationType::Leaning,
+        });
+        assert!(
+            object_priority(&leaning) > object_priority(&base),
+            "leaning object should have higher priority"
+        );
+    }
+
+    #[test]
+    fn test_priority_bounded_zero_one() {
+        use super::object_priority;
+        use atlas_core::semantic::{ObjectRelation, RelationType};
+        let mut obj = make_object(
+            63,
+            "any",
+            [0.0, 100.0, 0.0],
+            1.0,
+            1.0,
+            1.0,
+            MaterialType::Glass,
+        );
+        obj.relationships = vec![
+            ObjectRelation {
+                target_id: 0,
+                relation_type: RelationType::Leaning,
+            },
+            ObjectRelation {
+                target_id: 1,
+                relation_type: RelationType::OnTopOf,
+            },
+            ObjectRelation {
+                target_id: 2,
+                relation_type: RelationType::Hanging,
+            },
+        ];
+        let p = object_priority(&obj);
+        assert!((0.0..=1.0).contains(&p), "priority {p} out of [0, 1]");
+    }
+
+    // ── RiskLoop ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_risk_loop_starts_with_empty_risks() {
+        let loop_ = super::RiskLoop::spawn(PhysicsConfig::default());
+        assert!(
+            loop_.latest_risks().is_empty(),
+            "risk loop must start with no risks"
+        );
+        loop_.stop();
+    }
+
+    #[test]
+    fn test_risk_loop_produces_risks_for_unstable_scene() {
+        let loop_ = super::RiskLoop::spawn(PhysicsConfig::default());
+
+        // Elevated vase with no support → should be at risk.
+        let obj = make_object(
+            70,
+            "vase",
+            [0.0, 5.0, 0.0],
+            0.05,
+            0.2,
+            0.9,
+            MaterialType::Glass,
+        );
+        loop_.update_scene(vec![obj], vec![]); // no surfaces → free fall
+
+        // Poll for up to 2 seconds.
+        let mut risks = vec![];
+        for _ in 0..200 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            risks = loop_.latest_risks();
+            if !risks.is_empty() {
+                break;
+            }
+        }
+        loop_.stop();
+
+        assert!(!risks.is_empty(), "risk loop must eventually produce risks");
+    }
+
+    #[test]
+    fn test_risk_loop_stop_does_not_panic() {
+        let loop_ = super::RiskLoop::spawn(PhysicsConfig::default());
+        loop_.stop(); // Should complete cleanly with no objects.
+    }
+
+    #[test]
+    fn test_risk_loop_trigger_reruns_assessment() {
+        let loop_ = super::RiskLoop::spawn(PhysicsConfig::default());
+        // Trigger without objects → stays empty.
+        loop_.trigger();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(loop_.latest_risks().is_empty());
+        loop_.stop();
     }
 }
