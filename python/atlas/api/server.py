@@ -10,15 +10,17 @@ Provides endpoints for:
 from __future__ import annotations
 
 import asyncio
-from typing import Annotated
+from typing import Annotated, Any
 
 import structlog
-from fastapi import Depends, FastAPI, WebSocket
+from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+from atlas.api.overlay import CameraParams, OverlayBuilder
 from atlas.world_model.agent import RiskEntry, WorldModelAgent, WorldModelConfig
 from atlas.world_model.query_parser import QueryParser, QueryType
 from atlas.world_model.relationships import RelationType, SemanticObject
+from atlas.world_model.risk_aggregator import RiskAggregator
 
 logger = structlog.get_logger(__name__)
 
@@ -31,7 +33,7 @@ app = FastAPI(
 # ── Application state ─────────────────────────────────────────────────────────
 # Stored in a dict to avoid `global` statements (PLW0603).
 
-_state: dict[str, WorldModelAgent] = {}
+_state: dict[str, Any] = {}
 _query_parser = QueryParser()
 
 
@@ -45,6 +47,20 @@ def _get_agent() -> WorldModelAgent:
 def _set_agent(agent: WorldModelAgent) -> None:
     """Replace the singleton agent — used by tests to inject a mock."""
     _state["agent"] = agent
+
+
+def _get_aggregator() -> RiskAggregator:
+    """Return the singleton :class:`~atlas.world_model.risk_aggregator.RiskAggregator`."""
+    if "aggregator" not in _state:
+        _state["aggregator"] = RiskAggregator()
+    return _state["aggregator"]  # type: ignore[return-value]
+
+
+def _get_overlay_builder() -> OverlayBuilder:
+    """Return the singleton :class:`~atlas.api.overlay.OverlayBuilder`."""
+    if "overlay_builder" not in _state:
+        _state["overlay_builder"] = OverlayBuilder(camera=CameraParams())
+    return _state["overlay_builder"]  # type: ignore[return-value]
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
@@ -109,6 +125,37 @@ class SceneState(BaseModel):
     objects: list[ObjectInfo]
     risk_count: int
     risks: list[RiskInfo]
+
+
+class OverlayRiskEntry(BaseModel):
+    """Richer risk payload sent over the WebSocket delta stream.
+
+    Carries physics + heuristic merged scores, trajectory data, and
+    pre-built overlay primitives ready for the Three.js renderer.
+    """
+
+    object_id: int
+    object_label: str
+    position: list[float] | None
+    combined_score: float
+    physics_score: float
+    heuristic_score: float
+    risk_type: str
+    impact_point: list[float] | None
+    trajectory_points: list[list[float]] | None
+    description: str
+    overlay: dict[str, Any]
+
+
+class RiskDeltaMessage(BaseModel):
+    """Delta update message pushed over ``/ws/risks``.
+
+    Only items that changed since the previous tick are included.
+    """
+
+    added: list[OverlayRiskEntry]
+    updated: list[OverlayRiskEntry]
+    removed: list[int]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -306,20 +353,97 @@ async def risk_stream(
     websocket: WebSocket,
     agent: Annotated[WorldModelAgent, Depends(_get_agent)],
 ) -> None:
-    """Stream real-time risk assessments to the AR overlay.
+    """Stream real-time risk delta updates to the AR overlay.
 
-    Sends the current risk list as a JSON object every second.
-    Only the ``risks`` key is sent — callers should diff against
-    their previous state to detect additions / removals.
+    Each message is a :class:`RiskDeltaMessage` JSON object containing only
+    the entries that changed since the previous tick:
+
+    .. code-block:: json
+
+        {
+          "added":   [{ ...OverlayRiskEntry... }],
+          "updated": [{ ...OverlayRiskEntry... }],
+          "removed": [42, 7]
+        }
+
+    Unchanged entries are omitted to minimise bandwidth.  The frontend should
+    maintain its own risk map keyed by ``object_id`` and apply the delta.
+
+    The stream includes pre-built overlay primitives (risk zones, trajectory
+    arcs, impact zones, alert text) for direct use by the Three.js renderer.
     """
     await websocket.accept()
+    aggregator = _get_aggregator()
+    overlay_builder = _get_overlay_builder()
+    # Track previous scores to detect changes; map object_id → combined_score.
+    prev_scores: dict[int, float] = {}
+
     try:
         while True:
-            risks = await agent.get_risks()
-            await websocket.send_json({"risks": [_to_risk_info(r).model_dump() for r in risks]})
+            # Sync heuristic risks from the agent into the aggregator.
+            heuristic_risks = await agent.get_risks()
+            aggregator.update_heuristic_risks(heuristic_risks)
+
+            current = aggregator.get_top_risks()
+            current_ids = {r.object_id for r in current}
+
+            removed = [oid for oid in prev_scores if oid not in current_ids]
+
+            added: list[OverlayRiskEntry] = []
+            updated: list[OverlayRiskEntry] = []
+
+            for risk in current:
+                overlay_primitives = overlay_builder.build_from_risk(risk)
+                overlay_payload = {
+                    "risk_zone": overlay_primitives["risk_zone"].to_dict(),
+                    "trajectory_arc": (
+                        overlay_primitives["trajectory_arc"].to_dict()
+                        if overlay_primitives["trajectory_arc"] is not None
+                        else None
+                    ),
+                    "impact_zone": (
+                        overlay_primitives["impact_zone"].to_dict()
+                        if overlay_primitives["impact_zone"] is not None
+                        else None
+                    ),
+                    "alert": overlay_primitives["alert"].to_dict(),
+                }
+
+                traj_arc = overlay_primitives["trajectory_arc"]
+                entry = OverlayRiskEntry(
+                    object_id=risk.object_id,
+                    object_label=risk.object_label,
+                    position=list(risk.position) if risk.position is not None else None,
+                    combined_score=risk.combined_score,
+                    physics_score=risk.physics_score,
+                    heuristic_score=risk.heuristic_score,
+                    risk_type=risk.risk_type,
+                    impact_point=(
+                        list(risk.impact_point) if risk.impact_point is not None else None
+                    ),
+                    trajectory_points=(
+                        [list(p) for p in traj_arc.points] if traj_arc is not None else None
+                    ),
+                    description=risk.description,
+                    overlay=overlay_payload,
+                )
+
+                if risk.object_id not in prev_scores:
+                    added.append(entry)
+                elif abs(risk.combined_score - prev_scores[risk.object_id]) > 0.01:
+                    updated.append(entry)
+
+            prev_scores = {r.object_id: r.combined_score for r in current}
+
+            if added or updated or removed:
+                msg = RiskDeltaMessage(added=added, updated=updated, removed=removed)
+                await websocket.send_json(msg.model_dump())
+
             await asyncio.sleep(1.0)
-    except Exception:
+    except WebSocketDisconnect:
         pass
+    except Exception as exc:
+        logger.warning("ws_risks_error", error=str(exc))
     finally:
         await websocket.close()
 
@@ -390,4 +514,12 @@ def _to_risk_info(risk: RiskEntry) -> RiskInfo:
 
 
 # Re-export for convenience (e.g. tests that patch the agent).
-__all__ = ["RelationType", "_get_agent", "_set_agent", "_state", "app"]
+__all__ = [
+    "RelationType",
+    "_get_agent",
+    "_get_aggregator",
+    "_get_overlay_builder",
+    "_set_agent",
+    "_state",
+    "app",
+]
