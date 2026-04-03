@@ -136,6 +136,8 @@ class AggregatedRisk:
         impact_point: Predicted impact location or ``None``.
         description: Pipe-separated descriptions from contributing sources.
         sources: Which sources contributed, e.g. ``["physics", "heuristic"]``.
+        position: World-space object centre ``(x, y, z)`` from the heuristic
+            source, or ``None`` when only physics data is available.
     """
 
     object_id: int
@@ -147,6 +149,7 @@ class AggregatedRisk:
     impact_point: tuple[float, float, float] | None
     description: str
     sources: list[str]
+    position: tuple[float, float, float] | None = None
 
 
 # ─── RiskAggregator ───────────────────────────────────────────────────────────
@@ -285,6 +288,7 @@ class RiskAggregator:
             label = heur.object_label if heur else f"object_{oid}"
             risk_type = phys.risk_type if phys else "Instability"
             impact_point = phys.impact_point if phys else None
+            position = heur.position if heur else None
 
             desc_parts: list[str] = []
             if phys and phys.description:
@@ -310,6 +314,7 @@ class RiskAggregator:
                     impact_point=impact_point,
                     description=description,
                     sources=sources,
+                    position=position,
                 )
             )
 
