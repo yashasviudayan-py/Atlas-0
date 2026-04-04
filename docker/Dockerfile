@@ -29,10 +29,15 @@ COPY pyproject.toml .
 COPY python/ python/
 RUN pip install --no-cache-dir -e ".[ml]"
 
-# Copy configs
+# Copy configs, schemas, and frontend
 COPY configs/ configs/
 COPY proto/ proto/
+COPY frontend/ frontend/
 
 EXPOSE 8420
+
+# Liveness probe: GET /health must return 200 within 5s.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8420/health')"
 
 CMD ["uvicorn", "atlas.api.server:app", "--host", "0.0.0.0", "--port", "8420"]
