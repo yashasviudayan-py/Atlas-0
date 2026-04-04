@@ -113,6 +113,10 @@ class WorldModelAgent:
         # Rate-limiting: monotonic timestamp of the last VLM call.
         self._last_vlm_time: float = 0.0
 
+        # Staleness tracking: monotonic timestamp of the last *successful*
+        # assessment cycle.  0.0 means no assessment has completed yet.
+        self._last_assessment_time: float = 0.0
+
         # Shared-memory reader (lazy-initialised on first assessment).
         self._shared_mem_reader: object | None = None
 
@@ -127,6 +131,21 @@ class WorldModelAgent:
     def vlm_active(self) -> bool:
         """``True`` if the VLM engine has been successfully initialised."""
         return self._vlm_initialized
+
+    @property
+    def risks_stale_seconds(self) -> float:
+        """Seconds since the last successful assessment cycle.
+
+        Returns ``float('inf')`` when no assessment has completed yet, so
+        callers can treat any large value as "data not available".
+
+        Returns:
+            Elapsed seconds since the last successful :meth:`_assess_scene`
+            call, or ``float('inf')`` if no assessment has run.
+        """
+        if self._last_assessment_time == 0.0:
+            return float("inf")
+        return time.monotonic() - self._last_assessment_time
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -211,11 +230,14 @@ class WorldModelAgent:
         for region in regions:
             await self._rate_limit_vlm()
 
+            _vlm_start = time.monotonic()
             label = await self._vlm.label_region(
                 region.image_bytes,
                 region_hint=f"region {region.region_id}",
             )
+            _vlm_elapsed = time.monotonic() - _vlm_start
             self._last_vlm_time = time.monotonic()
+            self._record_vlm_latency(_vlm_elapsed)
 
             updated = self._label_store.update(region.region_id, label)
             logger.debug(
@@ -250,6 +272,8 @@ class WorldModelAgent:
 
         async with self._risks_lock:
             self._risks = risks
+
+        self._last_assessment_time = time.monotonic()
 
         logger.debug(
             "scene_assessed",
@@ -315,6 +339,20 @@ class WorldModelAgent:
         if "leaning" in rel_types:
             parts.append("unstable/leaning")
         return ", ".join(parts)
+
+    @staticmethod
+    def _record_vlm_latency(elapsed: float) -> None:
+        """Record *elapsed* seconds to the Prometheus VLM histogram if available.
+
+        Args:
+            elapsed: Duration of the VLM call in seconds.
+        """
+        try:
+            from atlas.api.metrics import vlm_request_seconds  # type: ignore[attr-defined]
+
+            vlm_request_seconds.observe(elapsed)
+        except Exception:  # pragma: no cover — metrics import failure is non-fatal
+            pass
 
     def _get_snapshot(self) -> object | None:
         """Read the latest Gaussian map snapshot from shared memory.
