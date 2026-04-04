@@ -10,12 +10,26 @@ Provides endpoints for:
 from __future__ import annotations
 
 import asyncio
+import pathlib
 from typing import Annotated, Any
 
 import structlog
 from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from atlas.api.metrics import (
+    CONTENT_TYPE_LATEST,
+    REGISTRY,
+    assessment_age_seconds,
+    generate_latest,
+    object_count,
+    query_total,
+    risk_count,
+    slam_active,
+    ws_clients_active,
+)
 from atlas.api.overlay import CameraParams, OverlayBuilder
 from atlas.world_model.agent import RiskEntry, WorldModelAgent, WorldModelConfig
 from atlas.world_model.query_parser import QueryParser, QueryType
@@ -29,6 +43,14 @@ app = FastAPI(
     description="Spatial Reasoning & Physical World-Model Engine API",
     version="0.1.0",
 )
+
+# ── Static frontend ───────────────────────────────────────────────────────────
+# Serve the Three.js AR overlay frontend from the repo's frontend/ directory.
+# The mount is optional: if the directory doesn't exist (e.g. stripped Docker
+# layer) the API still starts normally.
+_FRONTEND_DIR = pathlib.Path(__file__).parents[3] / "frontend"
+if _FRONTEND_DIR.exists():
+    app.mount("/app", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")
 
 # ── Application state ─────────────────────────────────────────────────────────
 # Stored in a dict to avoid `global` statements (PLW0603).
@@ -75,6 +97,7 @@ class HealthResponse(BaseModel):
     frame_count: int
     object_count: int
     risk_count: int
+    risks_stale_seconds: float
 
 
 class SpatialQuery(BaseModel):
@@ -173,6 +196,14 @@ async def health_check(
     """
     objects = agent.get_objects_sync()
     risks = await agent.get_risks()
+    stale = agent.risks_stale_seconds
+    # -1.0 means "no assessment has completed yet" (JSON can't encode inf).
+    stale_json = stale if stale != float("inf") else -1.0
+    # Update Prometheus gauges on every health poll.
+    object_count.set(len(objects))
+    risk_count.set(len(risks))
+    slam_active.set(0)
+    assessment_age_seconds.set(stale_json)
     return HealthResponse(
         status="ok",
         slam_active=False,  # Phase 1/2 integration — Part 8
@@ -180,6 +211,7 @@ async def health_check(
         frame_count=0,
         object_count=len(objects),
         risk_count=len(risks),
+        risks_stale_seconds=stale_json,
     )
 
 
@@ -308,6 +340,7 @@ async def spatial_query(
             if len(results) >= query.max_results:
                 break
 
+    query_total.inc()
     logger.info(
         "spatial_query_resolved",
         query=query.query,
@@ -348,6 +381,26 @@ async def get_scene(
     )
 
 
+@app.get("/metrics", include_in_schema=False)
+def prometheus_metrics() -> Response:
+    """Expose Prometheus metrics for scraping.
+
+    Returns metrics in the standard Prometheus text exposition format.
+    Compatible with any Prometheus-compatible scraper (Prometheus, Grafana
+    Agent, VictoriaMetrics, etc.).
+
+    The endpoint is excluded from the OpenAPI schema to avoid cluttering
+    the Swagger UI.
+
+    Returns:
+        Plain-text Prometheus metrics response.
+    """
+    return Response(
+        content=generate_latest(REGISTRY),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+
+
 @app.websocket("/ws/risks")
 async def risk_stream(
     websocket: WebSocket,
@@ -373,6 +426,7 @@ async def risk_stream(
     arcs, impact zones, alert text) for direct use by the Three.js renderer.
     """
     await websocket.accept()
+    ws_clients_active.inc()
     aggregator = _get_aggregator()
     overlay_builder = _get_overlay_builder()
     # Track previous scores to detect changes; map object_id → combined_score.
@@ -445,6 +499,7 @@ async def risk_stream(
     except Exception as exc:
         logger.warning("ws_risks_error", error=str(exc))
     finally:
+        ws_clients_active.dec()
         await websocket.close()
 
 
@@ -522,4 +577,5 @@ __all__ = [
     "_set_agent",
     "_state",
     "app",
+    "prometheus_metrics",
 ]
