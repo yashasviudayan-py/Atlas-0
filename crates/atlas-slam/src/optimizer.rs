@@ -591,11 +591,7 @@ fn project_splats(
     }
 
     // Sort front-to-back so that alpha compositing is correct.
-    splats.sort_by(|a, b| {
-        a.depth
-            .partial_cmp(&b.depth)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    splats.sort_by(|a, b| a.depth.total_cmp(&b.depth));
 
     splats
 }

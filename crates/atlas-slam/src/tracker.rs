@@ -359,11 +359,9 @@ impl Tracker {
         // 6. Prune any Gaussians that have grown over the map limit.
         if self.map.len() > self.config.max_gaussians {
             // Keep the highest-opacity Gaussians.
-            self.map.gaussians.sort_by(|a, b| {
-                b.opacity
-                    .partial_cmp(&a.opacity)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+            self.map
+                .gaussians
+                .sort_by(|a, b| b.opacity.total_cmp(&a.opacity));
             self.map.gaussians.truncate(self.config.max_gaussians);
         }
     }

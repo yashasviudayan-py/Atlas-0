@@ -294,11 +294,7 @@ fn grid_nms(
     cell_size: u32,
     max_kps: usize,
 ) -> Vec<KeyPoint> {
-    keypoints.sort_by(|a, b| {
-        b.response
-            .partial_cmp(&a.response)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    keypoints.sort_by(|a, b| b.response.total_cmp(&a.response));
 
     let cols = width.div_ceil(cell_size);
     let rows = height.div_ceil(cell_size);

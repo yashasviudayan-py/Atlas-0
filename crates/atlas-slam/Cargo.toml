@@ -12,6 +12,7 @@ viewer = ["dep:minifb"]
 
 [dependencies]
 atlas-core.workspace = true
+atlas-stream.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 nalgebra.workspace = true
