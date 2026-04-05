@@ -10,11 +10,21 @@ Provides endpoints for:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import pathlib
+import uuid
 from typing import Annotated, Any
 
 import structlog
-from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -31,6 +41,7 @@ from atlas.api.metrics import (
     ws_clients_active,
 )
 from atlas.api.overlay import CameraParams, OverlayBuilder
+from atlas.vlm.inference import VLMConfig, VLMEngine
 from atlas.world_model.agent import RiskEntry, WorldModelAgent, WorldModelConfig
 from atlas.world_model.query_parser import QueryParser, QueryType
 from atlas.world_model.relationships import RelationType, SemanticObject
@@ -38,10 +49,23 @@ from atlas.world_model.risk_aggregator import RiskAggregator
 
 logger = structlog.get_logger(__name__)
 
+
+@contextlib.asynccontextmanager
+async def _lifespan(application: FastAPI):  # type: ignore[type-arg]
+    """Start the world-model agent on server startup; stop it on shutdown."""
+    agent = _get_agent()
+    await agent.start()
+    logger.info("world_model_agent_started_via_lifespan")
+    yield
+    await agent.stop()
+    logger.info("world_model_agent_stopped_via_lifespan")
+
+
 app = FastAPI(
     title="Atlas-0",
     description="Spatial Reasoning & Physical World-Model Engine API",
     version="0.1.0",
+    lifespan=_lifespan,
 )
 
 # ── Static frontend ───────────────────────────────────────────────────────────
@@ -568,14 +592,190 @@ def _to_risk_info(risk: RiskEntry) -> RiskInfo:
     )
 
 
+# ── Upload job models ─────────────────────────────────────────────────────────
+
+_IMAGE_TYPES = frozenset({"image/jpeg", "image/png", "image/webp", "image/gif", "image/bmp"})
+_VIDEO_TYPES = frozenset({"video/mp4", "video/quicktime", "video/webm", "video/x-msvideo"})
+
+# In-memory job store (keyed by job_id).
+_upload_jobs: dict[str, dict[str, Any]] = {}
+
+
+class UploadJobStatus(BaseModel):
+    """Status of a media upload and analysis job."""
+
+    job_id: str
+    filename: str
+    status: str  # queued | processing | complete | error
+    stage: str  # upload | ingest | vlm | risk | complete
+    progress: float
+    objects: list[dict[str, Any]] | None = None
+    risks: list[dict[str, Any]] | None = None
+    error: str | None = None
+
+
+async def _get_or_init_upload_vlm() -> VLMEngine:
+    """Return a cached, initialised :class:`VLMEngine` for upload analysis."""
+    if "upload_vlm" not in _state:
+        engine = VLMEngine(VLMConfig())
+        await engine.initialize()
+        _state["upload_vlm"] = engine
+    return _state["upload_vlm"]  # type: ignore[return-value]
+
+
+async def _process_upload(job_id: str, content: bytes, content_type: str) -> None:
+    """Background task: run the file through the analysis pipeline."""
+    job = _upload_jobs[job_id]
+
+    try:
+        job.update({"status": "processing", "stage": "ingest", "progress": 0.15})
+        await asyncio.sleep(0.3)
+
+        is_image = content_type in _IMAGE_TYPES or content_type.startswith("image/")
+        is_video = content_type in _VIDEO_TYPES or content_type.startswith("video/")
+
+        if is_image:
+            job.update({"stage": "vlm", "progress": 0.4})
+            engine = await _get_or_init_upload_vlm()
+            label = await engine.label_region(content, region_hint="uploaded scene image")
+
+            job.update({"stage": "risk", "progress": 0.75})
+            await asyncio.sleep(0.2)
+
+            mass_factor = min(label.mass_kg / 20.0, 0.3) * 0.3
+            risk_score = min(1.0, label.fragility * 0.4 + mass_factor + 0.1)
+            objects = [
+                {
+                    "label": label.label,
+                    "material": label.material,
+                    "mass_kg": label.mass_kg,
+                    "fragility": label.fragility,
+                    "friction": label.friction,
+                    "confidence": label.confidence,
+                }
+            ]
+            risks = (
+                [
+                    {
+                        "object_label": label.label,
+                        "risk_score": round(risk_score, 3),
+                        "description": (
+                            f"{label.label} — fragility {label.fragility:.2f}, "
+                            f"mass {label.mass_kg:.1f} kg"
+                        ),
+                    }
+                ]
+                if risk_score > 0.25
+                else []
+            )
+            job.update(
+                {
+                    "status": "complete",
+                    "stage": "complete",
+                    "progress": 1.0,
+                    "objects": objects,
+                    "risks": risks,
+                }
+            )
+
+        elif is_video:
+            # Videos require the Rust SLAM pipeline for full 3-D reconstruction.
+            job.update({"stage": "vlm", "progress": 0.5})
+            await asyncio.sleep(0.8)
+            job.update(
+                {
+                    "status": "complete",
+                    "stage": "complete",
+                    "progress": 1.0,
+                    "objects": [],
+                    "risks": [],
+                    "error": (
+                        "Video requires the Rust SLAM pipeline (Phase 1). "
+                        "Start the Rust engine to enable full 3-D reconstruction."
+                    ),
+                }
+            )
+        else:
+            msg = f"Unsupported file type: {content_type!r}"
+            raise ValueError(msg)
+
+    except Exception as exc:
+        logger.warning("upload_processing_failed", job_id=job_id, error=str(exc))
+        job.update({"status": "error", "progress": 1.0, "error": str(exc)})
+
+
+# ── Upload endpoints ──────────────────────────────────────────────────────────
+
+
+@app.post("/upload", response_model=UploadJobStatus)
+async def upload_media(file: Annotated[UploadFile, File()]) -> UploadJobStatus:
+    """Accept an image or video file and run it through the analysis pipeline.
+
+    Returns immediately with a ``job_id``. Poll ``GET /jobs/{job_id}`` for
+    status updates as the file moves through the pipeline stages:
+    ``upload → ingest → vlm → risk → complete``.
+
+    Supported image formats: JPEG, PNG, WEBP, GIF.
+    Video formats (MP4, MOV, WEBM) are accepted but require the Rust SLAM
+    pipeline for full 3-D reconstruction.
+    """
+    job_id = uuid.uuid4().hex[:8]
+    filename = file.filename or "unknown"
+    content_type = file.content_type or ""
+
+    job: dict[str, Any] = {
+        "job_id": job_id,
+        "filename": filename,
+        "status": "queued",
+        "stage": "upload",
+        "progress": 0.0,
+        "objects": None,
+        "risks": None,
+        "error": None,
+    }
+    _upload_jobs[job_id] = job
+
+    content = await file.read()
+    job.update({"stage": "upload", "progress": 0.1})
+
+    _task = asyncio.create_task(_process_upload(job_id, content, content_type))
+    _state.setdefault("_tasks", []).append(_task)
+
+    logger.info("upload_accepted", job_id=job_id, filename=filename, content_type=content_type)
+    return UploadJobStatus(**job)
+
+
+@app.get("/jobs", response_model=list[UploadJobStatus])
+def list_upload_jobs() -> list[UploadJobStatus]:
+    """List all upload jobs and their current status."""
+    return [UploadJobStatus(**j) for j in _upload_jobs.values()]
+
+
+@app.get("/jobs/{job_id}", response_model=UploadJobStatus)
+def get_upload_job(job_id: str) -> UploadJobStatus:
+    """Return the current status of a specific upload job.
+
+    Args:
+        job_id: The 8-character hex job ID returned by ``POST /upload``.
+
+    Raises:
+        HTTPException: 404 if the job is not found.
+    """
+    if job_id not in _upload_jobs:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+    return UploadJobStatus(**_upload_jobs[job_id])
+
+
 # Re-export for convenience (e.g. tests that patch the agent).
 __all__ = [
     "RelationType",
+    "UploadJobStatus",
     "_get_agent",
     "_get_aggregator",
     "_get_overlay_builder",
     "_set_agent",
     "_state",
+    "_upload_jobs",
     "app",
     "prometheus_metrics",
 ]
