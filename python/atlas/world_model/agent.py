@@ -369,8 +369,12 @@ class WorldModelAgent:
             from atlas.utils.shared_mem import SharedMemReader  # type: ignore[attr-defined]
 
             if self._shared_mem_reader is None:
-                mmap_path = os.environ.get("ATLAS_MMAP_PATH", "/tmp/atlas_gaussians.bin")
-                self._shared_mem_reader = SharedMemReader(mmap_path)
+                mmap_path = os.environ.get("ATLAS_MMAP_PATH", "/tmp/atlas.mmap")
+                max_gaussians = int(os.environ.get("ATLAS_MAX_GAUSSIANS", "100000"))
+                self._shared_mem_reader = SharedMemReader(
+                    path=mmap_path,  # type: ignore[arg-type]
+                    max_gaussians=max_gaussians,
+                )
 
             return self._shared_mem_reader.get_latest_snapshot()  # type: ignore[union-attr]
         except Exception:
