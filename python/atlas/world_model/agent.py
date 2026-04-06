@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 import structlog
 
-from atlas.vlm.inference import VLMConfig, VLMEngine
+from atlas.vlm.inference import SemanticLabel, VLMConfig, VLMEngine
 from atlas.vlm.region_extractor import BoundingBox, RegionExtractor
 from atlas.world_model.label_store import LabelStore
 from atlas.world_model.relationships import RelationshipDetector, SemanticObject
@@ -393,6 +393,74 @@ class WorldModelAgent:
             *assessment_interval_seconds*).
         """
         return list(self._cached_objects)
+
+    async def ingest_from_upload(
+        self,
+        label: SemanticLabel,
+        position: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    ) -> int:
+        """Register an upload-derived label directly into the world model.
+
+        Called by the upload pipeline after VLM analysis so that the object
+        immediately appears in ``/objects`` and ``/scene`` without waiting for
+        the next SLAM snapshot.
+
+        Args:
+            label:    The :class:`~atlas.vlm.inference.SemanticLabel` produced
+                      by the upload VLM pass.
+            position: Estimated 3-D position in metres (defaults to origin when
+                      no spatial data is available from a still image).
+
+        Returns:
+            The integer object_id assigned to this upload.
+        """
+        # Derive a stable object_id from the current store size so sequential
+        # uploads get distinct IDs.
+        object_id = 10000 + len(self._label_store)
+        self._label_store.update(object_id, label)
+
+        px, py, pz = position
+        half = 0.25
+        bbox = BoundingBox(
+            x_min=px - half,
+            x_max=px + half,
+            y_min=py,
+            y_max=py + half * 2,
+            z_min=pz - half,
+            z_max=pz + half,
+        )
+        obj = SemanticObject(
+            object_id=object_id,
+            label=label.label,
+            material=label.material,
+            mass_kg=label.mass_kg,
+            fragility=label.fragility,
+            friction=label.friction,
+            confidence=label.confidence,
+            bbox=bbox,
+        )
+
+        async with self._objects_lock:
+            merged = list(self._cached_objects)
+            # Replace existing entry with same id if present, else append.
+            for i, existing in enumerate(merged):
+                if existing.object_id == object_id:
+                    merged[i] = obj
+                    break
+            else:
+                merged.append(obj)
+            self._cached_objects = merged
+
+        new_risks = self._compute_risks(list(self._cached_objects))
+        async with self._risks_lock:
+            self._risks = new_risks
+
+        logger.info(
+            "upload_object_ingested",
+            object_id=object_id,
+            label=label.label,
+        )
+        return object_id
 
     def build_objects_from_store(self) -> list[SemanticObject]:
         """Build a :class:`SemanticObject` list directly from the label store.
