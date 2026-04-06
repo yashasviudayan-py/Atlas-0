@@ -6,7 +6,7 @@
   <title>Atlas-0 · Spatial Reasoning Engine</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Oxanium:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
     /* ── Reset & CSS Variables ────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,8 +32,9 @@
       --header-h:       48px;
       --radius:         8px;
       --radius-sm:      5px;
-      --font:           'Inter', system-ui, sans-serif;
+      --font:           'Syne', system-ui, sans-serif;
       --mono:           'JetBrains Mono', monospace;
+      --display:        'Oxanium', sans-serif;
     }
 
     html, body { height: 100%; overflow: hidden; }
@@ -89,10 +90,11 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 13px;
-      font-weight: 800;
+      font-family: var(--display);
+      font-size: 12px;
+      font-weight: 700;
       color: #fff;
-      letter-spacing: -0.5px;
+      letter-spacing: 0;
       margin-bottom: 14px;
       flex-shrink: 0;
       box-shadow: 0 0 24px rgba(0,100,255,0.4);
@@ -201,9 +203,10 @@
     .hdr-left { display: flex; align-items: center; gap: 12px; }
 
     .hdr-title {
-      font-size: 14px;
+      font-family: var(--display);
+      font-size: 15px;
       font-weight: 700;
-      letter-spacing: 0.07em;
+      letter-spacing: 0.10em;
     }
 
     .hdr-title span { color: var(--accent); }
@@ -1053,6 +1056,257 @@
     }
 
     #toast.show { opacity: 1; transform: translateY(0); }
+
+    /* ═══════════════════════════════════════════════════════════════════════ */
+    /* SCENE v2 — Neural Overlay System                                       */
+    /* ═══════════════════════════════════════════════════════════════════════ */
+
+    /* Tether canvas — full-scene overlay, pointer-events off */
+    #tether-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* Reasoning cards container */
+    #reasoning-cards {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 6;
+    }
+
+    /* Individual Reasoning Card */
+    .reasoning-card {
+      position: absolute;
+      width: 172px;
+      background: rgba(2, 7, 18, 0.88);
+      border: 1px solid rgba(0, 240, 255, 0.18);
+      border-left: 2px solid #00f0ff;
+      border-radius: 3px;
+      padding: 7px 9px 8px;
+      font-family: var(--mono);
+      font-size: 9.5px;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.25s;
+      z-index: 6;
+    }
+
+    .reasoning-card.rc-hi { border-left-color: #ff2040; }
+    .reasoning-card.rc-md { border-left-color: #ff8c00; }
+    .reasoning-card.rc-lo { border-left-color: #ffd700; }
+
+    .rc-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid rgba(0,240,255,0.10);
+    }
+
+    .rc-name {
+      font-size: 10px;
+      font-weight: 500;
+      color: #d8eeff;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 115px;
+    }
+
+    .rc-pct {
+      font-size: 9px;
+      font-weight: 600;
+      padding: 1px 5px;
+      border-radius: 2px;
+      background: rgba(0,240,255,0.07);
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .rc-hi .rc-pct { background: rgba(255,32,64,0.12); color: #ff2040; }
+    .rc-md .rc-pct { background: rgba(255,140,0,0.12); color: #ff8c00; }
+    .rc-lo .rc-pct { background: rgba(255,215,0,0.10); color: #ffd700; }
+
+    .rc-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      row-gap: 3px;
+      column-gap: 8px;
+    }
+
+    .rck {
+      font-size: 8px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: rgba(100,160,200,0.5);
+      text-transform: uppercase;
+      align-self: center;
+    }
+
+    .rcv {
+      font-size: 9px;
+      color: rgba(200,225,255,0.85);
+      align-self: center;
+    }
+
+    /* ── Knowledge Graph Panel (top-right) ──────────────────────────────── */
+    #kg-panel {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 272px;
+      height: 216px;
+      background: rgba(2, 6, 16, 0.82);
+      border: 1px solid rgba(0,240,255,0.13);
+      border-radius: 6px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    #kg-panel::before {
+      content: 'KNOWLEDGE GRAPH';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      font-family: var(--mono);
+      font-size: 8px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      color: rgba(0,240,255,0.45);
+      background: rgba(0,240,255,0.04);
+      border-bottom: 1px solid rgba(0,240,255,0.08);
+    }
+
+    #kg-canvas {
+      position: absolute;
+      top: 22px; left: 0; right: 0; bottom: 0;
+      width: 100%;
+      height: calc(100% - 22px);
+    }
+
+    /* Scanning line that sweeps across the KG panel */
+    #kg-panel::after {
+      content: '';
+      position: absolute;
+      top: 22px; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(0,240,255,0.25), transparent);
+      animation: kg-scan 3.5s linear infinite;
+      pointer-events: none;
+    }
+
+    @keyframes kg-scan {
+      0%   { top: 22px; }
+      100% { top: 100%; }
+    }
+
+    /* ── Collision Warning (top-center) ─────────────────────────────────── */
+    #collision-warning {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-12px);
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 18px;
+      background: rgba(180, 10, 28, 0.88);
+      border: 1px solid rgba(255, 32, 64, 0.55);
+      border-radius: 4px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      color: #fff;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s, transform 0.2s;
+      z-index: 20;
+      white-space: nowrap;
+      box-shadow: 0 0 32px rgba(255,32,64,0.4);
+    }
+
+    #collision-warning.active {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+      animation: cw-flash 0.9s ease infinite;
+    }
+
+    @keyframes cw-flash {
+      0%, 100% { box-shadow: 0 0 32px rgba(255,32,64,0.4); border-color: rgba(255,32,64,0.55); }
+      50%       { box-shadow: 0 0 52px rgba(255,32,64,0.75); border-color: rgba(255,80,100,0.9); }
+    }
+
+    .cw-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #ff2040;
+      box-shadow: 0 0 8px #ff2040;
+      animation: pulse 0.7s ease infinite;
+      flex-shrink: 0;
+    }
+
+    .cw-icon {
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    /* ── Ghost label / trajectory badge ─────────────────────────────────── */
+    #ghost-legend {
+      position: absolute;
+      bottom: 52px;
+      right: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .gl-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-family: var(--mono);
+      font-size: 9px;
+      color: rgba(160,190,220,0.6);
+    }
+
+    .gl-swatch {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* Override existing scene-hud: now positioned top-left */
+    #scene-hud {
+      top: 16px;
+      right: auto;
+      left: 16px;
+    }
+
+    /* Override scene-btn-row: move below the hud */
+    #scene-btn-row {
+      top: auto;
+      bottom: 16px;
+      left: 16px;
+    }
   </style>
 </head>
 <body>
@@ -1165,8 +1419,45 @@
 
     <!-- VIEW: SCENE ──────────────────────────────────────────────────────── -->
     <div id="view-scene" class="view">
+
+      <!-- 3DGS canvas (Three.js renders here) -->
       <canvas id="scene-canvas"></canvas>
 
+      <!-- Neural tether line overlay (canvas, redrawn each frame by scene_viewer) -->
+      <canvas id="tether-canvas"></canvas>
+
+      <!-- Floating Reasoning Cards (positioned by scene_viewer.js) -->
+      <div id="reasoning-cards"></div>
+
+      <!-- Knowledge Graph panel — top right -->
+      <div id="kg-panel">
+        <canvas id="kg-canvas" width="272" height="194"></canvas>
+      </div>
+
+      <!-- Collision Warning — top center, shown during ghost impact -->
+      <div id="collision-warning">
+        <span class="cw-icon">⚠</span>
+        <div class="cw-dot"></div>
+        <span class="cw-label">COLLISION PREDICTED</span>
+      </div>
+
+      <!-- Ghost / trajectory legend — bottom right -->
+      <div id="ghost-legend">
+        <div class="gl-row">
+          <div class="gl-swatch" style="background:rgba(180,142,255,0.5);border:1px solid #b48eff"></div>
+          Ghost simulation · 5 s
+        </div>
+        <div class="gl-row">
+          <div class="gl-swatch" style="background:transparent;border:1px dashed #b48eff"></div>
+          Predicted trajectory
+        </div>
+        <div class="gl-row">
+          <div class="gl-swatch" style="background:rgba(255,32,64,0.35);border:1px solid #ff2040"></div>
+          Impact zone
+        </div>
+      </div>
+
+      <!-- Empty state (hidden once scene data loads) -->
       <div id="scene-empty">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
           <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
@@ -1176,6 +1467,7 @@
         <p>No scene data yet.<br>Upload images or connect the SLAM pipeline.</p>
       </div>
 
+      <!-- Objects-in-scene panel (top-left) -->
       <div id="scene-hud">
         <div class="s-panel">
           <div class="s-panel-title">Objects in scene</div>
@@ -1185,6 +1477,7 @@
         </div>
       </div>
 
+      <!-- Control buttons (bottom-left) -->
       <div id="scene-btn-row">
         <button class="scene-btn" id="scene-refresh-btn">↻ Refresh</button>
         <button class="scene-btn" id="scene-auto-btn">Auto ○</button>
