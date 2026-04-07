@@ -32,6 +32,23 @@ ml = [
     "transformers>=4.47.0",
     "ollama>=0.4.0",
 ]
+# VLM cloud providers — install the one matching your ATLAS_VLM_PROVIDER setting.
+claude = [
+    "anthropic>=0.40.0",
+]
+openai = [
+    "openai>=1.50.0",
+]
+# Video file ingestion (MP4, MOV, WEBM) via PyAV (ffmpeg bindings).
+video = [
+    "av>=14.0.0",
+]
+# All optional extras bundled together.
+all = [
+    "anthropic>=0.40.0",
+    "openai>=1.50.0",
+    "av>=14.0.0",
+]
 
 [tool.ruff]
 target-version = "py311"

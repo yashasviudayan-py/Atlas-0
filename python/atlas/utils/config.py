@@ -144,13 +144,36 @@ class PhysicsConfig(BaseModel):
 
 
 class VlmConfig(BaseModel):
-    """VLM / Ollama inference configuration."""
+    """VLM inference configuration.
 
+    The ``provider`` field selects the backend:
+
+    - ``"ollama"`` (default) — local Ollama server. Free, no API key.
+      Uses ``model_name`` and ``ollama_host``.
+    - ``"claude"`` — Anthropic Claude vision API. Needs ``ANTHROPIC_API_KEY``
+      env var. Uses ``claude_model``. Install: ``pip install "atlas-0[claude]"``.
+    - ``"openai"`` — OpenAI GPT-4o vision API. Needs ``OPENAI_API_KEY`` env var.
+      Uses ``openai_model``. Install: ``pip install "atlas-0[openai]"``.
+
+    API keys are read from environment variables only — never stored in config.
+    """
+
+    provider: str = "ollama"
     model_name: str = "moondream"
     ollama_host: str = "http://localhost:11434"
+    claude_model: str = "claude-sonnet-4-6"
+    openai_model: str = "gpt-4o"
     max_tokens: int = 256
     temperature: float = 0.1
     timeout_seconds: float = 10.0
+
+    @field_validator("provider")
+    @classmethod
+    def _valid_provider(cls, v: str) -> str:
+        allowed = {"ollama", "claude", "openai"}
+        if v.lower() not in allowed:
+            raise ValueError(f"provider must be one of {allowed}, got {v!r}")
+        return v.lower()
 
     @field_validator("temperature")
     @classmethod

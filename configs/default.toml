@@ -57,11 +57,27 @@ max_steps = 1000
 rest_threshold = 0.01
 
 [vlm]
+# VLM backend: "ollama" (default, local, free) | "claude" | "openai"
+# Switch at runtime: ATLAS_VLM_PROVIDER=claude
+provider = "ollama"
+
+# Ollama settings (used when provider = "ollama")
 model_name = "moondream"
 ollama_host = "http://localhost:11434"
+
+# Claude settings (used when provider = "claude")
+# API key from: ANTHROPIC_API_KEY env var
+# Install:      pip install "atlas-0[claude]"
+claude_model = "claude-sonnet-4-6"
+
+# OpenAI settings (used when provider = "openai")
+# API key from: OPENAI_API_KEY env var
+# Install:      pip install "atlas-0[openai]"
+openai_model = "gpt-4o"
+
 max_tokens = 256
 temperature = 0.1
-timeout_seconds = 10.0
+timeout_seconds = 30.0
 
 [world_model]
 assessment_interval_seconds = 1.0
