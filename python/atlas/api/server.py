@@ -851,6 +851,138 @@ def _next_upload_position() -> tuple[float, float, float]:
     return pos
 
 
+async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
+    """Extract frames from a video and run the full analysis pipeline on each.
+
+    Frames are sampled evenly across the video duration. Each frame is analyzed
+    by the VLM and contributes to the point cloud. Results are merged: objects
+    are deduplicated by label, risks take the max score across frames.
+
+    Args:
+        job: The in-memory job dict to update with status and results.
+        content: Raw video file bytes (MP4, MOV, WEBM, AVI).
+    """
+    from atlas.utils.video import extract_frames, is_video_available
+
+    if not is_video_available():
+        job.update(
+            {
+                "status": "error",
+                "stage": "complete",
+                "progress": 1.0,
+                "objects": [],
+                "risks": [],
+                "error": (
+                    "Video support requires the 'av' package. "
+                    'Install it with: pip install "atlas-0[video]"'
+                ),
+            }
+        )
+        return
+
+    job.update({"stage": "ingest", "progress": 0.1})
+
+    frames = extract_frames(content, max_frames=8)
+    if not frames:
+        job.update(
+            {
+                "status": "error",
+                "stage": "complete",
+                "progress": 1.0,
+                "objects": [],
+                "risks": [],
+                "error": "Could not extract frames from the video file. "
+                "Ensure the file is a valid MP4, MOV, WEBM, or AVI.",
+            }
+        )
+        return
+
+    logger.info("video_upload_frames_extracted", frame_count=len(frames))
+    engine = await _get_or_init_upload_vlm()
+
+    # Maps label -> best SemanticLabel seen across frames (by confidence).
+    best_labels: dict[str, Any] = {}
+    all_points: list[list[float]] = []
+
+    for i, frame_bytes in enumerate(frames):
+        progress = 0.15 + (i / len(frames)) * 0.70
+        job.update({"stage": "vlm", "progress": round(progress, 2)})
+
+        label = await engine.label_region(frame_bytes, region_hint=f"video frame {i + 1}")
+        if label.label in ("unknown", "") or label.confidence < 0.35:
+            label = _analyze_image_heuristic(frame_bytes)
+
+        # Keep the highest-confidence label for each object type.
+        existing = best_labels.get(label.label)
+        if existing is None or label.confidence > existing["confidence"]:
+            best_labels[label.label] = {
+                "label": label.label,
+                "material": label.material,
+                "mass_kg": label.mass_kg,
+                "fragility": label.fragility,
+                "friction": label.friction,
+                "confidence": label.confidence,
+            }
+
+        # Contribute this frame's point cloud (offset along Z by frame index
+        # so multi-frame clouds have spatial spread rather than all stacking).
+        frame_points = _generate_depth_pointcloud(frame_bytes, n_points=400)
+        z_offset = i * 0.4  # metres apart per frame
+        for pt in frame_points:
+            all_points.append([pt[0], pt[1], pt[2] + z_offset, pt[3], pt[4], pt[5]])
+
+    job.update({"stage": "risk", "progress": 0.90})
+
+    objects = list(best_labels.values())
+    risks: list[dict[str, Any]] = []
+    agent = _get_agent()
+
+    for obj_data in objects:
+        mass_factor = min(obj_data["mass_kg"] / 20.0, 0.3) * 0.3
+        risk_score = min(1.0, obj_data["fragility"] * 0.4 + mass_factor + 0.1)
+        if risk_score > 0.25:
+            risks.append(
+                {
+                    "object_label": obj_data["label"],
+                    "risk_score": round(risk_score, 3),
+                    "description": (
+                        f"{obj_data['label']} — fragility {obj_data['fragility']:.2f}, "
+                        f"mass {obj_data['mass_kg']:.1f} kg"
+                    ),
+                }
+            )
+        # Inject into the live world model so /objects and /scene update.
+        from atlas.vlm.inference import SemanticLabel
+
+        sl = SemanticLabel(
+            label=obj_data["label"],
+            material=obj_data["material"],
+            mass_kg=obj_data["mass_kg"],
+            fragility=obj_data["fragility"],
+            friction=obj_data["friction"],
+            confidence=obj_data["confidence"],
+        )
+        position = _next_upload_position()
+        await agent.ingest_from_upload(sl, position=position)
+
+    job.update(
+        {
+            "status": "complete",
+            "stage": "complete",
+            "progress": 1.0,
+            "objects": objects,
+            "risks": risks,
+            "point_cloud": all_points,
+        }
+    )
+    logger.info(
+        "video_upload_complete",
+        objects=len(objects),
+        risks=len(risks),
+        points=len(all_points),
+    )
+
+
 async def _process_upload(job_id: str, content: bytes, content_type: str) -> None:
     """Background task: run the file through the analysis pipeline."""
     job = _upload_jobs[job_id]
@@ -921,22 +1053,7 @@ async def _process_upload(job_id: str, content: bytes, content_type: str) -> Non
             await agent.ingest_from_upload(label, position=position)
 
         elif is_video:
-            # Videos require the Rust SLAM pipeline for full 3-D reconstruction.
-            job.update({"stage": "vlm", "progress": 0.5})
-            await asyncio.sleep(0.8)
-            job.update(
-                {
-                    "status": "complete",
-                    "stage": "complete",
-                    "progress": 1.0,
-                    "objects": [],
-                    "risks": [],
-                    "error": (
-                        "Video requires the Rust SLAM pipeline (Phase 1). "
-                        "Start the Rust engine to enable full 3-D reconstruction."
-                    ),
-                }
-            )
+            await _process_video_upload(job, content)
         else:
             msg = f"Unsupported file type: {content_type!r}"
             raise ValueError(msg)
