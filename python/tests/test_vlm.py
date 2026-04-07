@@ -176,17 +176,11 @@ def test_vlm_engine_raises_if_not_initialized() -> None:
 async def test_vlm_engine_label_region_returns_fallback_on_connection_error() -> None:
     engine = VLMEngine(VLMConfig(ollama_host="http://localhost:11434"))
 
-    mock_client = AsyncMock()
-    mock_client.check_model = AsyncMock(side_effect=OllamaConnectionError("no server"))
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.close = AsyncMock()
+    mock_provider = AsyncMock()
+    mock_provider.generate = AsyncMock(side_effect=OllamaConnectionError("no server"))
 
-    with patch("atlas.vlm.inference.OllamaClient", return_value=mock_client):
+    with patch("atlas.vlm.inference.get_provider", return_value=mock_provider):
         await engine.initialize()
-
-    engine._client = mock_client
-    mock_client.generate = AsyncMock(side_effect=OllamaConnectionError("no server"))
 
     label = await engine.label_region(b"fake_image_bytes")
     assert label.confidence == pytest.approx(0.1)
@@ -196,14 +190,15 @@ async def test_vlm_engine_label_region_returns_fallback_on_connection_error() ->
 @pytest.mark.asyncio
 async def test_vlm_engine_label_region_parses_valid_response() -> None:
     engine = VLMEngine()
-    engine._initialized = True
-
-    mock_client = AsyncMock()
     valid_response = json.dumps(
         {"label": "vase", "material": "ceramic", "mass_kg": 0.4, "fragility": 0.8, "friction": 0.35}
     )
-    mock_client.generate = AsyncMock(return_value=valid_response)
-    engine._client = mock_client
+
+    mock_provider = AsyncMock()
+    mock_provider.generate = AsyncMock(return_value=valid_response)
+
+    with patch("atlas.vlm.inference.get_provider", return_value=mock_provider):
+        await engine.initialize()
 
     label = await engine.label_region(b"fake_jpeg", region_hint="on table")
     assert label.label == "vase"
@@ -214,11 +209,12 @@ async def test_vlm_engine_label_region_parses_valid_response() -> None:
 @pytest.mark.asyncio
 async def test_vlm_engine_returns_fallback_on_parse_failure() -> None:
     engine = VLMEngine()
-    engine._initialized = True
 
-    mock_client = AsyncMock()
-    mock_client.generate = AsyncMock(return_value="I cannot determine what this is.")
-    engine._client = mock_client
+    mock_provider = AsyncMock()
+    mock_provider.generate = AsyncMock(return_value="I cannot determine what this is.")
+
+    with patch("atlas.vlm.inference.get_provider", return_value=mock_provider):
+        await engine.initialize()
 
     label = await engine.label_region(b"fake_jpeg")
     assert label.label == "unknown"
