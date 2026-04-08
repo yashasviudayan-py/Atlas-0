@@ -82,7 +82,7 @@ pytest python/tests/ -v
 
 If any check fails, fix the issue before pushing. Never push code that breaks CI.
 
-Before every push, you must automatically run the protocol in .claude/review_changes.md and report any 🛑 Blockers.
+Before every push, you must automatically run the protocol in `codex/review_changes.md` and report any 🛑 Blockers.
 
 ### 9. Dependencies
 - Pin all dependency versions. No `*` or `>=` ranges.
@@ -113,4 +113,3 @@ Target: Query "where is the most unstable object?" and get a spatial coordinate.
 ### Phase 3: The Ghost (Parts 9-12) — Physics Simulation
 Focus: Physics engine integration, risk prediction, AR overlay.
 Target: Real-time visual alerts for physical risks.
-

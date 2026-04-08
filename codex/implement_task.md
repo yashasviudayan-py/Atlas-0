@@ -1,8 +1,8 @@
 Act as a Senior Software Engineer with a focus on TDD (Test-Driven Development) and clean architecture. 
 
 ### CONTEXT
-1. Read `claude.md` to understand our project standards, tech stack, and architectural constraints.
-2. Read `development_plan.md` to understand the full roadmap.
+1. Read `Codex.md` to understand our project standards, tech stack, and architectural constraints.
+2. Read `docs/DEVELOPMENT_PLAN.md` to understand the full roadmap.
 
 ### OBJECTIVE
 Implement **PHASE [X] - Part [Y]**.

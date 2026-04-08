@@ -1,7 +1,7 @@
 Act as a Lead Security & Systems Architect. Your goal is to perform a rigorous, "zero-tolerance" audit of the current codebase to ensure it meets production-grade standards.
 
 ### 1. SCOPE OF AUDIT
-Scan the codebase (referencing `claude.md` for standards) and identify:
+Scan the codebase (referencing `Codex.md` for standards) and identify:
 - **Critical Bugs**: Logic errors, race conditions, or memory leaks.
 - **Edge Cases**: Unhandled null/undefined values, empty states, or failed API responses.
 - **Code Quality**: Functions with high cyclomatic complexity, redundant logic, or "code smells."
