@@ -21,6 +21,7 @@ venv/
 *.swp
 *.swo
 *~
+codex/settings.local.json
 
 # OS
 .DS_Store
