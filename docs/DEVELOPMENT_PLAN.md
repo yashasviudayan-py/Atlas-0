@@ -1,564 +1,433 @@
-# Atlas-0: Detailed Phase Development Plan
+# Atlas-0 / Downside-Up: Product Reset Development Plan
 
-> Internal reference document. Maps every deliverable, file, module, and
-> integration point needed to take Atlas-0 from scaffolding to production.
-
----
-
-## Real-World Use Cases
-
-Atlas-0 is not a research demo — it solves concrete problems that people have today.
-Every phase must be understood in terms of user value, not just engineering completeness.
-
-### Primary Target: Home & Space Safety Audit
-**The user:** A parent childproofing a home. A tenant doing a move-in inspection.
-A homeowner prepping for an earthquake or insurance claim.
-**The job:** Scan a room with a phone or webcam, get a ranked list of physical
-hazards — objects likely to fall, tip, spill, or block an exit — with photos and
-positions, exported as a PDF or sent to a Slack channel.
-**Why Atlas-0 wins:** It quantifies risk with physics. A human can see a wobbly
-lamp, but Atlas-0 calculates the tipping torque, predicts where it lands, and
-flags the impact zone on a child's play area.
-
-### Secondary Target: Warehouse & Site Safety Compliance
-**The user:** A warehouse manager, construction site supervisor, OSHA auditor.
-**The job:** Walk the floor with a camera, auto-generate a hazard report with GPS
-coordinates and severity scores. Re-run weekly to detect changes.
-**Why Atlas-0 wins:** Continuous monitoring at scale. 10,000 sq ft can't be
-manually audited daily, but a camera + Atlas-0 can.
-
-### Tertiary Target: Insurance & Property Inventory
-**The user:** Homeowner filing a claim, real estate agent listing a property,
-property manager doing a condition assessment.
-**The job:** Scan the space, auto-generate an inventory of objects with
-estimated values, conditions, and photos embedded in a report.
-**Why Atlas-0 wins:** Combines 3D spatial map + semantic labeling into a
-structured document that adjusters and agents can actually use.
+> April 2026 reset. This document replaces the old "everything at once"
+> roadmap with a narrower plan built around one outcome:
+> a user uploads a phone walkthrough and gets a trustworthy hazard report.
 
 ---
 
-## Current State (Post Phase 1–3 Implementation)
+## Executive Summary
 
-What is built:
-- Full Rust workspace: `atlas-core`, `atlas-slam`, `atlas-stream`, `atlas-physics`.
-- Python package: VLM engine (Ollama), world model agent, FastAPI server,
-  Prometheus metrics, AR overlay, upload pipeline (images only).
-- Frontend: Three.js scene viewer, risk overlay, upload UI, WebSocket risk stream.
-- Docker: Dockerfile + docker-compose with health checks.
-- Tests: 266 Python + 92 Rust tests passing. CI green.
+Atlas-0 has real engineering underneath it, but it is not yet a product people
+can trust or recommend.
 
-What is **NOT** production-ready:
-- No direct MP4/video ingestion (requires manual frame extraction).
-- VLM is hard-wired to Ollama — no cloud model option.
-- No export formats (.glb, PDF report) that users can take away.
-- No real demo footage — frontend shows hardcoded fake data.
-- Setup requires 5+ manual prerequisites before seeing anything.
+Today the repo is strongest as an experimental engine:
+- Rust test coverage is solid.
+- Python services and the frontend are reasonably modular.
+- The codebase can demo reconstruction, labeling, and risk overlays.
+
+Today the product is weak:
+- Upload-based "3D" is still pseudo-depth generated from image brightness.
+- Uploaded objects are not grounded by real multi-view geometry.
+- Reasoning is mostly VLM labeling plus rule-based queries, not reliable
+  evidence-backed scene understanding.
+- The frontend still contains demo fallback behavior, which makes the product
+  feel more polished than it really is.
+- Setup, trust, and output quality are not good enough for repeat usage.
+
+The fix is not "more features." The fix is focus.
 
 ---
 
-## PHASE 1: THE EYE (Parts 1–4) ✅ COMPLETE
+## Product Decision
 
-### Real-World Value
-Without the Eye, there is no 3D map. No 3D map means no spatial understanding,
-no object positions, no physics simulation. This phase is the sensor layer — it
-turns a cheap webcam into a spatial measurement device.
+### What We Are Actually Building
+
+We should stop positioning Atlas-0 as a general "spatial reasoning and world
+model engine" for now.
+
+We should build one opinionated product:
+
+**Upload a 20-60 second phone walkthrough of a room. Get back a ranked hazard
+report with evidence frames, locations, severity, and a downloadable PDF.**
+
+If that works well, users can understand it, trust it, share it, and come
+back to it.
+
+### What We Are Not Building Yet
+
+These should be explicitly deprioritized until the core product works:
+- Live AR overlays as the primary user experience
+- Real-time 60 fps end-to-end consumer workflows
+- Broad warehouse/compliance workflows
+- Insurance inventory automation
+- "General reasoning agent" messaging
+- Full 3D scene editing or digital twin platform ambitions
+
+Those may become expansion paths later, but they are not the wedge.
+
+---
+
+## Identity / Rebrand
+
+### Recommendation
+
+Keep `Atlas-0` as the internal engine/codename.
+
+Rebrand the user-facing product to **Downside-Up**.
+
+### Why "Downside-Up" works
+
+- It is memorable.
+- It hints at falls, tipping, instability, and household hazards.
+- It sounds like a product, not a research repo.
+- It gives us permission to simplify the story around "what might go wrong in
+  this room?"
+
+### Suggested brand split
+
+- `Atlas-0`: internal engine / repo / technical architecture name
+- `Downside-Up`: product, landing page, demos, user-facing docs
+- Suggested tagline:
+  `Scan your room. Catch what could fall, tip, or break.`
+
+### Messaging shift
+
+Current messaging is too ambitious and too abstract.
+
+Replace:
+- "Spatial reasoning & physical world-model engine"
+
+With:
+- "Home safety scan from a phone video"
+- "Find unstable objects before they fall"
+- "Turn a room walkthrough into a hazard report"
+
+---
+
+## Reality Check
+
+These are the current blockers preventing usefulness and user growth.
+
+### 1. The core value is not trustworthy yet
+
+The app can display objects, risks, and point clouds, but much of the current
+upload path is heuristic or synthetic. That is acceptable for internal
+development and unacceptable for external trust.
+
+### 2. The product promise is too broad
+
+Home safety, warehouse compliance, insurance inventory, real-time AR, and
+multi-provider reasoning all at once create a diluted roadmap and scattered UX.
+
+### 3. The output is not share-worthy
+
+A browser visualization is not enough. Users need:
+- a report
+- evidence
+- a link or export they can send to someone else
+
+### 4. Demo polish is masking real gaps
+
+Demo-mode fallbacks and aesthetic overlays currently create a mismatch between
+what the interface implies and what the system actually knows.
+
+---
+
+## North Star
+
+### Primary User
+
+A renter, homeowner, or parent who wants a fast hazard scan of a room.
+
+### Core Job To Be Done
+
+"Show me the objects most likely to fall, tip, spill, or create a hazard, and
+give me enough evidence to act on it."
+
+### North Star Experience
+
+1. User opens Downside-Up.
+2. User uploads a phone walkthrough video.
+3. Within 3-5 minutes, the user gets:
+   - top hazards
+   - evidence frames
+   - approximate room locations
+   - a confidence score
+   - a downloadable PDF report
+4. The user can share the report with a landlord, partner, contractor, or
+   insurance contact.
+
+### Success Metrics
+
+- Time to first useful result: under 5 minutes
+- First-session completion rate: above 60%
+- Report download/share rate: above 30%
+- Returning users within 14 days: above 20%
+- At least 10 beta users submit 3+ real scans each
+
+---
+
+## Build Principles
+
+1. Trust beats spectacle.
+   Remove fake confidence, fake geometry, and fake reasoning.
+
+2. Async upload beats live demo complexity.
+   A reliable asynchronous pipeline is more valuable than a fragile real-time one.
+
+3. Evidence beats cleverness.
+   Every hazard should link to the frames, objects, and signals that produced it.
+
+4. A report beats a visualization.
+   The scene viewer is supporting UX. The report is the product.
+
+5. One wedge beats five markets.
+   Win home safety first. Expand only after repeated user pull.
+
+---
+
+## Build Plan
+
+## Phase 0: Truth Reset
 
 ### Goal
-Walk around a room with a camera. See a high-fidelity 3D Gaussian Splatting
-reconstruction generate on screen in < 100ms latency.
+
+Remove product dishonesty and align the codebase, docs, and UI with reality.
+
+### Deliverables
+
+1. Eliminate demo-only fallback in primary product flows.
+2. Mark synthetic or heuristic outputs clearly in the UI and API.
+3. Add health/status reporting that reflects real SLAM/runtime state.
+4. Wire runtime config correctly so provider switches and config overrides
+   actually work.
+5. Create a single "known limitations" section in README and product docs.
+
+### Exit Criteria
+
+- No primary user flow silently falls back to fake data.
+- Status endpoints reflect real runtime state.
+- Config-driven provider/runtime switches are verified by tests.
 
 ---
 
-### Part 1: Camera Ingestion Pipeline ✅
-
-**Objective**: Capture live video frames at 60fps and distribute them through
-the pipeline with minimal latency.
-
-#### Deliverables
-
-1. **Camera capture backend** (`crates/atlas-stream/src/capture.rs`)
-   - Integrate `nokhwa` crate (cross-platform camera access) or `v4l2` on Linux.
-   - Implement `CameraCapture` struct: opens device, captures frames at target FPS.
-   - Convert raw camera buffers (YUYV/MJPEG) to RGB using `image` crate.
-   - Push `Frame` structs into the `FramePipeline` bounded channel.
-   - Handle camera disconnection, timeout, and format negotiation errors.
-
-2. **Video file source** (`crates/atlas-stream/src/file_source.rs`)
-   - Accept an image-sequence directory for offline testing and benchmarking.
-   - Simulate real-time playback by pacing frame emission to match target FPS.
-   - This is critical for reproducible development — most SLAM work uses recorded sequences.
-   - ⚠️ Direct MP4/MKV decoding gated behind `ffmpeg-next` feature (see Phase 4 Part 13).
-
-3. **Frame preprocessing** (`crates/atlas-stream/src/preprocess.rs`)
-   - Resize frames to SLAM working resolution (configurable, default 640x480).
-   - Convert to grayscale for feature extraction (keep color copy for Gaussian color).
-   - Undistort frames using camera intrinsics (pinhole + radial distortion model).
-
-4. **Camera calibration loader** (`crates/atlas-stream/src/calibration.rs`)
-   - Load camera intrinsics (fx, fy, cx, cy) from TOML config.
-   - Support standard calibration formats (OpenCV-compatible).
-
-#### Success Criteria ✅
-- `cargo run --example capture_demo` opens camera, shows FPS counter.
-
----
-
-### Part 2: Feature Extraction & Visual Odometry ✅
-
-**Objective**: Extract visual features from each frame and estimate camera motion.
-
-#### Deliverables
-1. ORB feature detection + matching (`features.rs`, `matching.rs`)
-2. Essential matrix decomposition → R|t pose (`pose_estimation.rs`)
-3. Visual odometry pipeline wired in `tracker.rs`
-
-#### Success Criteria ✅
-- Process a 30-second video clip, output a camera trajectory.
-
----
-
-### Part 3: 3D Gaussian Splatting Reconstruction ✅
-
-**Objective**: Build and incrementally update a 3D Gaussian map.
-
-#### Deliverables
-1. Monocular depth estimation via ONNX Runtime (`depth.rs`)
-2. Gaussian initialization from point cloud (`gaussian_init.rs`)
-3. Differentiable Gaussian optimization / Adam (`optimizer.rs`)
-4. Keyframe management + pruning (`keyframe.rs`)
-
-#### Success Criteria ✅
-- Feed a recorded video, get a recognizable 3D Gaussian reconstruction.
-
----
-
-### Part 4: Real-time Visualization & Integration ✅
-
-**Objective**: Tie the full pipeline together with a live viewer.
-
-#### Deliverables
-1. Tile-based 3DGS renderer (`renderer.rs`)
-2. Visualization window: `winit` + `wgpu` (`viewer.rs`)
-3. End-to-end pipeline binary (`examples/live_slam.rs`)
-4. Shared memory bridge scaffold for Phase 2 (`shared_mem.rs`)
-
-#### Phase 1 Exit Criteria ✅
-- Camera captures frames at 60fps.
-- SLAM tracks camera pose continuously.
-- 3D Gaussian map contains 50K+ Gaussians after 30s.
-- End-to-end latency < 100ms.
-
----
-
-## PHASE 2: THE BRAIN (Parts 5–8) ✅ COMPLETE
-
-### Real-World Value
-Geometry alone isn't enough. A glass vase and a stone statue look similar in a
-point cloud — only semantics tells them apart. This phase makes the map
-*queryable*: "Where is the most fragile object?" returns a coordinate with a
-confidence score, not just a blob of points.
-
-For the home safety use case: this is the layer that understands *what* every
-object is, so the physics engine in Phase 3 can use the right material
-properties when simulating falls.
+## Phase 1: Useful Upload-to-Report MVP
 
 ### Goal
-Query the map with natural language and get a correct spatial coordinate back.
-Every object has semantic metadata: mass, friction, fragility, material,
-relationships.
+
+Make one room scan produce one useful report without touching the terminal.
+
+### Deliverables
+
+1. Robust upload pipeline
+   - MP4/MOV/WEBM upload via browser
+   - clear progress states
+   - graceful error messages
+   - job persistence beyond in-memory-only state
+
+2. Better semantic extraction
+   - use cloud VLM providers by default for best-quality beta experience
+   - keep Ollama as fallback, not as the main pitch
+   - add object evidence thumbnails per finding
+
+3. Report-first UX
+   - summary card: total hazards, top risks, scan timestamp
+   - evidence gallery per hazard
+   - actions/recommendations per hazard
+   - PDF export
+
+4. Real demo asset
+   - one polished sample walkthrough
+   - expected output committed for regression testing
+
+### File Areas
+
+- `python/atlas/api/server.py`
+- `python/atlas/api/export.py`
+- `python/atlas/utils/video.py`
+- `python/atlas/vlm/*`
+- `frontend/index.html`
+- `frontend/js/upload.js`
+- `frontend/js/intelligence.js`
+- `README.md`
+
+### Exit Criteria
+
+- A new user can upload one room video and download one useful report.
+- No Rust toolchain knowledge is required for the beta path.
 
 ---
 
-### Part 5: Rust→Python IPC Bridge ✅
-- Memory-mapped buffer for `GaussianCloud` snapshots (`shared_mem.rs`)
-- Protobuf for structured messages (`proto/atlas.proto`)
-- Round-trip latency < 1ms
-
-### Part 6: VLM Integration & Semantic Labeling ✅
-- Ollama async client (`ollama_client.py`)
-- VLM inference engine with JSON parsing (`inference.py`)
-- Versioned prompt templates (`prompts.py`)
-- DBSCAN region extractor (`region_extractor.py`)
-- Confidence-weighted label store (`label_store.py`)
-
-**Note**: VLM is currently Ollama-only. Multi-provider support (Claude, OpenAI)
-added in Phase 4 Part 14.
-
-### Part 7: Spatial Query Engine ✅
-- Rule-based NL query parser (`query_parser.py`)
-- Spatial relationship detector (`relationships.py`)
-- WorldModelAgent scene assessment loop (`agent.py`)
-- FastAPI endpoints: `/health`, `/query`, `/objects`, `/scene`
-
-### Part 8: Integration, Benchmarking & Polish ✅
-- Typed Pydantic config loader with `ATLAS_` env overrides (`config.py`)
-- Process manager script (`scripts/run_atlas.py`)
-- Benchmark suite — all budgets passing (`scripts/benchmark.py`)
-- Scene replay tool (`scripts/replay.py`)
-- ADR-001 (3DGS-SLAM choice), ADR-002 (IPC design)
-
-#### Phase 2 Exit Criteria ✅
-- VLM correctly labels ≥ 80% of common objects.
-- Spatial queries return correct positions within 0.5m.
-- End-to-end query latency < 200ms.
-
----
-
-## PHASE 3: THE GHOST (Parts 9–12) ✅ COMPLETE
-
-### Real-World Value
-This is what Atlas-0 can do that a human inspection cannot: *simulate the
-future*. A toddler bumps the table — where does the glass land? A minor
-earthquake hits — which shelf collapses first? The physics engine runs these
-simulations continuously, in the background, assigning risk scores to every
-object.
-
-For the warehouse use case: a pallet stacked at the wrong angle, a shelf
-overloaded at the top — Atlas-0 flags these *before* they become incidents,
-with quantified probability and predicted impact zones.
+## Phase 2: Spatial Grounding That Is Not Fake
 
 ### Goal
-Real-time AR overlay showing predicted failure paths and risk zones.
-Alerts triggered before things go wrong.
+
+Replace pseudo-3D shortcuts with enough real geometry to support believable
+hazard localization.
+
+### Deliverables
+
+1. Multi-view object grounding
+   - track object observations across sampled frames
+   - merge repeated sightings into scene objects
+   - retain per-object evidence frames
+
+2. Replace luminance-as-depth for uploads
+   - use a real monocular depth model or sparse reconstruction path
+   - estimate scale from camera motion, known objects, or calibration hints
+
+3. Confidence-aware spatial output
+   - object location uncertainty
+   - "approximate" vs "high confidence" spatial labels
+   - do not fabricate precise positions when evidence is weak
+
+4. Scene snapshot schema
+   - make the JSON scene model explicit about source:
+     `measured`, `estimated`, or `heuristic`
+
+### Exit Criteria
+
+- Uploaded objects have evidence-backed approximate locations.
+- No fabricated room placement remains in the upload pipeline.
 
 ---
 
-### Part 9: Physics Simulation Engine ✅
-- `RigidBody` struct + bounding shapes (`rigid_body.rs`)
-- RANSAC plane extractor for surfaces (`surfaces.rs`)
-- Sphere/AABB collision detection + SAT (`collision.rs`)
-- Semi-implicit Euler integrator with Baumgarte correction (`integrator.rs`)
-- `assess_risks()` with perturbation + classification (`simulator.rs`)
-- 51 unit tests, criterion benchmarks.
-
-### Part 10: Risk Prediction Pipeline ✅
-- 4-strategy perturbation engine (`perturbations.rs`)
-- Trajectory recorder + spill zone predictor (`trajectory.rs`)
-- Background `RiskLoop` thread (`simulator.rs`)
-- Python risk aggregator: weighted merge, top-N ranking (`risk_aggregator.py`)
-
-### Part 11: AR Overlay & Frontend ✅
-- WebSocket delta stream `/ws/risks` (added/updated/removed diffs)
-- `OverlayBuilder`: `RiskZone`, `TrajectoryArc`, `ImpactZone`, `Alert` (`overlay.py`)
-- Three.js AR overlay: Gaussian particle cloud, neural tether lines,
-  knowledge graph, physics ghost (`scene_viewer.js`, `overlay.js`, `app.js`)
-
-### Part 12: Integration, Optimization & Production Hardening ✅
-- Prometheus metrics: 7 gauges/counters/histograms (`metrics.py`)
-- `/metrics` endpoint + StaticFiles frontend mount (`server.py`)
-- Docker: Dockerfile with frontend + HEALTHCHECK, docker-compose health deps
-- Demo recording tool (`scripts/record_demo.py`)
-- Full README, architecture performance report
-
-#### Phase 3 Exit Criteria ✅
-- Physics correctly predicts falls and tips.
-- AR overlay streams risk zones in real-time.
-- Full pipeline stable for 10+ minutes.
-- Docker deployment works out of the box.
-
----
-
-## PHASE 4: PRODUCTION (Parts 13–16) 🔲 NEXT
+## Phase 3: Reasoning Users Can Trust
 
 ### Goal
-Turn Atlas-0 from an impressive engineering project into something a real
-person can use on a real problem in under 5 minutes. The test: hand it to
-someone who has never seen it before. If they can scan a room and get a useful
-safety report without reading any docs, Phase 4 is done.
+
+Turn labels into actionable hazard judgments with explicit evidence.
+
+### Deliverables
+
+1. Hazard ontology
+   - define the first 15-20 hazard types
+   - examples: tipping, falling glass, blocked exit, overloaded shelf,
+     unstable stack, liquid spill near edge
+
+2. Evidence-backed reasoning layer
+   - each finding stores:
+     - object(s) involved
+     - supporting evidence frame(s)
+     - spatial relationship(s)
+     - physics/heuristic contribution
+     - confidence
+
+3. Recommendation engine
+   - simple, deterministic guidance first
+   - examples:
+     - "move vase away from edge"
+     - "anchor tall shelf"
+     - "lower heavy object"
+
+4. User feedback loop
+   - mark finding as useful / wrong / duplicate
+   - capture corrections for later evaluation
+
+### Exit Criteria
+
+- Every top hazard in the report has visible supporting evidence.
+- Users can understand why the system made the claim.
 
 ---
 
-### Part 13: Direct Video Ingestion
+## Phase 4: Productization and Growth
 
-**Real-world impact**: Right now, a user who records a video has to manually
-extract frames with FFmpeg before Atlas-0 can process it. That kills the product
-before it starts. This part removes that friction entirely.
+### Goal
 
-**Target**: Drop a `.mp4` / `.mov` / `.webm` on the upload UI → Atlas-0 handles
-the rest, no terminal required.
+Make Downside-Up easy to try, easy to share, and easy to talk about.
 
-#### Deliverables
+### Deliverables
 
-1. **Python video frame extractor** (`python/atlas/utils/video.py`)
-   - `extract_frames(video_bytes, max_frames, sample_fps) -> list[bytes]`
-   - Uses `PyAV` (`av` package) — pure Python ffmpeg bindings, pip-installable.
-   - Samples frames evenly across the video duration (not just the beginning).
-   - Falls back to a clear `RuntimeError` if `av` is not installed, with install hint.
-   - Returns JPEG-encoded frames ready for VLM and point cloud generation.
+1. Hosted beta path
+   - landing page
+   - sample scan
+   - email capture / waitlist / beta invite flow
 
-2. **Update upload pipeline** (`python/atlas/api/server.py`)
-   - Replace the "requires Rust SLAM pipeline" stub with real frame extraction.
-   - For each sampled frame: run VLM labeling + generate depth point cloud.
-   - Merge all frame results: deduplicate objects by label similarity,
-     union point clouds, take max risk scores across frames.
-   - Report incremental progress per frame (0.1 → 0.9 as frames are processed).
+2. Shareable outputs
+   - PDF report
+   - share link
+   - inventory JSON for integrations later
 
-3. **Rust `ffmpeg-next` feature flag** (`crates/atlas-stream/`)
-   - Add optional `[features] video = ["ffmpeg-next"]` to `atlas-stream/Cargo.toml`.
-   - Behind the flag: `FileSource` accepts a video file path directly, not just
-     an image directory.
-   - Default: feature disabled (no system FFmpeg dependency at compile time).
-   - Document: `cargo build --features video` to enable.
+3. Onboarding
+   - "how to record a good scan" guidance
+   - expected scan length
+   - progress and retry UX
 
-4. **Add `av` optional dependency** (`pyproject.toml`)
-   - `[project.optional-dependencies]` `video = ["av>=14.0.0"]`
-   - Document in README: `pip install atlas-0[video]` for video support.
+4. Analytics
+   - upload success rate
+   - time to completed report
+   - drop-off points
+   - report download/share events
 
-#### New Dependencies
-- Python: `av>=14.0.0` (optional)
-- Rust: `ffmpeg-next` (optional feature, requires system FFmpeg)
+5. Demo and social proof
+   - before/after sample scans
+   - real screenshots
+   - one short product video
 
-#### Tests
-- Unit: Frame extraction from synthetic video bytes, even sampling verification.
-- Unit: Graceful error when `av` not installed.
-- Integration: Upload a short MP4, verify objects and point cloud returned.
+### Exit Criteria
 
-#### Success Criteria
-- User uploads a 30-second room video via the web UI.
-- Gets back labeled objects, risk scores, and a 3D point cloud.
-- No terminal interaction required.
+- A stranger can understand the product in under 30 seconds.
+- A beta user can go from landing page to report without help.
 
 ---
 
-### Part 14: Multi-Provider VLM Switch
+## Proposed 8-Week Sequence
 
-**Real-world impact**: Ollama + `moondream` (the default) gives mediocre
-labels. Claude or GPT-4V gives dramatically better semantic understanding,
-especially for material classification and mass estimation — which directly
-affects risk score accuracy.
+### Weeks 1-2
 
-A local Ollama setup is a 5-step process with GPU requirements. Many users
-won't do it. An API key to Claude or OpenAI unlocks the full system instantly.
+- Phase 0 complete
+- remove misleading fallback behavior
+- stabilize config/runtime wiring
+- define brand direction and rewrite README/landing copy
 
-**Target**: Set `ATLAS_VLM_PROVIDER=claude` (or `openai`) in the environment,
-provide an API key, and get production-quality labels. No code changes.
+### Weeks 3-4
 
-#### Deliverables
+- Phase 1 MVP complete
+- upload to report working end-to-end
+- PDF export shipped
+- real sample demo shipped
 
-1. **VLM provider protocol** (`python/atlas/vlm/providers/base.py`)
-   - `VLMProvider` Protocol: `initialize()`, `generate(image_bytes, prompt) -> str`,
-     `close()`.
-   - All providers must implement this interface.
+### Weeks 5-6
 
-2. **Ollama provider** (`python/atlas/vlm/providers/ollama_provider.py`)
-   - Wraps existing `OllamaClient`. Backward compatible — default behavior unchanged.
+- Phase 2 underway
+- real upload grounding replaces pseudo-3D shortcuts
+- confidence-aware spatial output added
 
-3. **Anthropic (Claude) provider** (`python/atlas/vlm/providers/anthropic_provider.py`)
-   - Uses `anthropic` SDK with `claude-sonnet-4-6` (default, configurable).
-   - API key from `ANTHROPIC_API_KEY` env var.
-   - Sends image as base64 in the `image` content block.
-   - Maps `VLMConfig.max_tokens` and `temperature` to Anthropic API params.
+### Weeks 7-8
 
-4. **OpenAI provider** (`python/atlas/vlm/providers/openai_provider.py`)
-   - Uses `openai` SDK with `gpt-4o` (default, configurable).
-   - API key from `OPENAI_API_KEY` env var.
-   - Sends image as base64 data URL in the `image_url` content block.
-
-5. **Provider factory** (`python/atlas/vlm/providers/__init__.py`)
-   - `get_provider(config: VLMConfig) -> VLMProvider`
-   - Raises `ValueError` with a clear message if provider string is unknown.
-   - Raises `ImportError` with install instructions if the SDK isn't installed.
-
-6. **Update `VLMEngine`** (`python/atlas/vlm/inference.py`)
-   - Replace hardcoded `OllamaClient` with `get_provider(config)`.
-   - `initialize()`, `label_region()`, `close()` delegate to the provider.
-   - All existing tests remain valid (Ollama is still the default).
-
-7. **Config additions** (`python/atlas/utils/config.py`, `configs/default.toml`)
-   ```toml
-   [vlm]
-   provider = "ollama"               # "ollama" | "claude" | "openai"
-   claude_model = "claude-sonnet-4-6"
-   openai_model = "gpt-4o"
-   # API keys read from ANTHROPIC_API_KEY / OPENAI_API_KEY env vars only.
-   ```
-
-8. **Optional SDK dependencies** (`pyproject.toml`)
-   - `[project.optional-dependencies]`
-   - `claude = ["anthropic>=0.40.0"]`
-   - `openai = ["openai>=1.50.0"]`
-
-#### Quick-switch cheat-sheet (for README)
-```bash
-# Use Claude (best quality)
-export ATLAS_VLM_PROVIDER=claude
-export ANTHROPIC_API_KEY=sk-ant-...
-python -m atlas.api.server
-
-# Use OpenAI
-export ATLAS_VLM_PROVIDER=openai
-export OPENAI_API_KEY=sk-...
-python -m atlas.api.server
-
-# Use local Ollama (default, free, needs GPU)
-python -m atlas.api.server
-```
-
-#### Tests
-- Unit: Factory returns correct provider type for each string.
-- Unit: Factory raises `ValueError` on unknown provider.
-- Unit: Factory raises `ImportError` (with install hint) when SDK missing.
-- Unit: Anthropic + OpenAI providers format images and parse responses correctly
-  (mock SDK clients, no real API calls).
+- Phase 3 first pass
+- hazard ontology implemented
+- evidence-backed explanations added
+- beta onboarding and share flow shipped
 
 ---
 
-### Part 15: Export Formats & Safety Report
+## Immediate Engineering Priorities
 
-**Real-world impact**: The current output lives only in the browser. A property
-manager, parent, or insurance adjuster needs something they can *hand to
-someone*. This part adds three export paths that make Atlas-0 results portable.
+These are the next concrete tasks that matter most.
 
-**Target**: One-click export from the frontend → downloadable file.
-
-#### Deliverables
-
-1. **PDF safety report** (`python/atlas/api/export.py`)
-   - `generate_pdf_report(scene, risks) -> bytes`
-   - Uses `reportlab` or `weasyprint`.
-   - Report sections: Summary table, per-object cards (label, material, risk score,
-     photo if available), top-5 risks with descriptions, timestamp and location.
-   - Endpoint: `GET /export/report.pdf`
-
-2. **3D model export** (`python/atlas/api/export.py`)
-   - `generate_glb(point_cloud) -> bytes` — exports the Gaussian point cloud as a
-     GLB file (viewable in Blender, Apple Vision Pro, Google Model Viewer).
-   - Uses `trimesh` for GLB serialization.
-   - Endpoint: `GET /export/scene.glb`
-
-3. **JSON inventory export**
-   - `GET /export/inventory.json` — all labeled objects with properties + risks.
-   - Machine-readable. Useful for integration with property management systems.
-
-4. **Frontend export buttons**
-   - "Download PDF Report", "Download 3D Model (.glb)", "Export Inventory (JSON)"
-   - Each button calls the corresponding endpoint and triggers browser download.
-
-#### New Dependencies (Python)
-- `reportlab` or `weasyprint` (PDF generation)
-- `trimesh` (GLB export)
-
-#### Success Criteria
-- Download a PDF from the browser after scanning a room.
-- Open the `.glb` in Blender and see the point cloud.
+1. Remove or clearly label synthetic geometry and demo fallback behavior.
+2. Finish the report/export path so output is portable.
+3. Make cloud VLM usage the best-path beta experience.
+4. Replace upload pseudo-depth with a real grounded spatial estimate.
+5. Add evidence-linked findings and confidence scoring.
+6. Ship one real walkthrough demo and benchmark against it on every change.
 
 ---
 
-### Part 16: One-Command Setup & Demo
+## Non-Negotiable Quality Bar
 
-**Real-world impact**: A project that takes 45 minutes to set up gets no users.
-This part reduces time-to-first-result to under 3 minutes for a new user.
+Before calling the product usable:
 
-**Target**: `docker compose up` → open browser → upload a video → get results.
-No Rust toolchain, no Python environment, no Ollama setup required.
-
-#### Deliverables
-
-1. **Consolidated Docker setup**
-   - `docker/docker-compose.yml`: single `atlas-api` service that bundles Python
-     API + frontend + optional Ollama sidecar.
-   - Pre-built image on GitHub Container Registry (via CI).
-   - `ATLAS_VLM_PROVIDER=claude` env var path: no Ollama needed, just an API key.
-
-2. **Real demo footage**
-   - Record a real 60-second room walkthrough video.
-   - Process it through Atlas-0, capture the output (point cloud, labeled objects,
-     risk report).
-   - Ship this as `demo/sample_room.mp4` + `demo/expected_output.json` for CI
-     regression testing.
-
-3. **Interactive demo mode**
-   - If no camera and no upload: serve the pre-processed demo scene automatically.
-   - User sees real data, real risk scores, real point cloud — not fake hardcoded
-     objects.
-
-4. **Setup script** (`scripts/setup.sh`)
-   - Detects OS, checks prerequisites (Docker only), pulls image, starts stack.
-   - Prints: "Atlas-0 is running at http://localhost:8420"
-   - Total time from zero to running: < 3 minutes.
-
-5. **Update README**
-   - Lead with the use case, not the architecture.
-   - Quick-start: 3 commands.
-   - Screenshot / GIF of the real demo scene.
-   - Link to hosted live demo (if applicable).
-
-#### Phase 4 Exit Criteria
-- [ ] User uploads an MP4 video, gets labeled objects + risk report. No terminal.
-- [ ] `ATLAS_VLM_PROVIDER=claude` works with just an API key.
-- [ ] PDF report downloads from the browser.
-- [ ] `docker compose up` is the only setup step.
-- [ ] README leads with a GIF of the real demo, not architecture jargon.
-- [ ] A new user can go from zero to useful output in < 5 minutes.
+- no fake scene data in the main UX
+- no silent fallback that implies confidence the system does not have
+- no claim without evidence frames or rationale
+- no setup path that requires reading the source to succeed
+- no marketing copy that outruns actual product behavior
 
 ---
 
-## Cross-Cutting Concerns (All Phases)
+## Final Recommendation
 
-### Performance Budgets
-| Stage | Budget | Measured By |
-|---|---|---|
-| Frame capture + preprocess | < 5ms | `tracing` span |
-| Feature extraction + matching | < 8ms | `tracing` span |
-| Pose estimation | < 3ms | `tracing` span |
-| Gaussian update (per keyframe) | < 20ms | `criterion` bench |
-| IPC Rust→Python | < 5ms | integration test |
-| VLM inference — Ollama local | < 2000ms | Ollama timing |
-| VLM inference — Claude/OpenAI | < 5000ms | httpx timing |
-| Video frame extraction (per frame) | < 100ms | pytest-benchmark |
-| Physics simulation (full scene) | < 10ms | `criterion` bench |
-| API query response | < 200ms | pytest-benchmark |
-| WebSocket risk push | < 50ms | `tracing` span |
-| PDF report generation | < 3000ms | pytest-benchmark |
+Do not try to "win" on general 3D world modeling right now.
 
-### Dependency Summary
-| Phase | Rust Additions | Python Additions |
-|---|---|---|
-| Phase 1 | `nokhwa`, `ort`, `winit`, `wgpu`, `criterion` | — |
-| Phase 2 | `prost-build` (build) | `scikit-learn`, `httpx` |
-| Phase 3 | — | `prometheus-client` |
-| Phase 4 | `ffmpeg-next` (optional feature) | `av` (opt), `anthropic` (opt), `openai` (opt), `reportlab` (opt), `trimesh` (opt) |
+Win on this instead:
 
-### Risk Register
-| Risk | Impact | Mitigation |
-|---|---|---|
-| Real-time 3DGS too slow on CPU | Blocks Phase 1 | Start with sparse map; GPU path (WGPU/CUDA) as stretch goal |
-| VLM hallucinations on material properties | Degrades risk accuracy | Confidence thresholds; multi-angle consensus; prefer Claude/GPT-4V |
-| Monocular depth estimation inaccurate | Degrades 3D accuracy | Use known-scale objects for calibration; RGBD camera as option |
-| Physics sim divergence | Incorrect risk predictions | Cap simulation steps; Baumgarte correction; validate on known scenarios |
-| Shared memory race conditions | Data corruption at IPC boundary | Double-buffer with atomic flags; integration tests |
-| PyAV / ffmpeg not available | Video upload fails silently | Clear error message with install instructions; graceful degradation to image-only |
-| Cloud VLM API costs | Blocks adoption | Ollama always available as free fallback; clear cost docs |
+**Downside-Up helps a person scan a room and get a credible hazard report they
+can immediately act on or share.**
 
----
-
-## File Creation & Modification Map
-
-### Phase 4 — New Files
-```
-python/atlas/utils/video.py              # PyAV video frame extractor
-python/atlas/vlm/providers/__init__.py   # provider factory + exports
-python/atlas/vlm/providers/base.py       # VLMProvider protocol
-python/atlas/vlm/providers/ollama_provider.py
-python/atlas/vlm/providers/anthropic_provider.py
-python/atlas/vlm/providers/openai_provider.py
-python/atlas/api/export.py               # PDF, GLB, JSON export endpoints
-python/tests/test_providers.py           # provider factory + mock tests
-python/tests/test_video.py               # video extraction tests
-demo/sample_room.mp4                     # real demo footage
-demo/expected_output.json                # regression baseline
-scripts/setup.sh                         # one-command setup script
-```
-
-### Phase 4 — Modified Files
-```
-python/atlas/vlm/inference.py            # use provider abstraction
-python/atlas/utils/config.py             # add provider, claude_model, openai_model fields
-python/atlas/api/server.py               # real video processing, export endpoint mounts
-configs/default.toml                     # add vlm.provider, vlm.claude_model, etc.
-pyproject.toml                           # add video/claude/openai optional dep groups
-crates/atlas-stream/Cargo.toml           # add optional ffmpeg-next feature
-frontend/index.html                      # add export buttons
-docker/docker-compose.yml                # add Ollama sidecar option
-README.md                                # rewrite lead section, quick-start
-```
+If we can make that experience fast, trustworthy, and easy to demo, users will
+show up. If we keep shipping broad technical ambition without a tight product
+loop, we will keep producing impressive scaffolding and weak adoption.
