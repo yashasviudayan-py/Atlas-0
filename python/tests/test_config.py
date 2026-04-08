@@ -153,6 +153,17 @@ class TestLoadConfig:
         assert cfg.camera.slam_width == 640
         assert cfg.ipc.mmap_path == "/tmp/atlas.mmap"
 
+    def test_env_atlas_config_selects_runtime_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg_file = tmp_path / "runtime.toml"
+        cfg_file.write_bytes(b"[api]\nport = 7771\n")
+        monkeypatch.setenv("ATLAS_CONFIG", str(cfg_file))
+
+        cfg = load_config()
+
+        assert cfg.api.port == 7771
+
     def test_custom_toml(self, tmp_path: Path) -> None:
         toml_content = b"""
 [api]

@@ -14,15 +14,16 @@ import contextlib
 import io
 import pathlib
 import uuid
+from email.parser import BytesParser
+from email.policy import default
 from typing import Annotated, Any
 
 import structlog
 from fastapi import (
     Depends,
     FastAPI,
-    File,
     HTTPException,
-    UploadFile,
+    Request,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -42,8 +43,9 @@ from atlas.api.metrics import (
     ws_clients_active,
 )
 from atlas.api.overlay import CameraParams, OverlayBuilder
+from atlas.utils.config import load_config
 from atlas.vlm.inference import SemanticLabel, VLMConfig, VLMEngine
-from atlas.world_model.agent import RiskEntry, WorldModelAgent, WorldModelConfig
+from atlas.world_model.agent import RiskEntry, WorldModelAgent
 from atlas.world_model.query_parser import QueryParser, QueryType
 from atlas.world_model.relationships import RelationType, SemanticObject
 from atlas.world_model.risk_aggregator import RiskAggregator
@@ -87,7 +89,7 @@ _query_parser = QueryParser()
 def _get_agent() -> WorldModelAgent:
     """FastAPI dependency: lazily create and return the singleton agent."""
     if "agent" not in _state:
-        _state["agent"] = WorldModelAgent(config=WorldModelConfig())
+        _state["agent"] = WorldModelAgent()
     return _state["agent"]
 
 
@@ -108,6 +110,27 @@ def _get_overlay_builder() -> OverlayBuilder:
     if "overlay_builder" not in _state:
         _state["overlay_builder"] = OverlayBuilder(camera=CameraParams())
     return _state["overlay_builder"]  # type: ignore[return-value]
+
+
+def _build_runtime_vlm_config() -> VLMConfig:
+    """Build a :class:`VLMConfig` from the active Atlas runtime config."""
+    vlm = load_config().vlm
+    return VLMConfig(
+        provider=vlm.provider,
+        model_name=vlm.model_name,
+        ollama_host=vlm.ollama_host,
+        claude_model=vlm.claude_model,
+        openai_model=vlm.openai_model,
+        max_tokens=vlm.max_tokens,
+        temperature=vlm.temperature,
+        timeout_seconds=vlm.timeout_seconds,
+    )
+
+
+def _current_objects(agent: WorldModelAgent) -> list[SemanticObject]:
+    """Return the best available object list for API responses."""
+    objects = agent.get_objects_sync()
+    return objects or agent.build_objects_from_store()
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
@@ -223,21 +246,26 @@ async def health_check(
     ``slam_active`` reflects whether a live Rust SLAM pipeline is connected
     (always ``False`` until Phase 1/2 integration in Part 8).
     """
-    objects = agent.get_objects_sync()
+    objects = _current_objects(agent)
     risks = await agent.get_risks()
+    snapshot = agent.get_latest_snapshot_sync()
+    frame_count = int(getattr(snapshot, "frame_id", 0)) if snapshot is not None else 0
+    slam_is_live = snapshot is not None and (
+        frame_count > 0 or len(getattr(snapshot, "gaussians", ())) > 0
+    )
     stale = agent.risks_stale_seconds
     # -1.0 means "no assessment has completed yet" (JSON can't encode inf).
     stale_json = stale if stale != float("inf") else -1.0
     # Update Prometheus gauges on every health poll.
     object_count.set(len(objects))
     risk_count.set(len(risks))
-    slam_active.set(0)
+    slam_active.set(int(slam_is_live))
     assessment_age_seconds.set(stale_json)
     return HealthResponse(
         status="ok",
-        slam_active=False,  # Phase 1/2 integration — Part 8
+        slam_active=slam_is_live,
         vlm_active=agent.vlm_active,
-        frame_count=0,
+        frame_count=frame_count,
         object_count=len(objects),
         risk_count=len(risks),
         risks_stale_seconds=stale_json,
@@ -266,7 +294,7 @@ async def spatial_query(
         {"query": "Where is the most unstable object?", "max_results": 3}
     """
     parsed = _query_parser.parse(query.query)
-    objects = agent.get_objects_sync()
+    objects = _current_objects(agent)
     risks = await agent.get_risks()
 
     results: list[SpatialQueryResult] = []
@@ -387,7 +415,7 @@ async def list_objects(
 
     Returns an empty list when no map snapshot has been processed yet.
     """
-    objects = agent.get_objects_sync()
+    objects = _current_objects(agent)
     risks = await agent.get_risks()
     return [_to_object_info(obj, risks) for obj in objects]
 
@@ -400,7 +428,7 @@ async def get_scene(
 
     Useful for initialising an AR frontend or running a one-shot scene dump.
     """
-    objects = agent.get_objects_sync()
+    objects = _current_objects(agent)
     risks = await agent.get_risks()
 
     # Merge point clouds from all completed upload jobs
@@ -630,7 +658,7 @@ class UploadJobStatus(BaseModel):
 async def _get_or_init_upload_vlm() -> VLMEngine:
     """Return a cached, initialised :class:`VLMEngine` for upload analysis."""
     if "upload_vlm" not in _state:
-        engine = VLMEngine(VLMConfig())
+        engine = VLMEngine(_build_runtime_vlm_config())
         await engine.initialize()
         _state["upload_vlm"] = engine
     return _state["upload_vlm"]  # type: ignore[return-value]
@@ -829,26 +857,19 @@ def _analyze_image_heuristic(content: bytes) -> SemanticLabel:
         )
 
 
-# Spread successive uploads across a plausible room layout so objects don't
-# all land at the origin.
-_UPLOAD_POSITIONS: list[tuple[float, float, float]] = [
-    (0.5, 0.82, 0.3),  # table surface, right
-    (-0.5, 0.82, -0.3),  # table surface, left
-    (1.4, 0.82, 0.1),  # table surface, far right
-    (-2.2, 1.10, 0.8),  # floor lamp height
-    (0.0, 0.42, 0.0),  # table centre (lower)
-    (2.0, 0.82, 1.0),  # shelf
-    (-1.2, 0.82, -0.8),  # sideboard
-    (0.8, 1.50, 0.5),  # upper shelf
-]
-_upload_pos_index: int = 0
+def _point_cloud_centroid(points: list[list[float]]) -> tuple[float, float, float]:
+    """Estimate a stable object position from an upload-derived point cloud."""
+    if not points:
+        return (0.0, 0.8, 1.5)
 
-
-def _next_upload_position() -> tuple[float, float, float]:
-    global _upload_pos_index
-    pos = _UPLOAD_POSITIONS[_upload_pos_index % len(_UPLOAD_POSITIONS)]
-    _upload_pos_index += 1
-    return pos
+    xs = [float(p[0]) for p in points]
+    ys = [float(p[1]) for p in points]
+    zs = [float(p[2]) for p in points]
+    return (
+        round(sum(xs) / len(xs), 3),
+        round(sum(ys) / len(ys), 3),
+        round(sum(zs) / len(zs), 3),
+    )
 
 
 async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
@@ -912,9 +933,18 @@ async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
         if label.label in ("unknown", "") or label.confidence < 0.35:
             label = _analyze_image_heuristic(frame_bytes)
 
-        # Keep the highest-confidence label for each object type.
+        # Contribute this frame's point cloud (offset along Z by frame index
+        # so multi-frame clouds have spatial spread rather than all stacking).
+        frame_points = _generate_depth_pointcloud(frame_bytes, n_points=400)
+        z_offset = i * 0.4  # metres apart per frame
+        for pt in frame_points:
+            all_points.append([pt[0], pt[1], pt[2] + z_offset, pt[3], pt[4], pt[5]])
+        frame_position = _point_cloud_centroid(
+            [[pt[0], pt[1], pt[2] + z_offset] for pt in frame_points]
+        )
+
         existing = best_labels.get(label.label)
-        if existing is None or label.confidence > existing["confidence"]:
+        if existing is None:
             best_labels[label.label] = {
                 "label": label.label,
                 "material": label.material,
@@ -922,14 +952,22 @@ async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
                 "fragility": label.fragility,
                 "friction": label.friction,
                 "confidence": label.confidence,
+                "positions": [frame_position],
             }
+            continue
 
-        # Contribute this frame's point cloud (offset along Z by frame index
-        # so multi-frame clouds have spatial spread rather than all stacking).
-        frame_points = _generate_depth_pointcloud(frame_bytes, n_points=400)
-        z_offset = i * 0.4  # metres apart per frame
-        for pt in frame_points:
-            all_points.append([pt[0], pt[1], pt[2] + z_offset, pt[3], pt[4], pt[5]])
+        existing["positions"].append(frame_position)
+        if label.confidence > existing["confidence"]:
+            existing.update(
+                {
+                    "label": label.label,
+                    "material": label.material,
+                    "mass_kg": label.mass_kg,
+                    "fragility": label.fragility,
+                    "friction": label.friction,
+                    "confidence": label.confidence,
+                }
+            )
 
     job.update({"stage": "risk", "progress": 0.90})
 
@@ -962,7 +1000,9 @@ async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
             friction=obj_data["friction"],
             confidence=obj_data["confidence"],
         )
-        position = _next_upload_position()
+        position = _point_cloud_centroid(
+            [[x, y, z] for x, y, z in obj_data.get("positions", [(0.0, 0.8, 1.5)])]
+        )
         await agent.ingest_from_upload(sl, position=position)
 
     job.update(
@@ -1049,7 +1089,7 @@ async def _process_upload(job_id: str, content: bytes, content_type: str) -> Non
 
             # ── Inject into the live world model so /objects and /scene update ──
             agent = _get_agent()
-            position = _next_upload_position()
+            position = _point_cloud_centroid(point_cloud)
             await agent.ingest_from_upload(label, position=position)
 
         elif is_video:
@@ -1066,8 +1106,51 @@ async def _process_upload(job_id: str, content: bytes, content_type: str) -> Non
 # ── Upload endpoints ──────────────────────────────────────────────────────────
 
 
+def _extract_single_file_from_multipart(
+    body: bytes,
+    content_type: str,
+) -> tuple[str, str, bytes]:
+    """Extract the ``file`` form part without requiring ``python-multipart``."""
+    envelope = (f"Content-Type: {content_type}\r\n" "MIME-Version: 1.0\r\n\r\n").encode() + body
+    message = BytesParser(policy=default).parsebytes(envelope)
+
+    if not message.is_multipart():
+        raise ValueError("Expected multipart/form-data payload.")
+
+    for part in message.iter_parts():
+        if part.get_content_disposition() != "form-data":
+            continue
+        if part.get_param("name", header="content-disposition") != "file":
+            continue
+
+        payload = part.get_payload(decode=True) or b""
+        filename = part.get_filename() or "upload.bin"
+        part_content_type = part.get_content_type() or "application/octet-stream"
+        return filename, part_content_type, payload
+
+    raise ValueError("Multipart upload is missing the 'file' field.")
+
+
+async def _read_upload_request(request: Request) -> tuple[str, str, bytes]:
+    """Read an upload request in raw or multipart form."""
+    content_type = request.headers.get("content-type", "")
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="Upload body is empty.")
+
+    if content_type.startswith("multipart/form-data"):
+        try:
+            return _extract_single_file_from_multipart(body, content_type)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    filename = request.headers.get("x-filename", "upload.bin")
+    fallback_type = content_type or "application/octet-stream"
+    return filename, fallback_type, body
+
+
 @app.post("/upload", response_model=UploadJobStatus)
-async def upload_media(file: Annotated[UploadFile, File()]) -> UploadJobStatus:
+async def upload_media(request: Request) -> UploadJobStatus:
     """Accept an image or video file and run it through the analysis pipeline.
 
     Returns immediately with a ``job_id``. Poll ``GET /jobs/{job_id}`` for
@@ -1075,12 +1158,11 @@ async def upload_media(file: Annotated[UploadFile, File()]) -> UploadJobStatus:
     ``upload → ingest → vlm → risk → complete``.
 
     Supported image formats: JPEG, PNG, WEBP, GIF.
-    Video formats (MP4, MOV, WEBM) are accepted but require the Rust SLAM
-    pipeline for full 3-D reconstruction.
+    Accepts both ``multipart/form-data`` browser uploads and raw file bodies.
     """
+    filename, content_type, content = await _read_upload_request(request)
+
     job_id = uuid.uuid4().hex[:8]
-    filename = file.filename or "unknown"
-    content_type = file.content_type or ""
 
     job: dict[str, Any] = {
         "job_id": job_id,
@@ -1094,7 +1176,6 @@ async def upload_media(file: Annotated[UploadFile, File()]) -> UploadJobStatus:
     }
     _upload_jobs[job_id] = job
 
-    content = await file.read()
     job.update({"stage": "upload", "progress": 0.1})
 
     _task = asyncio.create_task(_process_upload(job_id, content, content_type))

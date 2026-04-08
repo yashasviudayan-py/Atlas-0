@@ -15,12 +15,38 @@ from dataclasses import dataclass
 
 import structlog
 
+from atlas.utils.config import load_config
 from atlas.vlm.inference import SemanticLabel, VLMConfig, VLMEngine
 from atlas.vlm.region_extractor import BoundingBox, RegionExtractor
 from atlas.world_model.label_store import LabelStore
 from atlas.world_model.relationships import RelationshipDetector, SemanticObject
 
 logger = structlog.get_logger(__name__)
+
+
+def _build_runtime_vlm_config() -> VLMConfig:
+    """Build a :class:`VLMConfig` from the active Atlas runtime config."""
+    vlm = load_config().vlm
+    return VLMConfig(
+        provider=vlm.provider,
+        model_name=vlm.model_name,
+        ollama_host=vlm.ollama_host,
+        claude_model=vlm.claude_model,
+        openai_model=vlm.openai_model,
+        max_tokens=vlm.max_tokens,
+        temperature=vlm.temperature,
+        timeout_seconds=vlm.timeout_seconds,
+    )
+
+
+def _build_runtime_world_model_config() -> WorldModelConfig:
+    """Build the agent loop config from the active Atlas runtime config."""
+    world_model = load_config().world_model
+    return WorldModelConfig(
+        assessment_interval_seconds=world_model.assessment_interval_seconds,
+        max_concurrent_queries=world_model.max_concurrent_queries,
+        risk_threshold=world_model.risk_threshold,
+    )
 
 
 @dataclass
@@ -94,8 +120,8 @@ class WorldModelAgent:
         region_extractor: RegionExtractor | None = None,
         relationship_detector: RelationshipDetector | None = None,
     ) -> None:
-        self.config = config or WorldModelConfig()
-        self._vlm = vlm_engine or VLMEngine(VLMConfig())
+        self.config = config or _build_runtime_world_model_config()
+        self._vlm = vlm_engine or VLMEngine(_build_runtime_vlm_config())
         self._label_store = label_store or LabelStore()
         self._region_extractor = region_extractor or RegionExtractor()
         self._rel_detector = relationship_detector or RelationshipDetector()
@@ -369,8 +395,20 @@ class WorldModelAgent:
             from atlas.utils.shared_mem import SharedMemReader  # type: ignore[attr-defined]
 
             if self._shared_mem_reader is None:
-                mmap_path = os.environ.get("ATLAS_MMAP_PATH", "/tmp/atlas.mmap")
-                max_gaussians = int(os.environ.get("ATLAS_MAX_GAUSSIANS", "100000"))
+                runtime_cfg = load_config()
+                mmap_path = os.environ.get(
+                    "ATLAS_MMAP_PATH",
+                    os.environ.get("ATLAS_IPC_MMAP_PATH", runtime_cfg.ipc.mmap_path),
+                )
+                max_gaussians = int(
+                    os.environ.get(
+                        "ATLAS_MAX_GAUSSIANS",
+                        os.environ.get(
+                            "ATLAS_IPC_MAX_GAUSSIANS",
+                            str(runtime_cfg.ipc.max_gaussians),
+                        ),
+                    )
+                )
                 self._shared_mem_reader = SharedMemReader(
                     path=mmap_path,  # type: ignore[arg-type]
                     max_gaussians=max_gaussians,
@@ -393,6 +431,10 @@ class WorldModelAgent:
             *assessment_interval_seconds*).
         """
         return list(self._cached_objects)
+
+    def get_latest_snapshot_sync(self) -> object | None:
+        """Return the latest SLAM snapshot without waiting for the loop."""
+        return self._get_snapshot()
 
     async def ingest_from_upload(
         self,

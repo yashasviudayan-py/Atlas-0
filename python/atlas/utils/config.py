@@ -280,7 +280,7 @@ def load_config(config_path: Path | None = None) -> AtlasConfig:
         cfg = load_config()
         cfg = load_config(Path("/etc/atlas/custom.toml"))
     """
-    path = config_path or _DEFAULT_CONFIG_PATH
+    path = _resolve_config_path(config_path)
 
     if not path.exists():
         logger.warning("config_file_not_found", path=str(path), using_defaults=True)
@@ -294,6 +294,25 @@ def load_config(config_path: Path | None = None) -> AtlasConfig:
     config = AtlasConfig.model_validate(data)
     logger.debug("config_validated", api_port=config.api.port, vlm_model=config.vlm.model_name)
     return config
+
+
+def _resolve_config_path(config_path: Path | None) -> Path:
+    """Resolve the config path, honoring ``ATLAS_CONFIG`` when present.
+
+    Args:
+        config_path: Explicit path passed by the caller.
+
+    Returns:
+        The config path to load.
+    """
+    if config_path is not None:
+        return config_path
+
+    env_path = os.environ.get("ATLAS_CONFIG")
+    if env_path:
+        return Path(env_path).expanduser()
+
+    return _DEFAULT_CONFIG_PATH
 
 
 # ── Environment override helpers ──────────────────────────────────────────────
