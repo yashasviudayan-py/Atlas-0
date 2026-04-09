@@ -16,6 +16,7 @@ export const fetchObjects = ()         => json('/objects');
 export const fetchScene   = ()         => json('/scene');
 export const fetchJob     = (id)       => json(`/jobs/${id}`);
 export const fetchJobs    = ()         => json('/jobs');
+export const reportPdfUrl = (id)      => `/reports/${id}.pdf`;
 
 export function postQuery(query, maxResults = 5) {
   return json('/query', {

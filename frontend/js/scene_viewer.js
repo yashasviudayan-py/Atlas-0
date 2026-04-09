@@ -24,23 +24,6 @@ const S = {
   MUTED:  'rgba(80,140,180,0.5)',
 };
 
-// ── Demo living-room scene (shown while API is offline) ───────────────────────
-
-const DEMO_OBJECTS = [
-  { object_id:'d1', label:'Coffee Cup',  position:[ 0.5, 0.82,  0.3], mass_kg: 0.25, fragility:0.82, friction:0.55, material:'Ceramic', confidence:0.97 },
-  { object_id:'d2', label:'Oak Table',   position:[ 0.0, 0.42,  0.0], mass_kg:18.0,  fragility:0.12, friction:0.72, material:'Wood',    confidence:0.99 },
-  { object_id:'d3', label:'Floor Lamp',  position:[-2.2, 1.10,  0.8], mass_kg: 3.4,  fragility:0.44, friction:0.38, material:'Metal',   confidence:0.93 },
-  { object_id:'d4', label:'Glass Vase',  position:[ 1.4, 0.82,  0.1], mass_kg: 0.6,  fragility:0.95, friction:0.20, material:'Glass',   confidence:0.96 },
-  { object_id:'d5', label:'Book Stack',  position:[-0.5, 0.82, -0.4], mass_kg: 2.1,  fragility:0.15, friction:0.65, material:'Paper',   confidence:0.91 },
-];
-
-const DEMO_RISKS = [
-  { object_id:'d1', object_label:'Coffee Cup', risk_score:0.78, description:'Contains hot liquid; near edge' },
-  { object_id:'d3', object_label:'Floor Lamp', risk_score:0.52, description:'Top-heavy; tipping hazard' },
-  { object_id:'d4', object_label:'Glass Vase', risk_score:0.88, description:'Highly fragile; unstable base' },
-  { object_id:'d5', object_label:'Book Stack', risk_score:0.31, description:'Slight lean; moderate risk' },
-];
-
 // ── Gaussian Particle Cloud ───────────────────────────────────────────────────
 
 const VERT = `
@@ -888,19 +871,15 @@ export class SceneViewer {
       const scene = await api.fetchScene();
       const objs  = scene.objects || [];
       const risks = scene.risks   || [];
-      if (objs.length) {
-        this._draw(objs, risks, scene);
-      } else {
-        // Demo mode: no real objects yet — show demo scene, no point cloud
-        this._draw(DEMO_OBJECTS, DEMO_RISKS, null);
-      }
+      this._draw(objs, risks, scene);
     } catch {
-      this._draw(DEMO_OBJECTS, DEMO_RISKS, null);
+      this._draw([], [], null);
     }
   }
 
   _draw(objs, risks, scene) {
     if (!objs.length) {
+      this._pcCloud?.setPoints([]);
       this._emptyEl.style.display = '';
       this._objListEl.innerHTML = '<div style="font-size:11px;color:var(--text-muted)">—</div>';
       return;
@@ -922,9 +901,7 @@ export class SceneViewer {
     }
 
     // Upload-derived point cloud (pseudo-depth reconstruction)
-    if (scene && scene.point_cloud && scene.point_cloud.length > 0) {
-      this._pcCloud?.setPoints(scene.point_cloud);
-    }
+    this._pcCloud?.setPoints(scene?.point_cloud || []);
 
     // Neural tethers + cards
     this._tether?.setObjects(objs, risks);
