@@ -1,4 +1,4 @@
-# Atlas-0 / Downside-Up: Product Reset Development Plan
+# ATLAS-0: Product Reset Development Plan
 
 > April 2026 reset. This document replaces the old "everything at once"
 > roadmap with a narrower plan built around one outcome:
@@ -58,28 +58,18 @@ Those may become expansion paths later, but they are not the wedge.
 
 ---
 
-## Identity / Rebrand
+## Identity / Positioning
 
 ### Recommendation
 
-Keep `Atlas-0` as the internal engine/codename.
+Keep `ATLAS-0` as the project and product name for now.
 
-Rebrand the user-facing product to **Downside-Up**.
+Do not force a rebrand before the product wedge is proven. The identity problem
+is real, but the first fix should be better positioning, not a premature rename.
 
-### Why "Downside-Up" works
+### Suggested tagline
 
-- It is memorable.
-- It hints at falls, tipping, instability, and household hazards.
-- It sounds like a product, not a research repo.
-- It gives us permission to simplify the story around "what might go wrong in
-  this room?"
-
-### Suggested brand split
-
-- `Atlas-0`: internal engine / repo / technical architecture name
-- `Downside-Up`: product, landing page, demos, user-facing docs
-- Suggested tagline:
-  `Scan your room. Catch what could fall, tip, or break.`
+`Scan your room. Catch what could fall, tip, or break.`
 
 ### Messaging shift
 
@@ -137,7 +127,7 @@ give me enough evidence to act on it."
 
 ### North Star Experience
 
-1. User opens Downside-Up.
+1. User opens ATLAS-0.
 2. User uploads a phone walkthrough video.
 3. Within 3-5 minutes, the user gets:
    - top hazards
@@ -181,6 +171,13 @@ give me enough evidence to act on it."
 
 ## Phase 0: Truth Reset
 
+### Status
+
+In progress. The repo now has an honest upload/report shell, trust notes,
+runtime-config fixes, PDF export, and no primary-flow demo fallback in the
+frontend scene viewer. Known limitations are still not centralized enough, and
+the upload pipeline remains heuristic on grounding.
+
 ### Goal
 
 Remove product dishonesty and align the codebase, docs, and UI with reality.
@@ -200,9 +197,26 @@ Remove product dishonesty and align the codebase, docs, and UI with reality.
 - Status endpoints reflect real runtime state.
 - Config-driven provider/runtime switches are verified by tests.
 
+### Completed in repo
+
+- Runtime config now drives provider/runtime wiring correctly.
+- Upload jobs now expose `summary`, `recommendations`, `evidence_frames`,
+  `trust_notes`, `scene_source`, and `report_url`.
+- The primary frontend flow is now upload-first and report-first instead of a
+  demo dashboard.
+- The scene viewer no longer silently injects fake demo objects when the API is
+  empty or unavailable.
+- Completed jobs can export a downloadable PDF report.
+
 ---
 
 ## Phase 1: Useful Upload-to-Report MVP
+
+### Status
+
+Started. The first report-first MVP is now in the repo, but it is not yet a
+beta-ready user flow because jobs are still in-memory, grounding is still
+heuristic, and there is no polished sample scan or hosted onboarding path.
 
 ### Goal
 
@@ -247,9 +261,29 @@ Make one room scan produce one useful report without touching the terminal.
 - A new user can upload one room video and download one useful report.
 - No Rust toolchain knowledge is required for the beta path.
 
+### Completed in repo
+
+- Browser upload now lands in a report-first UI with processing states.
+- The report view now shows top hazards, recommendations, evidence, trust
+  notes, and PDF export.
+- The scene view has been demoted to a secondary inspection tool.
+
+### Still missing
+
+- persistent jobs and storage beyond process memory
+- polished empty/error states for all backend failures
+- one committed sample walkthrough with expected output
+- a clearer "how to record a good scan" onboarding path
+
 ---
 
 ## Phase 2: Spatial Grounding That Is Not Fake
+
+### Status
+
+Not done. Approximate locations and trust notes are now explicit, but the
+pipeline is still based on heuristic positioning rather than real multi-view
+grounding.
 
 ### Goal
 
@@ -284,6 +318,12 @@ hazard localization.
 ---
 
 ## Phase 3: Reasoning Users Can Trust
+
+### Status
+
+Partially started. We now generate simple recommendation cards and evidence
+frames, but the reasoning layer is still shallow and the hazard ontology is not
+formalized.
 
 ### Goal
 
@@ -320,13 +360,24 @@ Turn labels into actionable hazard judgments with explicit evidence.
 - Every top hazard in the report has visible supporting evidence.
 - Users can understand why the system made the claim.
 
+### Completed in repo
+
+- Findings now surface evidence frames and location labels.
+- Deterministic recommendations are generated alongside risks.
+
+### Still missing
+
+- explicit hazard ontology and evaluation set
+- reasoning traces that show which relationships produced a claim
+- user feedback capture for wrong/duplicate findings
+
 ---
 
 ## Phase 4: Productization and Growth
 
 ### Goal
 
-Make Downside-Up easy to try, easy to share, and easy to talk about.
+Make ATLAS-0 easy to try, easy to share, and easy to talk about.
 
 ### Deliverables
 
@@ -425,8 +476,8 @@ Do not try to "win" on general 3D world modeling right now.
 
 Win on this instead:
 
-**Downside-Up helps a person scan a room and get a credible hazard report they
-can immediately act on or share.**
+**ATLAS-0 helps a person scan a room and get a credible hazard report they can
+immediately act on or share.**
 
 If we can make that experience fast, trustworthy, and easy to demo, users will
 show up. If we keep shipping broad technical ambition without a tight product
