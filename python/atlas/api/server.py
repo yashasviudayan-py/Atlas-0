@@ -10,6 +10,7 @@ Provides endpoints for:
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import io
 import pathlib
@@ -652,6 +653,12 @@ class UploadJobStatus(BaseModel):
     progress: float
     objects: list[dict[str, Any]] | None = None
     risks: list[dict[str, Any]] | None = None
+    summary: dict[str, Any] | None = None
+    recommendations: list[dict[str, Any]] | None = None
+    evidence_frames: list[dict[str, Any]] | None = None
+    trust_notes: list[str] | None = None
+    scene_source: str | None = None
+    report_url: str | None = None
     error: str | None = None
 
 
@@ -872,6 +879,240 @@ def _point_cloud_centroid(points: list[list[float]]) -> tuple[float, float, floa
     )
 
 
+def _encode_data_url(content: bytes, mime_type: str) -> str:
+    """Encode raw media bytes as a data URL for inline evidence previews."""
+    encoded = base64.b64encode(content).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def _risk_severity(score: float) -> str:
+    """Convert a numeric score into a user-facing severity bucket."""
+    if score >= 0.78:
+        return "critical"
+    if score >= 0.58:
+        return "high"
+    if score >= 0.35:
+        return "moderate"
+    return "low"
+
+
+def _location_label(position: tuple[float, float, float]) -> str:
+    """Describe an approximate room zone from an estimated object position."""
+    x, _y, z = position
+    horizontal = "center"
+    depth = "middle"
+
+    if x < -0.8:
+        horizontal = "left"
+    elif x > 0.8:
+        horizontal = "right"
+
+    if z < 0.8:
+        depth = "front"
+    elif z > 1.8:
+        depth = "back"
+
+    if horizontal == "center" and depth == "middle":
+        return "center area"
+    return f"{depth}-{horizontal}".replace("-center", "")
+
+
+def _build_trust_notes(scene_source: str) -> list[str]:
+    """Return explicit honesty notes for the current scene estimation mode."""
+    if scene_source == "heuristic_estimate":
+        return [
+            "This scan uses upload-side heuristic grounding rather than full SLAM reconstruction.",
+            (
+                "Object locations are approximate and should be treated as"
+                " directional, not survey-grade."
+            ),
+            (
+                "Use the evidence frames and recommendations as the primary"
+                " output, not the point cloud alone."
+            ),
+        ]
+    return ["This report is based on measured scene data."]
+
+
+def _recommendation_for(
+    obj: dict[str, Any],
+    risk: dict[str, Any],
+) -> dict[str, Any]:
+    """Generate a deterministic action card for one risky object."""
+    label = str(obj.get("label", "Object"))
+    material = str(obj.get("material", "Unknown"))
+    risk_score = float(risk.get("risk_score", 0.0))
+    fragility = float(obj.get("fragility", 0.0))
+    mass_kg = float(obj.get("mass_kg", 0.0))
+    location = str(obj.get("location_label", "scan area"))
+    label_lower = label.lower()
+
+    action = "Reposition this item to a more stable location."
+    why = f"{label} is one of the higher-risk items in the scan."
+    priority = _risk_severity(risk_score)
+
+    if (
+        any(word in label_lower for word in ("glass", "vase", "cup", "mug", "bottle"))
+        or fragility > 0.72
+    ):
+        action = "Move it farther from edges and lower it onto a wider, more stable surface."
+        why = f"It appears fragile ({material}) and likely to break if tipped or dropped."
+    elif any(word in label_lower for word in ("lamp", "shelf", "bookcase", "rack")):
+        action = "Stabilize or anchor it, and clear the surrounding fall zone."
+        why = "It looks tall or top-heavy, which raises tipping risk."
+    elif mass_kg > 5.0:
+        action = "Lower it and keep heavy weight below waist height if possible."
+        why = "Heavier objects create more impact risk if they shift or fall."
+    elif material.lower() in {"plant", "plastic", "mixed"}:
+        action = "Reduce clutter around it and move it away from walk paths or edges."
+        why = "Its current placement appears more risky than the object itself."
+
+    return {
+        "title": f"Stabilize {label}",
+        "priority": priority,
+        "location": location,
+        "action": action,
+        "why": why,
+    }
+
+
+def _build_recommendations(
+    objects: list[dict[str, Any]],
+    risks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build ordered recommendation cards from the current risk list."""
+    objects_by_label = {str(obj.get("label", "")).lower(): obj for obj in objects}
+    recommendations: list[dict[str, Any]] = []
+
+    ranked_risks = sorted(
+        risks,
+        key=lambda entry: float(entry.get("risk_score", 0.0)),
+        reverse=True,
+    )
+
+    for risk in ranked_risks[:5]:
+        key = str(risk.get("object_label", "")).lower()
+        obj = objects_by_label.get(key)
+        if obj is None:
+            continue
+        recommendations.append(_recommendation_for(obj, risk))
+
+    return recommendations
+
+
+def _build_summary(
+    filename: str,
+    objects: list[dict[str, Any]],
+    risks: list[dict[str, Any]],
+    scene_source: str,
+) -> dict[str, Any]:
+    """Build a compact report summary for the frontend."""
+    top_risk = max(risks, key=lambda entry: float(entry.get("risk_score", 0.0)), default=None)
+    return {
+        "filename": filename,
+        "object_count": len(objects),
+        "hazard_count": len(risks),
+        "top_severity": (
+            _risk_severity(float(top_risk.get("risk_score", 0.0))) if top_risk else "none"
+        ),
+        "top_hazard_label": top_risk.get("object_label") if top_risk else None,
+        "scene_source": scene_source,
+        "confidence_label": (
+            "Approximate spatial grounding"
+            if scene_source == "heuristic_estimate"
+            else "Measured scene grounding"
+        ),
+    }
+
+
+def _build_pdf_report(job: dict[str, Any]) -> bytes:
+    """Generate a compact PDF report without extra runtime dependencies."""
+    summary = job.get("summary") or {}
+    risks = job.get("risks") or []
+    recommendations = job.get("recommendations") or []
+    trust_notes = job.get("trust_notes") or []
+
+    lines = [
+        "ATLAS-0 Room Safety Report",
+        f"Scan file: {summary.get('filename', 'unknown')}",
+        f"Hazards found: {summary.get('hazard_count', 0)}",
+        f"Objects detected: {summary.get('object_count', 0)}",
+        f"Scene source: {summary.get('scene_source', 'unknown')}",
+        "",
+        "Top hazards:",
+    ]
+
+    if risks:
+        for risk in risks[:5]:
+            lines.append(
+                f"- {risk.get('object_label', 'Object')} "
+                f"({str(risk.get('severity', 'low')).upper()}): "
+                f"{risk.get('description', '')}"
+            )
+    else:
+        lines.append("- No significant hazards were detected in this scan.")
+
+    lines.extend(["", "Recommended actions:"])
+    if recommendations:
+        for rec in recommendations[:5]:
+            lines.append(f"- {rec.get('title', 'Action')}: {rec.get('action', '')}")
+    else:
+        lines.append("- No follow-up actions were generated.")
+
+    if trust_notes:
+        lines.extend(["", "Trust notes:"])
+        for note in trust_notes[:3]:
+            lines.append(f"- {note}")
+
+    max_lines = 34
+    visible_lines = lines[:max_lines]
+
+    def _pdf_escape(text: str) -> str:
+        return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    y = 790
+    content_lines: list[str] = []
+    for index, line in enumerate(visible_lines):
+        font_size = 18 if index == 0 else 11
+        content_lines.append(f"BT /F1 {font_size} Tf 48 {y} Td ({_pdf_escape(line)}) Tj ET")
+        y -= 24 if index == 0 else 17
+
+    stream = "\n".join(content_lines).encode("latin-1", "replace")
+    objects = [
+        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
+        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
+        (
+            b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] "
+            b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n"
+        ),
+        b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
+        (
+            f"5 0 obj << /Length {len(stream)} >> stream\n".encode("ascii")
+            + stream
+            + b"\nendstream endobj\n"
+        ),
+    ]
+
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets: list[int] = []
+    for obj in objects:
+        offsets.append(len(pdf))
+        pdf.extend(obj)
+
+    xref_offset = len(pdf)
+    pdf.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    pdf.extend(b"0000000000 65535 f \n")
+    for offset in offsets:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(
+        (
+            f"trailer << /Size {len(objects) + 1} /Root 1 0 R >>\n"
+            f"startxref\n{xref_offset}\n%%EOF\n"
+        ).encode("ascii")
+    )
+    return bytes(pdf)
+
+
 async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
     """Extract frames from a video and run the full analysis pipeline on each.
 
@@ -920,6 +1161,7 @@ async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
 
     logger.info("video_upload_frames_extracted", frame_count=len(frames))
     engine = await _get_or_init_upload_vlm()
+    evidence_frames: list[dict[str, Any]] = []
 
     # Maps label -> best SemanticLabel seen across frames (by confidence).
     best_labels: dict[str, Any] = {}
@@ -932,6 +1174,16 @@ async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
         label = await engine.label_region(frame_bytes, region_hint=f"video frame {i + 1}")
         if label.label in ("unknown", "") or label.confidence < 0.35:
             label = _analyze_image_heuristic(frame_bytes)
+
+        if len(evidence_frames) < 4:
+            evidence_frames.append(
+                {
+                    "caption": f"Evidence frame {i + 1}",
+                    "kind": "video_frame",
+                    "confidence": round(label.confidence, 2),
+                    "image_url": _encode_data_url(frame_bytes, "image/jpeg"),
+                }
+            )
 
         # Contribute this frame's point cloud (offset along Z by frame index
         # so multi-frame clouds have spatial spread rather than all stacking).
@@ -953,10 +1205,12 @@ async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
                 "friction": label.friction,
                 "confidence": label.confidence,
                 "positions": [frame_position],
+                "observations": 1,
             }
             continue
 
         existing["positions"].append(frame_position)
+        existing["observations"] += 1
         if label.confidence > existing["confidence"]:
             existing.update(
                 {
@@ -971,9 +1225,19 @@ async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
 
     job.update({"stage": "risk", "progress": 0.90})
 
-    objects = list(best_labels.values())
+    objects = []
+    for obj_data in best_labels.values():
+        position = _point_cloud_centroid(
+            [[x, y, z] for x, y, z in obj_data.get("positions", [(0.0, 0.8, 1.5)])]
+        )
+        obj_data["position"] = [position[0], position[1], position[2]]
+        obj_data["location_label"] = _location_label(position)
+        objects.append(obj_data)
+
     risks: list[dict[str, Any]] = []
     agent = _get_agent()
+    scene_source = "heuristic_estimate"
+    trust_notes = _build_trust_notes(scene_source)
 
     for obj_data in objects:
         mass_factor = min(obj_data["mass_kg"] / 20.0, 0.3) * 0.3
@@ -983,9 +1247,11 @@ async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
                 {
                     "object_label": obj_data["label"],
                     "risk_score": round(risk_score, 3),
+                    "severity": _risk_severity(risk_score),
+                    "location_label": obj_data["location_label"],
                     "description": (
                         f"{obj_data['label']} — fragility {obj_data['fragility']:.2f}, "
-                        f"mass {obj_data['mass_kg']:.1f} kg"
+                        f"mass {obj_data['mass_kg']:.1f} kg, approx. {obj_data['location_label']}"
                     ),
                 }
             )
@@ -1000,10 +1266,11 @@ async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
             friction=obj_data["friction"],
             confidence=obj_data["confidence"],
         )
-        position = _point_cloud_centroid(
-            [[x, y, z] for x, y, z in obj_data.get("positions", [(0.0, 0.8, 1.5)])]
-        )
+        position = tuple(obj_data["position"])
         await agent.ingest_from_upload(sl, position=position)
+
+    recommendations = _build_recommendations(objects, risks)
+    summary = _build_summary(job["filename"], objects, risks, scene_source)
 
     job.update(
         {
@@ -1013,6 +1280,12 @@ async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
             "objects": objects,
             "risks": risks,
             "point_cloud": all_points,
+            "summary": summary,
+            "recommendations": recommendations,
+            "evidence_frames": evidence_frames,
+            "trust_notes": trust_notes,
+            "scene_source": scene_source,
+            "report_url": f"/reports/{job['job_id']}.pdf",
         }
     )
     logger.info(
@@ -1049,6 +1322,8 @@ async def _process_upload(job_id: str, content: bytes, content_type: str) -> Non
 
             mass_factor = min(label.mass_kg / 20.0, 0.3) * 0.3
             risk_score = min(1.0, label.fragility * 0.4 + mass_factor + 0.1)
+            position = _point_cloud_centroid(_generate_depth_pointcloud(content))
+            location_label = _location_label(position)
             objects = [
                 {
                     "label": label.label,
@@ -1057,6 +1332,9 @@ async def _process_upload(job_id: str, content: bytes, content_type: str) -> Non
                     "fragility": label.fragility,
                     "friction": label.friction,
                     "confidence": label.confidence,
+                    "position": [position[0], position[1], position[2]],
+                    "location_label": location_label,
+                    "observations": 1,
                 }
             ]
             risks = (
@@ -1064,9 +1342,11 @@ async def _process_upload(job_id: str, content: bytes, content_type: str) -> Non
                     {
                         "object_label": label.label,
                         "risk_score": round(risk_score, 3),
+                        "severity": _risk_severity(risk_score),
+                        "location_label": location_label,
                         "description": (
                             f"{label.label} — fragility {label.fragility:.2f}, "
-                            f"mass {label.mass_kg:.1f} kg"
+                            f"mass {label.mass_kg:.1f} kg, approx. {location_label}"
                         ),
                     }
                 ]
@@ -1075,6 +1355,18 @@ async def _process_upload(job_id: str, content: bytes, content_type: str) -> Non
             )
             # Generate pseudo-depth point cloud from actual image pixels
             point_cloud = _generate_depth_pointcloud(content)
+            scene_source = "heuristic_estimate"
+            trust_notes = _build_trust_notes(scene_source)
+            summary = _build_summary(job["filename"], objects, risks, scene_source)
+            recommendations = _build_recommendations(objects, risks)
+            evidence_frames = [
+                {
+                    "caption": "Uploaded image",
+                    "kind": "still_image",
+                    "confidence": round(label.confidence, 2),
+                    "image_url": _encode_data_url(content, content_type or "image/jpeg"),
+                }
+            ]
 
             job.update(
                 {
@@ -1084,12 +1376,17 @@ async def _process_upload(job_id: str, content: bytes, content_type: str) -> Non
                     "objects": objects,
                     "risks": risks,
                     "point_cloud": point_cloud,
+                    "summary": summary,
+                    "recommendations": recommendations,
+                    "evidence_frames": evidence_frames,
+                    "trust_notes": trust_notes,
+                    "scene_source": scene_source,
+                    "report_url": f"/reports/{job['job_id']}.pdf",
                 }
             )
 
             # ── Inject into the live world model so /objects and /scene update ──
             agent = _get_agent()
-            position = _point_cloud_centroid(point_cloud)
             await agent.ingest_from_upload(label, position=position)
 
         elif is_video:
@@ -1172,6 +1469,12 @@ async def upload_media(request: Request) -> UploadJobStatus:
         "progress": 0.0,
         "objects": None,
         "risks": None,
+        "summary": None,
+        "recommendations": None,
+        "evidence_frames": None,
+        "trust_notes": None,
+        "scene_source": None,
+        "report_url": None,
         "error": None,
     }
     _upload_jobs[job_id] = job
@@ -1204,6 +1507,23 @@ def get_upload_job(job_id: str) -> UploadJobStatus:
     if job_id not in _upload_jobs:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
     return UploadJobStatus(**_upload_jobs[job_id])
+
+
+@app.get("/reports/{job_id}.pdf")
+def download_report(job_id: str) -> Response:
+    """Download a generated PDF report for a completed scan job."""
+    job = _upload_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+    if job.get("status") != "complete":
+        raise HTTPException(status_code=409, detail="Report is not ready yet.")
+
+    pdf_bytes = _build_pdf_report(job)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="atlas0-report-{job_id}.pdf"'},
+    )
 
 
 # Re-export for convenience (e.g. tests that patch the agent).
