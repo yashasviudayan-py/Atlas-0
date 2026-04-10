@@ -44,6 +44,11 @@ from atlas.api.metrics import (
     ws_clients_active,
 )
 from atlas.api.overlay import CameraParams, OverlayBuilder
+from atlas.api.upload_analysis import (
+    analyze_uploaded_image,
+    analyze_uploaded_video,
+)
+from atlas.api.upload_store import UploadStore
 from atlas.utils.config import load_config
 from atlas.vlm.inference import SemanticLabel, VLMConfig, VLMEngine
 from atlas.world_model.agent import RiskEntry, WorldModelAgent
@@ -85,6 +90,12 @@ if _FRONTEND_DIR.exists():
 
 _state: dict[str, Any] = {}
 _query_parser = QueryParser()
+_upload_cfg = load_config().uploads
+_upload_store = UploadStore(
+    pathlib.Path(_upload_cfg.storage_dir),
+    save_original_uploads=_upload_cfg.save_original_uploads,
+    max_persisted_jobs=_upload_cfg.max_persisted_jobs,
+)
 
 
 def _get_agent() -> WorldModelAgent:
@@ -640,7 +651,18 @@ _IMAGE_TYPES = frozenset({"image/jpeg", "image/png", "image/webp", "image/gif", 
 _VIDEO_TYPES = frozenset({"video/mp4", "video/quicktime", "video/webm", "video/x-msvideo"})
 
 # In-memory job store (keyed by job_id).
-_upload_jobs: dict[str, dict[str, Any]] = {}
+_upload_jobs: dict[str, dict[str, Any]] = _upload_store.load_jobs()
+
+
+def _save_job(job: dict[str, Any]) -> None:
+    """Persist the current in-memory job manifest to disk."""
+    _upload_store.save_job(job)
+
+
+def _update_job(job: dict[str, Any], **fields: Any) -> None:
+    """Update a job dict and persist the new state."""
+    job.update(fields)
+    _save_job(job)
 
 
 class UploadJobStatus(BaseModel):
@@ -669,6 +691,15 @@ async def _get_or_init_upload_vlm() -> VLMEngine:
         await engine.initialize()
         _state["upload_vlm"] = engine
     return _state["upload_vlm"]  # type: ignore[return-value]
+
+
+async def _label_upload_region(content: bytes, region_hint: str) -> SemanticLabel:
+    """Label one upload region, falling back to image heuristics when needed."""
+    engine = await _get_or_init_upload_vlm()
+    label = await engine.label_region(content, region_hint=region_hint)
+    if label.label in ("unknown", "") or label.confidence < 0.35:
+        label = _analyze_image_heuristic(content)
+    return label
 
 
 def _generate_depth_pointcloud(
@@ -1301,103 +1332,76 @@ async def _process_upload(job_id: str, content: bytes, content_type: str) -> Non
     job = _upload_jobs[job_id]
 
     try:
-        job.update({"status": "processing", "stage": "ingest", "progress": 0.15})
+        _update_job(job, status="processing", stage="ingest", progress=0.15)
         await asyncio.sleep(0.3)
 
         is_image = content_type in _IMAGE_TYPES or content_type.startswith("image/")
         is_video = content_type in _VIDEO_TYPES or content_type.startswith("video/")
 
         if is_image:
-            job.update({"stage": "vlm", "progress": 0.4})
-            engine = await _get_or_init_upload_vlm()
-            label = await engine.label_region(content, region_hint="uploaded scene image")
-
-            # If VLM is offline the fallback returns "unknown" — run pixel-level
-            # heuristic analysis on the actual image bytes instead.
-            if label.label in ("unknown", "") or label.confidence < 0.35:
-                label = _analyze_image_heuristic(content)
-
-            job.update({"stage": "risk", "progress": 0.75})
+            _update_job(job, stage="vlm", progress=0.4)
             await asyncio.sleep(0.2)
-
-            mass_factor = min(label.mass_kg / 20.0, 0.3) * 0.3
-            risk_score = min(1.0, label.fragility * 0.4 + mass_factor + 0.1)
-            position = _point_cloud_centroid(_generate_depth_pointcloud(content))
-            location_label = _location_label(position)
-            objects = [
-                {
-                    "label": label.label,
-                    "material": label.material,
-                    "mass_kg": label.mass_kg,
-                    "fragility": label.fragility,
-                    "friction": label.friction,
-                    "confidence": label.confidence,
-                    "position": [position[0], position[1], position[2]],
-                    "location_label": location_label,
-                    "observations": 1,
-                }
-            ]
-            risks = (
-                [
-                    {
-                        "object_label": label.label,
-                        "risk_score": round(risk_score, 3),
-                        "severity": _risk_severity(risk_score),
-                        "location_label": location_label,
-                        "description": (
-                            f"{label.label} — fragility {label.fragility:.2f}, "
-                            f"mass {label.mass_kg:.1f} kg, approx. {location_label}"
-                        ),
-                    }
-                ]
-                if risk_score > 0.25
-                else []
+            result = await analyze_uploaded_image(
+                content,
+                filename=job["filename"],
+                content_type=content_type,
+                labeler=_label_upload_region,
             )
-            # Generate pseudo-depth point cloud from actual image pixels
-            point_cloud = _generate_depth_pointcloud(content)
-            scene_source = "heuristic_estimate"
-            trust_notes = _build_trust_notes(scene_source)
-            summary = _build_summary(job["filename"], objects, risks, scene_source)
-            recommendations = _build_recommendations(objects, risks)
-            evidence_frames = [
-                {
-                    "caption": "Uploaded image",
-                    "kind": "still_image",
-                    "confidence": round(label.confidence, 2),
-                    "image_url": _encode_data_url(content, content_type or "image/jpeg"),
-                }
-            ]
-
-            job.update(
-                {
-                    "status": "complete",
-                    "stage": "complete",
-                    "progress": 1.0,
-                    "objects": objects,
-                    "risks": risks,
-                    "point_cloud": point_cloud,
-                    "summary": summary,
-                    "recommendations": recommendations,
-                    "evidence_frames": evidence_frames,
-                    "trust_notes": trust_notes,
-                    "scene_source": scene_source,
-                    "report_url": f"/reports/{job['job_id']}.pdf",
-                }
-            )
-
-            # ── Inject into the live world model so /objects and /scene update ──
-            agent = _get_agent()
-            await agent.ingest_from_upload(label, position=position)
 
         elif is_video:
-            await _process_video_upload(job, content)
+            _update_job(job, stage="vlm", progress=0.35)
+            result = await analyze_uploaded_video(
+                content,
+                filename=job["filename"],
+                labeler=_label_upload_region,
+            )
         else:
             msg = f"Unsupported file type: {content_type!r}"
             raise ValueError(msg)
 
+        _update_job(job, stage="risk", progress=0.9)
+
+        _update_job(
+            job,
+            status="complete",
+            stage="complete",
+            progress=1.0,
+            objects=result.objects,
+            risks=result.risks,
+            point_cloud=result.point_cloud,
+            summary=result.summary,
+            recommendations=result.recommendations,
+            evidence_frames=result.evidence_frames,
+            trust_notes=result.trust_notes,
+            scene_source=result.scene_source,
+            report_url=f"/reports/{job['job_id']}.pdf",
+        )
+
+        pdf_bytes = _build_pdf_report(job)
+        _upload_store.save_report_pdf(job_id, pdf_bytes)
+
+        agent = _get_agent()
+        for obj in result.objects:
+            semantic_label = SemanticLabel(
+                label=str(obj["label"]),
+                material=str(obj["material"]),
+                mass_kg=float(obj["mass_kg"]),
+                fragility=float(obj["fragility"]),
+                friction=float(obj["friction"]),
+                confidence=float(obj["confidence"]),
+            )
+            position = tuple(float(v) for v in obj.get("position", [0.0, 0.8, 1.5]))
+            await agent.ingest_from_upload(semantic_label, position=position)
+
     except Exception as exc:
         logger.warning("upload_processing_failed", job_id=job_id, error=str(exc))
-        job.update({"status": "error", "progress": 1.0, "error": str(exc)})
+        _update_job(
+            job,
+            status="error",
+            stage="complete",
+            progress=1.0,
+            error=str(exc),
+        )
 
 
 # ── Upload endpoints ──────────────────────────────────────────────────────────
@@ -1464,6 +1468,7 @@ async def upload_media(request: Request) -> UploadJobStatus:
     job: dict[str, Any] = {
         "job_id": job_id,
         "filename": filename,
+        "content_type": content_type,
         "status": "queued",
         "stage": "upload",
         "progress": 0.0,
@@ -1478,8 +1483,10 @@ async def upload_media(request: Request) -> UploadJobStatus:
         "error": None,
     }
     _upload_jobs[job_id] = job
+    _upload_store.create_job(job)
+    _upload_store.save_original_upload(job_id, filename, content)
 
-    job.update({"stage": "upload", "progress": 0.1})
+    _update_job(job, stage="upload", progress=0.1)
 
     _task = asyncio.create_task(_process_upload(job_id, content, content_type))
     _state.setdefault("_tasks", []).append(_task)
@@ -1518,7 +1525,10 @@ def download_report(job_id: str) -> Response:
     if job.get("status") != "complete":
         raise HTTPException(status_code=409, detail="Report is not ready yet.")
 
-    pdf_bytes = _build_pdf_report(job)
+    pdf_bytes = _upload_store.load_report_pdf(job_id)
+    if pdf_bytes is None:
+        pdf_bytes = _build_pdf_report(job)
+        _upload_store.save_report_pdf(job_id, pdf_bytes)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

@@ -96,3 +96,11 @@ mmap_path = "/tmp/atlas.mmap"
 max_gaussians = 100000
 # Write a snapshot every N keyframes (reduces IPC overhead).
 snapshot_interval_keyframes = 5
+
+[uploads]
+# Disk-backed directory for persisted upload job manifests and reports.
+storage_dir = ".atlas/uploads"
+# Keep the original uploaded media alongside the generated report artifacts.
+save_original_uploads = true
+# Best-effort cap used when pruning very old persisted jobs.
+max_persisted_jobs = 200

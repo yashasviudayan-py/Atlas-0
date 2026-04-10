@@ -228,6 +228,21 @@ class IpcConfig(BaseModel):
         return v
 
 
+class UploadsConfig(BaseModel):
+    """Upload/report persistence configuration."""
+
+    storage_dir: str = ".atlas/uploads"
+    save_original_uploads: bool = True
+    max_persisted_jobs: int = 200
+
+    @field_validator("max_persisted_jobs")
+    @classmethod
+    def _positive_int(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError(f"must be positive, got {v}")
+        return v
+
+
 class AtlasConfig(BaseModel):
     """Top-level Atlas-0 configuration.
 
@@ -250,6 +265,7 @@ class AtlasConfig(BaseModel):
     world_model: WorldModelConfig = Field(default_factory=WorldModelConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
     ipc: IpcConfig = Field(default_factory=IpcConfig)
+    uploads: UploadsConfig = Field(default_factory=UploadsConfig)
 
 
 # ── Loader ────────────────────────────────────────────────────────────────────

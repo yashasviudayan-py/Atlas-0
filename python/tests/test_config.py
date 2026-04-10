@@ -152,6 +152,7 @@ class TestLoadConfig:
         assert cfg.slam.max_gaussians == 500_000
         assert cfg.camera.slam_width == 640
         assert cfg.ipc.mmap_path == "/tmp/atlas.mmap"
+        assert cfg.uploads.storage_dir == ".atlas/uploads"
 
     def test_env_atlas_config_selects_runtime_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -256,6 +257,12 @@ class TestValidation:
 
         with pytest.raises(ValidationError):
             PhysicsConfig(timestep=0.0)
+
+    def test_invalid_max_persisted_jobs(self) -> None:
+        from atlas.utils.config import UploadsConfig
+
+        with pytest.raises(ValidationError):
+            UploadsConfig(max_persisted_jobs=0)
 
 
 # ── Default.toml round-trip ───────────────────────────────────────────────────

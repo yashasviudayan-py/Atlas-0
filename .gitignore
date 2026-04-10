@@ -32,7 +32,10 @@ Thumbs.db
 .env.local
 
 # Data & models
-data/
+data/*
+!data/sample_walkthrough/
+!data/sample_walkthrough/**
+.atlas/
 models/
 *.onnx
 *.pt
