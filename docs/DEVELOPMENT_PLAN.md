@@ -214,9 +214,10 @@ Remove product dishonesty and align the codebase, docs, and UI with reality.
 
 ### Status
 
-Started. The first report-first MVP is now in the repo, but it is not yet a
-beta-ready user flow because jobs are still in-memory, grounding is still
-heuristic, and there is no polished sample scan or hosted onboarding path.
+Substantially complete for the current MVP slice. Upload jobs and report
+artifacts now persist to disk, the report path has a committed walkthrough
+fixture plus expected output, and the remaining gaps are now more about hosted
+productization than core upload/report usefulness.
 
 ### Goal
 
@@ -267,12 +268,14 @@ Make one room scan produce one useful report without touching the terminal.
 - The report view now shows top hazards, recommendations, evidence, trust
   notes, and PDF export.
 - The scene view has been demoted to a secondary inspection tool.
+- Upload jobs and generated PDFs now persist beyond in-memory state.
+- A committed sample walkthrough fixture and expected report now exist for
+  regression coverage.
+- The benchmark suite now includes a sample walkthrough report run.
 
 ### Still missing
 
-- persistent jobs and storage beyond process memory
 - polished empty/error states for all backend failures
-- one committed sample walkthrough with expected output
 - a clearer "how to record a good scan" onboarding path
 
 ---
@@ -281,9 +284,10 @@ Make one room scan produce one useful report without touching the terminal.
 
 ### Status
 
-Not done. Approximate locations and trust notes are now explicit, but the
-pipeline is still based on heuristic positioning rather than real multi-view
-grounding.
+First pass complete. The upload pipeline now tracks salient regions across
+sampled frames, estimates a simple camera path from frame motion, localizes
+objects from repeated observations, and emits confidence-aware multi-view
+positions. It is still approximate rather than full reconstruction.
 
 ### Goal
 
@@ -315,15 +319,26 @@ hazard localization.
 - Uploaded objects have evidence-backed approximate locations.
 - No fabricated room placement remains in the upload pipeline.
 
+### Completed in repo
+
+- Upload video analysis now tracks repeated region observations across frames.
+- Estimated object positions now come from multi-view frame tracks instead of a
+  fixed per-frame Z offset.
+- Scene output explicitly distinguishes `estimated_multiview` from
+  `single_view_estimate`.
+- Point clouds are now anchored around tracked observations instead of a fake
+  room layout.
+
 ---
 
 ## Phase 3: Reasoning Users Can Trust
 
 ### Status
 
-Partially started. We now generate simple recommendation cards and evidence
-frames, but the reasoning layer is still shallow and the hazard ontology is not
-formalized.
+First pass complete. The upload report now uses a named hazard ontology,
+stores explicit evidence and signals per finding, and derives deterministic
+recommendations from those findings. The reasoning is still rules-first, not
+learned or user-corrected.
 
 ### Goal
 
@@ -364,10 +379,13 @@ Turn labels into actionable hazard judgments with explicit evidence.
 
 - Findings now surface evidence frames and location labels.
 - Deterministic recommendations are generated alongside risks.
+- A formal upload hazard ontology now exists with named hazard codes and
+  families.
+- Findings now store explicit evidence IDs, signals, confidence, and reasoning
+  text.
 
 ### Still missing
 
-- explicit hazard ontology and evaluation set
 - reasoning traces that show which relationships produced a claim
 - user feedback capture for wrong/duplicate findings
 
@@ -455,6 +473,198 @@ These are the next concrete tasks that matter most.
 4. Replace upload pseudo-depth with a real grounded spatial estimate.
 5. Add evidence-linked findings and confidence scoring.
 6. Ship one real walkthrough demo and benchmark against it on every change.
+
+---
+
+## Pre-Mortem Optimization Backlog
+
+This section converts the latest product/system audit into concrete build work.
+The goal is to move ATLAS-0 from "functional" to "industry-leading" without
+losing the current product wedge.
+
+### Why the project would fail if we do nothing
+
+- Users would try it once, see a report they cannot fully trust, and not come
+  back.
+- Processing would become inconsistent under real usage because ingestion,
+  analysis, persistence, and API serving are still too tightly coupled.
+- The product would still read as a "cool spatial demo" rather than a clear
+  hazard-report tool.
+- Privacy and retention concerns around room videos and evidence crops would
+  become blockers before user growth.
+
+### Workstream A: User Experience & Friction
+
+#### Goal
+
+Reduce drop-off, reduce cognitive load, and make the report immediately
+actionable.
+
+#### Planned fixes
+
+1. Scan quality gate before full processing
+   - score uploads for blur, darkness, overexposure, low motion coverage, and
+     low saliency coverage
+   - warn early when a scan is unlikely to produce a trustworthy report
+   - return explicit retry guidance such as "move slower" or "keep the table in frame"
+
+2. "Fix First" report summary
+   - add a top-of-report section with the three most important actions
+   - rank by severity × confidence × actionability, not only raw risk score
+   - collapse duplicate hazards on the same object into a single primary action
+
+3. Report simplification
+   - hide low-confidence findings behind a toggle instead of treating them as
+     equal to strong findings
+   - standardize every finding card to:
+     `what`, `why it matters`, `what to do next`
+   - keep ontology metadata visible but secondary
+
+4. Scene view demotion and clarification
+   - label scene view as estimated spatial context
+   - surface object observation count and grounding confidence in the scene UI
+   - always land users on the report, never on the scene tab
+
+5. Sticky follow-up loop
+   - add saved-scan history
+   - allow room labels and repeat scans
+   - add finding status such as `resolved`, `still present`, or `ignored`
+
+### Workstream B: Scalability & Robustness
+
+#### Goal
+
+Make the system survive 10x more usage and 10x more data diversity without
+falling apart.
+
+#### Planned fixes
+
+1. Split API from job execution
+   - FastAPI should accept uploads and enqueue jobs only
+   - move upload analysis into dedicated worker processes
+   - enforce concurrency limits and backpressure at the queue boundary
+
+2. Shrink manifests and externalize artifacts
+   - remove inline base64 evidence from job manifests
+   - store evidence crops, replays, and PDFs as files/object-store blobs
+   - keep manifests small and pointer-based
+
+3. Artifact storage abstraction
+   - keep local filesystem backend for dev
+   - add an interface for object storage later
+   - separate manifest storage from binary artifact storage
+
+4. Provider resilience
+   - add provider-level timeouts, retries, and degraded-mode reporting
+   - cache repeated crop inferences by image hash + prompt version
+   - split local interactive mode from production provider mode in config/docs
+
+5. Data-volume controls
+   - enforce upload duration and size limits
+   - track artifact bytes per job
+   - add pruning by age and total storage, not only by job count
+
+### Workstream C: Trust, Reasoning, and Product Defensibility
+
+#### Goal
+
+Make the report explainable and obviously more trustworthy than a generic AI
+viewer.
+
+#### Planned fixes
+
+1. Evidence replay
+   - generate a short replay per top finding
+   - highlight the object and show the associated risk caption
+   - pair replay links with PDF/share output
+
+2. Stronger confidence calibration
+   - distinguish "no high-confidence hazards detected" from "room is safe"
+   - surface report coverage warnings when scan quality or observation count is weak
+   - suppress overconfident claims when grounding quality is poor
+
+3. Reasoning trace expansion
+   - attach object relationships and rule hits to each finding
+   - show which signals materially contributed to the claim
+   - expose low-level reasoning in a debug view, not in the primary UX
+
+4. Evaluation corpus
+   - build a 20-50 scan evaluation set
+   - measure false positives, false negatives, and confidence calibration
+   - benchmark every major report-path change against that set
+
+5. Multi-provider quality strategy
+   - use stronger cloud vision models as the best-path beta experience
+   - keep Ollama/local mode as fallback and developer path
+   - compare provider output quality on the same evaluation scans
+
+### Workstream D: Edge Cases, Privacy, and Security
+
+#### Goal
+
+Prevent non-obvious failures that would block real-world use.
+
+#### Planned fixes
+
+1. Retention and deletion controls
+   - default artifact retention window
+   - manual delete per job
+   - clear operator policy for persisted uploads/evidence
+
+2. Sensitive-room-content handling
+   - add optional redaction for text-heavy or sensitive evidence crops
+   - detect documents, screens, labels, and photo walls before persistence/export
+   - avoid retaining more raw room imagery than the product actually needs
+
+3. Multimodal prompt-injection hardening
+   - detect dense text regions in frames
+   - isolate or redact OCR-heavy regions before VLM calls
+   - add adversarial image-text evaluation cases
+
+4. Safer "clear" results
+   - avoid absolute "safe" language
+   - require a minimum evidence/coverage threshold before presenting a low-risk result prominently
+   - show confidence and scan-quality caveats in the summary itself
+
+5. Access control readiness
+   - prepare artifact endpoints for authenticated access before any hosted beta
+   - avoid assuming local-only trust boundaries in report/evidence delivery
+
+### Ordered Execution Plan
+
+This is the preferred order of attack after the work already completed in the
+current repo.
+
+1. Worker queue and job execution split
+   - highest leverage for reliability and throughput
+
+2. Manifest shrinking and artifact externalization
+   - required for scale, privacy, and cleaner APIs
+
+3. Scan quality gate + "Fix First" summary
+   - highest leverage UX improvements
+
+4. Evidence replay for top findings
+   - strongest differentiator / "wow" factor
+
+5. Confidence calibration and safer low-risk language
+   - required for trust and legal/product safety
+
+6. Evaluation corpus expansion and provider comparison
+   - required before broader beta or more model complexity
+
+7. Retention, deletion, and redaction controls
+   - required before real external users
+
+### Tomorrow Start Point
+
+If we continue from this plan tomorrow, the first concrete build slice should
+be:
+
+1. introduce a real queued worker boundary for upload jobs
+2. externalize evidence blobs and shrink persisted manifests
+3. add scan quality scoring plus retry guidance in the upload flow
+4. add a "Fix First" report section above the full finding list
 
 ---
 
