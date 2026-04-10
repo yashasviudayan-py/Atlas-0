@@ -403,6 +403,73 @@ def bench_assess(iterations: int) -> dict[str, Any]:
     return asyncio.run(_bench_assess_async(iterations))
 
 
+# ── Benchmark 5: Sample walkthrough report pipeline ──────────────────────────
+
+
+async def _bench_sample_walkthrough_async(iterations: int) -> dict[str, Any]:
+    """Measure the sample walkthrough upload-report pipeline."""
+    from atlas.api.upload_analysis import analyze_frame_samples, analyze_image_heuristic
+    from atlas.utils.video import ExtractedFrame
+
+    fixture_root = _REPO_ROOT / "data" / "sample_walkthrough"
+    expected_path = fixture_root / "expected_report.json"
+    frame_paths = sorted((fixture_root / "frames").glob("*.jpg"))
+
+    if not expected_path.exists() or not frame_paths:
+        return {"status": "skipped", "reason": "sample walkthrough fixture is missing"}
+
+    expected = json.loads(expected_path.read_text(encoding="utf-8"))
+    frames = [
+        ExtractedFrame(index=index, timestamp_s=index * 0.6, image_bytes=path.read_bytes())
+        for index, path in enumerate(frame_paths)
+    ]
+
+    async def _labeler(content: bytes, _hint: str):
+        return analyze_image_heuristic(content)
+
+    await analyze_frame_samples(
+        frames,
+        filename=expected["fixture_name"],
+        source_content_type="image/jpeg",
+        labeler=_labeler,
+    )
+
+    samples: list[float] = []
+    last_result = None
+    for _ in range(iterations):
+        t0 = time.perf_counter()
+        last_result = await analyze_frame_samples(
+            frames,
+            filename=expected["fixture_name"],
+            source_content_type="image/jpeg",
+            labeler=_labeler,
+        )
+        samples.append(time.perf_counter() - t0)
+
+    assert last_result is not None
+    hazard_codes = [risk["hazard_code"] for risk in last_result.risks]
+    fixture_match = (
+        last_result.scene_source == expected["scene_source"]
+        and len(last_result.objects) >= expected["min_object_count"]
+        and len(last_result.risks) >= expected["min_hazard_count"]
+        and hazard_codes[0] == expected["top_hazard_code"]
+        and all(code in hazard_codes for code in expected["required_hazard_codes"])
+    )
+
+    return {
+        **_stats(samples),
+        "budget_ms": 500.0,
+        "fixture_match": fixture_match,
+        "object_count": len(last_result.objects),
+        "hazard_count": len(last_result.risks),
+    }
+
+
+def bench_sample_walkthrough(iterations: int) -> dict[str, Any]:
+    """Synchronous wrapper for the sample walkthrough report benchmark."""
+    return asyncio.run(_bench_sample_walkthrough_async(iterations))
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 
@@ -444,7 +511,7 @@ def main() -> None:
     results: dict[str, Any] = {}
 
     # 1. IPC read latency
-    print("\n[1/4] IPC snapshot read …", flush=True)
+    print("\n[1/5] IPC snapshot read …", flush=True)
     results["ipc_read"] = bench_ipc(args.iterations)
     _print_result("IPC: SharedMemReader.get_latest_snapshot()", results["ipc_read"])
 
@@ -453,19 +520,26 @@ def main() -> None:
         results["vlm_inference"] = {"status": "skipped", "reason": "--skip-vlm flag"}
         _print_result("VLM: label_region() — SKIPPED", results["vlm_inference"])
     else:
-        print("\n[2/4] VLM inference (requires Ollama) …", flush=True)
+        print("\n[2/5] VLM inference (requires Ollama) …", flush=True)
         results["vlm_inference"] = bench_vlm(args.vlm_iterations)
         _print_result("VLM: VLMEngine.label_region()", results["vlm_inference"])
 
     # 3. Spatial query latency
-    print("\n[3/4] Spatial query (TestClient) …", flush=True)
+    print("\n[3/5] Spatial query (TestClient) …", flush=True)
     results["spatial_query"] = bench_query(args.iterations)
     _print_result("API: POST /query", results["spatial_query"])
 
     # 4. Scene assessment latency
-    print("\n[4/4] Scene assessment (mock VLM) …", flush=True)
+    print("\n[4/5] Scene assessment (mock VLM) …", flush=True)
     results["scene_assessment"] = bench_assess(min(args.iterations, 100))
     _print_result("Agent: _assess_scene() [mock VLM]", results["scene_assessment"])
+
+    print("\n[5/5] Sample walkthrough report pipeline …", flush=True)
+    results["sample_walkthrough_report"] = bench_sample_walkthrough(min(args.iterations, 20))
+    _print_result(
+        "Upload: sample walkthrough -> hazard report",
+        results["sample_walkthrough_report"],
+    )
 
     # ── Summary ───────────────────────────────────────────────────────────────
     print(f"\n{'═' * 60}")
@@ -474,6 +548,7 @@ def main() -> None:
     budget_checks = {
         "ipc_read": ("IPC read", 5.0),
         "spatial_query": ("Spatial query", 200.0),
+        "sample_walkthrough_report": ("Sample walkthrough report", 500.0),
     }
     all_pass = True
     for key, (label, budget) in budget_checks.items():
@@ -487,6 +562,13 @@ def main() -> None:
             status = "FAIL"
             all_pass = False
         print(f"  {label:<25} {status}  (mean={mean:.3f}ms, budget={budget:.1f}ms)")
+
+    sample = results.get("sample_walkthrough_report", {})
+    if sample.get("status", "ok") == "ok":
+        fixture_status = "PASS" if sample.get("fixture_match") else "FAIL"
+        if fixture_status == "FAIL":
+            all_pass = False
+        print(f"  {'Fixture match':<25} {fixture_status}")
 
     vlm = results.get("vlm_inference", {})
     if vlm.get("status") == "ok":

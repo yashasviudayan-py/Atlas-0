@@ -1,0 +1,12 @@
+{
+  "fixture_name": "sample_walkthrough",
+  "scene_source": "estimated_multiview",
+  "min_object_count": 3,
+  "min_hazard_count": 4,
+  "required_hazard_codes": [
+    "fragile_breakable",
+    "unsupported_tall_item",
+    "edge_placement"
+  ],
+  "top_hazard_code": "fragile_breakable"
+}
