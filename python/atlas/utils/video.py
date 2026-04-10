@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import io
 import math
+from dataclasses import dataclass
 
 import structlog
 
@@ -37,6 +38,15 @@ _IMPORT_ERROR_MSG = (
 
 # JPEG quality for extracted frames (0-95; 85 balances size vs VLM accuracy).
 _JPEG_QUALITY = 85
+
+
+@dataclass(frozen=True)
+class ExtractedFrame:
+    """One sampled video frame with its timeline metadata."""
+
+    index: int
+    timestamp_s: float
+    image_bytes: bytes
 
 
 def extract_frames(
@@ -72,6 +82,23 @@ def extract_frames(
         for frame_bytes in frames:
             label = await vlm_engine.label_region(frame_bytes)
     """
+    return [
+        frame.image_bytes
+        for frame in extract_frame_samples(
+            video_bytes,
+            max_frames=max_frames,
+            jpeg_quality=jpeg_quality,
+        )
+    ]
+
+
+def extract_frame_samples(
+    video_bytes: bytes,
+    max_frames: int = 8,
+    *,
+    jpeg_quality: int = _JPEG_QUALITY,
+) -> list[ExtractedFrame]:
+    """Extract evenly sampled frames with timestamps."""
     try:
         import av  # type: ignore[import]
     except ImportError as exc:
@@ -93,7 +120,7 @@ def _extract(
     max_frames: int,
     jpeg_quality: int,
     av: object,
-) -> list[bytes]:
+) -> list[ExtractedFrame]:
     """Internal extraction logic — separated so the public function can catch all errors."""
     buf = io.BytesIO(video_bytes)
 
@@ -128,7 +155,7 @@ def _extract(
         # If total_frames unknown, fall back to time-based sampling.
         use_time_sampling = total_frames == 0 or not target_indices
 
-        frames: list[bytes] = []
+        frames: list[ExtractedFrame] = []
         frame_index = 0
 
         # Time-based fallback: sample every N seconds.
@@ -146,7 +173,13 @@ def _extract(
                 if should_capture:
                     jpeg_bytes = _frame_to_jpeg(frame, jpeg_quality)
                     if jpeg_bytes:
-                        frames.append(jpeg_bytes)
+                        frames.append(
+                            ExtractedFrame(
+                                index=frame_index,
+                                timestamp_s=round(pts_s, 4),
+                                image_bytes=jpeg_bytes,
+                            )
+                        )
                         logger.debug(
                             "video_frame_captured",
                             frame_index=frame_index,

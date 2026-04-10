@@ -219,13 +219,15 @@ function renderReport(job) {
     ? hazards.map((risk) => `
         <article class="report-card hazard ${risk.severity || 'low'}">
           <div class="report-card-top">
-            <h3>${escapeHtml(risk.object_label || 'Object')}</h3>
+            <h3>${escapeHtml(risk.hazard_title || risk.object_label || 'Object')}</h3>
             <span class="severity-pill ${risk.severity || 'low'}">${escapeHtml(risk.severity || 'low')}</span>
           </div>
           <p>${escapeHtml(risk.description || '')}</p>
+          <p>${escapeHtml(risk.why || '')}</p>
           <div class="report-card-meta">
             <span>${Math.round((risk.risk_score || 0) * 100)} risk score</span>
             <span>${escapeHtml(risk.location_label || 'Approximate location')}</span>
+            <span>${escapeHtml(risk.hazard_code || 'finding')}</span>
           </div>
         </article>
       `).join('')
