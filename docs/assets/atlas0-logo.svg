@@ -1,0 +1,24 @@
+<svg width="960" height="280" viewBox="0 0 960 280" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">ATLAS-0 logo</title>
+  <desc id="desc">A geometric room-scan mark beside the ATLAS-0 wordmark.</desc>
+  <defs>
+    <linearGradient id="panel" x1="24" y1="24" x2="184" y2="184" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF8EF"/>
+      <stop offset="1" stop-color="#F1E7D8"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="40" y1="40" x2="168" y2="168" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0C8074"/>
+      <stop offset="1" stop-color="#D67F30"/>
+    </linearGradient>
+  </defs>
+  <rect x="24" y="24" width="160" height="160" rx="34" fill="url(#panel)"/>
+  <rect x="24" y="24" width="160" height="160" rx="34" stroke="url(#accent)" stroke-width="8"/>
+  <path d="M63 120L104 82L145 120" stroke="#201916" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M79 118V146H129V118" stroke="#201916" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M115 109C124 100 138 96 151 97" stroke="#0C8074" stroke-width="8" stroke-linecap="round"/>
+  <path d="M120 129C128 123 139 120 150 121" stroke="#D67F30" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="104" cy="146" r="7" fill="#0C8074"/>
+  <text x="228" y="118" fill="#201916" font-family="'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif" font-size="82" font-weight="700" letter-spacing="-2.5">ATLAS-0</text>
+  <text x="232" y="164" fill="#62564E" font-family="'IBM Plex Mono', 'SFMono-Regular', monospace" font-size="26" letter-spacing="2">ROOM SAFETY SCAN</text>
+  <text x="232" y="204" fill="#897B72" font-family="'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif" font-size="24">Upload a walkthrough. Get a trustworthy hazard report.</text>
+</svg>

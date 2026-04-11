@@ -1,50 +1,124 @@
-# Atlas-0
+# ATLAS-0
 
-**Spatial Reasoning & Physical World-Model Engine**
+<p align="center">
+  <img src="docs/assets/atlas0-logo.svg" alt="ATLAS-0 logo" width="720" />
+</p>
 
-Atlas-0 transforms a live 2D camera feed into a Semantic 3D Digital Twin that predicts physical consequences in real time. Walk around a room and the system simultaneously:
+<p align="center">
+  <a href="docs/DEVELOPMENT_PLAN.md">
+    <img src="https://img.shields.io/badge/status-upload--first%20MVP-0c8074" alt="Status: upload-first MVP" />
+  </a>
+  <a href="docs/DEVELOPMENT_PLAN.md">
+    <img src="https://img.shields.io/badge/product-home%20safety%20scan-d67f30" alt="Product: home safety scan" />
+  </a>
+  <img src="https://img.shields.io/badge/python-ruff%20%7C%20pytest-3776AB?logo=python&logoColor=white" alt="Python checks" />
+  <img src="https://img.shields.io/badge/rust-fmt%20%7C%20clippy%20%7C%20test-000000?logo=rust" alt="Rust checks" />
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-0a5f57" alt="License: MIT" />
+  </a>
+</p>
 
-1. **Builds a 3D Gaussian Splatting reconstruction** of the scene (Phase 1 — The Eye)
-2. **Labels every object** with mass, material, fragility, and spatial relationships via a local VLM (Phase 2 — The Brain)
-3. **Simulates physics** to predict which objects will fall, spill, or collide, and streams the results as an AR overlay (Phase 3 — The Ghost)
+<p align="center"><strong>Scan your room. Catch what could fall, tip, or break.</strong></p>
 
----
+ATLAS-0 is now being built as an upload-first room safety product, not a broad
+"general spatial reasoning engine."
 
-## Architecture
+The current wedge is simple:
 
-```
-Camera ──► Rust SLAM Pipeline ──► Shared Memory (mmap)
-              │                          │
-              ▼                          ▼
-        3DGS Reconstruction       Python World-Model Agent
-        (atlas-slam crate)          │
-              │                    ├── VLM (Ollama)
-              ▼                    ├── Spatial Query Engine
-        Physics Simulator          └── Risk Aggregator
-        (atlas-physics crate)             │
-                                          ▼
-                                    FastAPI Server
-                                    ├── GET  /health
-                                    ├── POST /query
-                                    ├── GET  /objects
-                                    ├── GET  /scene
-                                    ├── GET  /metrics  (Prometheus)
-                                    ├── GET  /app      (AR Overlay UI)
-                                    └── WS   /ws/risks (delta stream)
-```
+**Upload a 20-60 second phone walkthrough of a room and get back a hazard
+report with top risks, evidence frames, approximate locations, confidence
+signals, recommendations, and a downloadable PDF.**
 
-**Polyglot design**: Rust owns the 60 fps hot path (frame ingestion, SLAM, physics). Python owns reasoning (VLM inference, semantic labeling, spatial queries). They share data via memory-mapped files and protobuf messages.
+## Current Standing
 
----
+ATLAS-0 has real engineering underneath it, but it is still an early product.
+
+What is strong today:
+- Upload jobs persist to disk instead of living only in memory.
+- Completed scans produce a report-first UI and a downloadable PDF.
+- Findings now include evidence frames, hazard codes, reasoning signals, and
+  deterministic recommendations.
+- The report includes `Fix first` actions, scan-quality diagnostics, and
+  user feedback hooks for `useful`, `wrong`, and `duplicate`.
+- Rust, Python, and benchmark coverage are in good shape for this stage.
+
+What is still rough:
+- Upload-side 3D grounding is still approximate, not survey-grade.
+- Multi-frame localization is better than before, but it is not full
+  reconstruction.
+- Some upload analysis remains heuristic, especially for difficult scans.
+- This is still a self-hosted developer/beta build, not a polished hosted
+  consumer product.
+
+## What Atlas-0 Is Now
+
+Atlas-0 is best thought of as:
+
+- A **home or room safety scan** from a phone video
+- A **report-first workflow** instead of a live demo-first workflow
+- A **trust-improving system** that tries to show evidence and uncertainty,
+  not fake certainty
+
+Atlas-0 is not currently positioned as:
+
+- a full digital twin platform
+- a warehouse compliance suite
+- a real-time AR product for everyday users
+- a general-purpose reasoning agent
+
+## What Works Today
+
+The current product slice supports:
+
+1. Uploading an image or room walkthrough video
+2. Sampling frames and extracting salient regions
+3. Labeling likely objects and estimating approximate multi-view positions
+4. Generating hazard findings with:
+   - severity
+   - confidence
+   - evidence frames
+   - reasoning signals
+   - actionable recommendations
+5. Exporting a PDF report
+6. Reviewing findings in a report-first frontend at `/app`
+
+## Why Someone Would Use This
+
+The core user value right now is not "AI 3D magic." It is:
+
+- **Quick room triage**: surface the objects most likely to fall, tip, spill,
+  or break
+- **Actionable output**: tell the user what is wrong, why it matters, and what
+  to do next
+- **Shareable evidence**: give them a report they can send to a landlord,
+  partner, contractor, or insurer
+
+If ATLAS-0 becomes genuinely useful, it will be because it helps a person go
+from "this room feels unsafe or cluttered" to "here are the 3 things I should
+fix first."
+
+## Known Limitations
+
+This README is intentionally honest about the current state:
+
+- Spatial positions are **estimated**, not measured with high precision.
+- Upload reports should be treated as **decision support**, not professional
+  safety certification.
+- Weak scans still degrade results. Blur, darkness, short coverage, and low
+  motion all reduce report quality.
+- The scene view is secondary. The report is the product.
 
 ## Quick Start
 
 ### Prerequisites
 
-- Rust toolchain (`rustup.rs`)
+- Rust toolchain
 - Python 3.11+
-- [Ollama](https://ollama.ai/) running locally (`ollama serve`)
-- A webcam or an MP4/MKV test video
+- `uv` for Python environment management
+- One VLM path:
+  - local Ollama, or
+  - OpenAI, or
+  - Anthropic
 
 ### Install
 
@@ -52,192 +126,116 @@ Camera ──► Rust SLAM Pipeline ──► Shared Memory (mmap)
 git clone https://github.com/yashasviudayan-py/Atlas-0
 cd Atlas-0
 
-# Python dependencies
-pip install -e ".[ml]"
-
-# Pull the default VLM
-ollama pull llava:7b
+uv sync --extra dev --extra video
 ```
 
-### Run (single command)
+Optional provider extras:
 
 ```bash
-python scripts/run_atlas.py
+uv sync --extra dev --extra video --extra openai
+uv sync --extra dev --extra video --extra claude
 ```
 
-This starts the Rust SLAM pipeline (release build) and the Python API server in the correct order, then monitors both processes. Press `Ctrl-C` to stop.
+If you want the default local path, start Ollama separately and make sure your
+configured model is available.
 
-Additional options:
+### Run The Upload-First Product
+
+For the current product wedge, the easiest path is API + web app:
 
 ```bash
-python scripts/run_atlas.py --dev              # Rust debug build + uvicorn --reload
-python scripts/run_atlas.py --no-slam          # Python API only (for testing)
-python scripts/run_atlas.py --config configs/custom.toml
+uv run python scripts/run_atlas.py --no-slam
 ```
 
-### Run with Docker
+Then open:
+
+```text
+http://localhost:8420/app
+```
+
+This gives you the report-first frontend where you can upload a scan and review
+the resulting hazard report.
+
+### Run The Full Stack
+
+If you want to run the experimental Rust SLAM path as well:
 
 ```bash
-docker compose -f docker/docker-compose.yml up
+uv run python scripts/run_atlas.py
 ```
 
-The compose file starts the Atlas-0 API server and an Ollama instance. The AR overlay is served at `http://localhost:8420/app`.
-
----
-
-## AR Overlay
-
-Open `http://localhost:8420/app` in a browser. The overlay connects to the WebSocket risk stream and renders:
-
-- **Red spheres** around at-risk objects
-- **Dashed arc lines** showing predicted fall trajectories
-- **Impact rings** on the surface where objects are predicted to land
-- **Alert badges** with severity-coded descriptions
-
----
-
-## API Reference
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | System status, component liveness, staleness indicator |
-| `POST` | `/query` | Natural language spatial query |
-| `GET` | `/objects` | All labeled objects with physical properties |
-| `GET` | `/scene` | Full scene state snapshot |
-| `GET` | `/metrics` | Prometheus metrics (text exposition format) |
-| `WS` | `/ws/risks` | Real-time risk delta stream |
-
-### Example Query
+Useful variants:
 
 ```bash
-curl -X POST http://localhost:8420/query \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Where is the most unstable object?", "max_results": 3}'
+uv run python scripts/run_atlas.py --dev
+uv run python scripts/run_atlas.py --config configs/default.toml
+uv run python scripts/run_atlas.py --no-api
 ```
 
----
+## Core API Surface
 
-## Prometheus Metrics
-
-The `/metrics` endpoint exposes:
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| `atlas_risk_count` | Gauge | Current number of active risks |
-| `atlas_object_count` | Gauge | Current number of labeled objects |
-| `atlas_query_total` | Counter | Total spatial queries processed |
-| `atlas_ws_clients_active` | Gauge | Connected WebSocket clients |
-| `atlas_slam_active` | Gauge | 1 if Rust SLAM pipeline is connected |
-| `atlas_assessment_age_seconds` | Gauge | Seconds since last successful assessment |
-| `atlas_vlm_request_seconds` | Histogram | VLM inference latency |
-
----
-
-## Demo Recording
-
-Record a full session and export frames:
-
-```bash
-# Record 60 seconds
-python scripts/record_demo.py record --duration 60 --output my_session.atlas_demo
-
-# Show recording info
-python scripts/record_demo.py info my_session.atlas_demo
-
-# Replay to JSON frames
-python scripts/record_demo.py replay my_session.atlas_demo --out-dir ./frames
-
-# Encode to video (requires ffmpeg)
-ffmpeg -framerate 10 -i frames/frame_%06d.json demo.mp4
-```
-
----
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `POST` | `/upload` | Upload an image or room walkthrough |
+| `GET` | `/jobs` | List upload jobs |
+| `GET` | `/jobs/{job_id}` | Fetch one job and its report payload |
+| `POST` | `/jobs/{job_id}/feedback` | Mark a finding as useful, wrong, or duplicate |
+| `GET` | `/reports/{job_id}.pdf` | Download the PDF report |
+| `GET` | `/health` | Runtime health and status |
+| `POST` | `/query` | Experimental spatial query interface |
+| `GET` | `/objects` | Experimental object listing |
+| `GET` | `/scene` | Experimental scene snapshot |
+| `GET` | `/metrics` | Prometheus metrics |
+| `WS` | `/ws/risks` | Experimental risk delta stream |
 
 ## Development
 
-### Run Tests
+### Required Checks
+
+Before pushing, this repo expects all of the following to pass:
 
 ```bash
-# Rust
-cargo test --all
-
-# Python
-pytest python/tests/ -v
-```
-
-### Lint & Format
-
-```bash
-# Rust
-cargo fmt --all
+cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
-
-# Python
+cargo test --all
 ruff check python/
-ruff format python/
+ruff format --check python/
+pytest python/tests/ -v
 ```
 
 ### Benchmarks
 
 ```bash
-# Rust (criterion)
-cargo bench
-
-# Python pipeline benchmark
-python scripts/benchmark.py
+uv run python scripts/benchmark.py --skip-vlm
 ```
 
----
+The benchmark suite includes the committed sample walkthrough report fixture so
+the upload/report path can be checked for regressions.
 
-## Repository Structure
+## Repository Layout
 
-```
-crates/
-  atlas-core/      # Shared types, IPC, error handling
-  atlas-slam/      # 3DGS-SLAM pipeline
-  atlas-physics/   # Rigid-body physics simulation
-  atlas-stream/    # Camera capture & frame pipeline
-python/atlas/
-  vlm/             # Ollama VLM client & inference engine
-  world_model/     # Semantic labeling, spatial queries, risk aggregation
-  api/             # FastAPI server, WebSocket stream, AR overlay, metrics
-  utils/           # Config loader, shared memory reader
-frontend/          # Three.js AR overlay web app
-proto/             # Protobuf schema (Rust ↔ Python IPC)
-configs/           # Runtime TOML configuration
-scripts/           # run_atlas.py, benchmark.py, replay.py, record_demo.py
-docker/            # Dockerfile + docker-compose.yml
-docs/architecture/ # ADRs + performance report
-tests/integration/ # Cross-language integration tests
+```text
+crates/            Rust crates for SLAM, physics, streaming, and shared core code
+python/atlas/      Python API, VLM integration, world-model logic, utilities
+frontend/          Report-first web UI
+configs/           Runtime TOML configuration
+scripts/           Process manager, benchmarks, and support scripts
+docs/              Architecture docs and development plan
+data/              Sample walkthrough fixtures and expected report output
+tests/             Cross-language integration tests
 ```
 
----
+## Roadmap
 
-## Performance
+The active roadmap lives in [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
 
-| Stage | Budget | Status |
-|-------|--------|--------|
-| Frame capture + preprocess | < 5 ms | ✅ |
-| Feature extraction + matching | < 8 ms | ✅ |
-| Pose estimation | < 3 ms | ✅ |
-| Gaussian update (per keyframe) | < 20 ms | ✅ |
-| IPC Rust → Python | < 5 ms | ✅ |
-| VLM inference (per region) | < 2000 ms | ✅ |
-| Physics simulation (full scene) | < 10 ms | ✅ |
-| API query response | < 200 ms | ✅ |
-| WebSocket risk push | < 50 ms | ✅ |
+The current order of attack is:
 
-See [`docs/architecture/performance_report.md`](docs/architecture/performance_report.md) for benchmark details.
-
----
-
-## Architecture Decisions
-
-- [ADR-001: 3DGS-SLAM over traditional SLAM](docs/architecture/ADR-001-3dgs-slam.md)
-- [ADR-002: Shared memory IPC over gRPC](docs/architecture/ADR-002-ipc-design.md)
-
----
+1. Keep the product honest
+2. Improve upload grounding and reasoning quality
+3. Make the report more useful than the visualization
+4. Add enough onboarding, feedback, and product polish to support beta users
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
