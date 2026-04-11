@@ -16,6 +16,7 @@ const state = {
   activeView: 'scan',
   activeJobId: null,
   jobs: new Map(),
+  showLowConfidence: false,
 };
 
 const navButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
@@ -42,6 +43,10 @@ const summaryHazards = document.getElementById('summary-hazards');
 const summarySeverity = document.getElementById('summary-severity');
 const summaryConfidence = document.getElementById('summary-confidence');
 const summarySource = document.getElementById('summary-source');
+const fixFirstList = document.getElementById('fix-first-list');
+const scanQualityCard = document.getElementById('scan-quality-card');
+const lowConfidenceToggle = /** @type {HTMLInputElement} */ (document.getElementById('low-confidence-toggle'));
+const findingToggleNote = document.getElementById('finding-toggle-note');
 const reportHeadline = document.getElementById('report-headline');
 const reportSubhead = document.getElementById('report-subhead');
 const reportHazards = document.getElementById('risk-report-list');
@@ -188,10 +193,13 @@ function renderReport(job) {
     summarySeverity.textContent = '—';
     summaryConfidence.textContent = '—';
     summarySource.textContent = '—';
+    fixFirstList.innerHTML = emptyMarkup('Priority actions will appear after a completed scan.');
+    scanQualityCard.innerHTML = emptyMarkup('Scan quality diagnostics will appear after a completed scan.');
     reportHazards.innerHTML = emptyMarkup('No hazards to review yet.');
     reportRecommendations.innerHTML = emptyMarkup('Recommendations will appear after a completed scan.');
     reportEvidence.innerHTML = emptyMarkup('Evidence frames will appear after a completed scan.');
     trustNotes.innerHTML = emptyMarkup('Trust notes will appear after a completed scan.');
+    findingToggleNote.textContent = 'Low-confidence findings stay hidden until a report is ready.';
     exportPdfBtn.removeAttribute('href');
     exportPdfBtn.classList.add('disabled');
     return;
@@ -200,8 +208,12 @@ function renderReport(job) {
   reportHero.classList.remove('empty');
   const summary = job.summary || {};
   const hazards = job.risks || [];
+  const visibleHazards = state.showLowConfidence ? hazards : hazards.filter((risk) => !isLowConfidenceRisk(risk));
+  const hiddenCount = Math.max(0, hazards.length - visibleHazards.length);
+  const fixFirst = job.fix_first || [];
   const recommendations = job.recommendations || [];
   const evidence = job.evidence_frames || [];
+  const scanQuality = job.scan_quality || {};
   const notes = job.trust_notes || [];
 
   reportHeadline.textContent = summary.top_hazard_label
@@ -212,26 +224,80 @@ function renderReport(job) {
   summaryObjects.textContent = String(summary.object_count || 0);
   summaryHazards.textContent = String(summary.hazard_count || 0);
   summarySeverity.textContent = capitalize(summary.top_severity || 'none');
-  summaryConfidence.textContent = summary.confidence_label || 'Approximate grounding';
+  summaryConfidence.textContent = summary.scan_quality_label
+    ? `${summary.confidence_label || 'Approximate grounding'} · ${summary.scan_quality_label} scan`
+    : summary.confidence_label || 'Approximate grounding';
   summarySource.textContent = summary.scene_source || 'unknown';
+  findingToggleNote.textContent = hiddenCount > 0 && !state.showLowConfidence
+    ? `${hiddenCount} lower-confidence finding${hiddenCount === 1 ? '' : 's'} hidden to keep the report focused.`
+    : 'Showing every finding, including weak or approximate ones.';
 
-  reportHazards.innerHTML = hazards.length
-    ? hazards.map((risk) => `
+  fixFirstList.innerHTML = fixFirst.length
+    ? fixFirst.map((action, index) => `
+        <article class="fix-first-card">
+          <div class="report-card-top">
+            <h3>${index + 1}. ${escapeHtml(action.title || 'Fix first')}</h3>
+            <span class="severity-pill ${action.severity || 'low'}">${escapeHtml(action.severity || 'low')}</span>
+          </div>
+          <div class="report-copy-block">
+            <strong>What to do next</strong>
+            <span>${escapeHtml(action.action || '')}</span>
+          </div>
+          <div class="report-copy-block">
+            <strong>Why this moved to the top</strong>
+            <span>${escapeHtml(action.why || '')}</span>
+          </div>
+          <div class="report-card-meta">
+            <span>${escapeHtml(action.location || 'scan area')}</span>
+            <span>${escapeHtml(action.confidence_label || 'weak')} evidence</span>
+          </div>
+        </article>
+      `).join('')
+    : emptyMarkup('No high-priority actions were generated for this scan.');
+
+  scanQualityCard.innerHTML = renderScanQuality(scanQuality);
+
+  reportHazards.innerHTML = visibleHazards.length
+    ? visibleHazards.map((risk) => `
         <article class="report-card hazard ${risk.severity || 'low'}">
           <div class="report-card-top">
             <h3>${escapeHtml(risk.hazard_title || risk.object_label || 'Object')}</h3>
             <span class="severity-pill ${risk.severity || 'low'}">${escapeHtml(risk.severity || 'low')}</span>
           </div>
-          <p>${escapeHtml(risk.description || '')}</p>
-          <p>${escapeHtml(risk.why || '')}</p>
+          <div class="report-copy-block">
+            <strong>What is wrong</strong>
+            <span>${escapeHtml(risk.what || risk.description || '')}</span>
+          </div>
+          <div class="report-copy-block">
+            <strong>Why it matters</strong>
+            <span>${escapeHtml(risk.why_it_matters || risk.why || '')}</span>
+          </div>
+          <div class="report-copy-block">
+            <strong>What to do next</strong>
+            <span>${escapeHtml(risk.what_to_do_next || risk.recommendation || '')}</span>
+          </div>
+          <ul class="signal-list">
+            ${(risk.reasoning?.signals || []).slice(0, 3).map((signal) => `<li>${escapeHtml(signal)}</li>`).join('')}
+          </ul>
           <div class="report-card-meta">
             <span>${Math.round((risk.risk_score || 0) * 100)} risk score</span>
             <span>${escapeHtml(risk.location_label || 'Approximate location')}</span>
             <span>${escapeHtml(risk.hazard_code || 'finding')}</span>
+            <span>${escapeHtml(risk.confidence_label || 'weak')} evidence</span>
+            <span>${escapeHtml(risk.reasoning?.support_summary || 'Limited support')}</span>
+          </div>
+          <div class="feedback-row" data-feedback-controls data-job-id="${job.job_id}" data-hazard-code="${escapeHtml(risk.hazard_code || '')}" data-object-id="${escapeHtml(risk.object_id || '')}">
+            ${renderFeedbackButton('useful', risk.latest_feedback)}
+            ${renderFeedbackButton('wrong', risk.latest_feedback)}
+            ${renderFeedbackButton('duplicate', risk.latest_feedback)}
           </div>
         </article>
       `).join('')
-    : emptyMarkup('No significant hazards were detected in this scan.');
+    : emptyMarkup(
+        hazards.length
+          ? 'Only lower-confidence findings remain. Toggle them on if you want the full raw report.'
+          : 'No significant hazards were detected in this scan.',
+      );
 
   reportRecommendations.innerHTML = recommendations.length
     ? recommendations.map((rec) => `
@@ -267,6 +333,7 @@ function renderReport(job) {
 
   exportPdfBtn.href = api.reportPdfUrl(job.job_id);
   exportPdfBtn.classList.remove('disabled');
+  attachFeedbackHandlers(job.job_id);
 }
 
 function emptyMarkup(message) {
@@ -331,6 +398,11 @@ pollHealth();
 setInterval(pollHealth, 6000);
 switchView('scan');
 
+lowConfidenceToggle?.addEventListener('change', (event) => {
+  state.showLowConfidence = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
+  renderReport(activeJob());
+});
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -342,4 +414,67 @@ function escapeHtml(value) {
 function capitalize(value) {
   const text = String(value || '');
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
+function isLowConfidenceRisk(risk) {
+  return Number(risk?.confidence || 0) < 0.6 || Number(risk?.reasoning?.grounding_confidence || 0) < 0.55;
+}
+
+function renderFeedbackButton(verdict, activeVerdict) {
+  const activeClass = verdict === activeVerdict ? 'active' : '';
+  return `<button class="feedback-btn ${activeClass}" type="button" data-feedback="${verdict}">${capitalize(verdict)}</button>`;
+}
+
+function renderScanQuality(scanQuality) {
+  if (!scanQuality || Object.keys(scanQuality).length === 0) {
+    return emptyMarkup('No scan quality diagnostics were recorded for this job.');
+  }
+
+  const warnings = scanQuality.warnings || [];
+  const guidance = scanQuality.retry_guidance || [];
+  const metrics = scanQuality.metrics || {};
+
+  return `
+    <div class="quality-score">
+      <strong>${Math.round((scanQuality.score || 0) * 100)}</strong>
+      <span class="severity-pill ${qualityTone(scanQuality.status)}">${escapeHtml(scanQuality.status || 'unknown')}</span>
+    </div>
+    <div class="quality-copy">
+      <strong>What this means</strong>
+      <span>${scanQuality.usable ? 'The scan is usable, but stronger evidence still depends on coverage and stability.' : 'The scan is likely to produce weaker findings and should ideally be rescanned.'}</span>
+    </div>
+    <div class="report-card-meta">
+      <span>${escapeHtml(`${metrics.frame_count || 0} sampled frame(s)`)}</span>
+      <span>${escapeHtml(`${Math.round((metrics.motion_coverage || 0) * 100)}% motion coverage`)}</span>
+      <span>${escapeHtml(`${Math.round((metrics.saliency_coverage || 0) * 100)}% object coverage`)}</span>
+    </div>
+    ${warnings.length ? `<ul class="quality-warning-list">${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>` : '<div class="empty-card">No major scan-quality warnings were detected.</div>'}
+    ${guidance.length ? `<div class="quality-copy"><strong>Retry guidance</strong><span>${escapeHtml(guidance[0])}</span></div>` : ''}
+  `;
+}
+
+function qualityTone(status) {
+  if (status === 'good') return 'low';
+  if (status === 'fair') return 'medium';
+  return 'high';
+}
+
+function attachFeedbackHandlers(jobId) {
+  reportHazards.querySelectorAll('[data-feedback-controls]').forEach((container) => {
+    container.querySelectorAll('[data-feedback]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        try {
+          const updated = await api.submitFindingFeedback(jobId, {
+            hazard_code: container.dataset.hazardCode,
+            object_id: container.dataset.objectId || null,
+            verdict: button.dataset.feedback,
+          });
+          upsertJob(updated);
+          showToast('Feedback saved.');
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : 'Could not save feedback.', 3600);
+        }
+      });
+    });
+  });
 }

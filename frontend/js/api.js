@@ -17,6 +17,11 @@ export const fetchScene   = ()         => json('/scene');
 export const fetchJob     = (id)       => json(`/jobs/${id}`);
 export const fetchJobs    = ()         => json('/jobs');
 export const reportPdfUrl = (id)      => `/reports/${id}.pdf`;
+export const submitFindingFeedback = (jobId, payload) => json(`/jobs/${jobId}/feedback`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload),
+});
 
 export function postQuery(query, maxResults = 5) {
   return json('/query', {

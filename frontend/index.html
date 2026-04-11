@@ -499,6 +499,12 @@
       grid-template-columns: repeat(5, minmax(0, 1fr));
     }
 
+    .insight-grid {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: 1.15fr 0.85fr;
+    }
+
     .stat-card {
       padding: 18px;
       display: grid;
@@ -583,6 +589,114 @@
       color: var(--ink-muted);
       font-family: var(--font-mono);
       font-size: 0.74rem;
+    }
+
+    .report-copy-block {
+      display: grid;
+      gap: 6px;
+    }
+
+    .report-copy-block strong,
+    .quality-copy strong {
+      font-size: 0.82rem;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+    }
+
+    .report-copy-block span,
+    .quality-copy span {
+      color: var(--ink);
+      line-height: 1.6;
+    }
+
+    .fix-first-card {
+      padding: 18px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(12, 128, 116, 0.18);
+      background:
+        linear-gradient(180deg, rgba(12, 128, 116, 0.08), rgba(255,255,255,0.64)),
+        var(--panel-strong);
+      display: grid;
+      gap: 12px;
+    }
+
+    .quality-card {
+      display: grid;
+      gap: 14px;
+    }
+
+    .quality-score {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .quality-score strong {
+      font-size: 2.2rem;
+      line-height: 1;
+      letter-spacing: -0.05em;
+    }
+
+    .quality-warning-list,
+    .signal-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+
+    .report-card-actions,
+    .feedback-row,
+    .report-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .feedback-btn,
+    .toggle-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.76);
+      color: var(--ink-soft);
+      font: inherit;
+      cursor: pointer;
+      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+    }
+
+    .feedback-btn:hover,
+    .toggle-pill:hover {
+      transform: translateY(-1px);
+      border-color: var(--line-strong);
+      background: #fff;
+      color: var(--ink);
+    }
+
+    .feedback-btn.active {
+      color: var(--accent-strong);
+      border-color: rgba(12, 128, 116, 0.28);
+      background: var(--accent-wash);
+    }
+
+    .toggle-pill input {
+      margin: 0;
+      accent-color: var(--accent);
+    }
+
+    .finding-toggle-note {
+      color: var(--ink-soft);
+      font-size: 0.9rem;
+      line-height: 1.5;
     }
 
     .evidence-card {
@@ -812,6 +926,7 @@
       #app,
       .scene-shell,
       .panel-grid,
+      .insight-grid,
       .report-columns,
       .evidence-columns {
         grid-template-columns: 1fr;
@@ -1026,8 +1141,40 @@
           </article>
         </section>
 
-        <section class="actions">
+        <section class="insight-grid">
+          <section class="panel">
+            <div class="section-head">
+              <div>
+                <h3>Fix first</h3>
+                <p>The top actions to take first, ranked by severity, confidence, and how actionable they are.</p>
+              </div>
+              <span class="pill">Top 3</span>
+            </div>
+            <div id="fix-first-list" class="stack">
+              <div class="empty-card">Priority actions will appear after a completed scan.</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <div>
+                <h3>Scan quality</h3>
+                <p>Before trusting weaker findings, check whether the upload was bright, steady, and well covered.</p>
+              </div>
+            </div>
+            <div id="scan-quality-card" class="quality-card">
+              <div class="empty-card">Scan quality diagnostics will appear after a completed scan.</div>
+            </div>
+          </section>
+        </section>
+
+        <section class="actions report-tools">
           <a id="export-pdf-btn" class="button-link disabled" href="#">Download PDF report</a>
+          <label class="toggle-pill" for="low-confidence-toggle">
+            <input id="low-confidence-toggle" type="checkbox" />
+            <span>Show lower-confidence findings</span>
+          </label>
+          <span id="finding-toggle-note" class="finding-toggle-note">Low-confidence findings stay hidden until a report is ready.</span>
         </section>
 
         <section class="report-columns">
