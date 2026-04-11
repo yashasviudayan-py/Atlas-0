@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -15,6 +16,25 @@ def risk_severity(score: float) -> str:
     if score >= 0.35:
         return "moderate"
     return "low"
+
+
+def confidence_bucket(score: float) -> str:
+    """Convert a numeric confidence into a user-facing evidence label."""
+    if score >= 0.78:
+        return "strong"
+    if score >= 0.56:
+        return "approximate"
+    return "weak"
+
+
+def severity_rank(label: str) -> int:
+    """Return a sortable rank for severity strings."""
+    return {
+        "critical": 4,
+        "high": 3,
+        "moderate": 2,
+        "low": 1,
+    }.get(str(label).lower(), 0)
 
 
 @dataclass(frozen=True)
@@ -85,6 +105,11 @@ def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
 
 
+def _format_signal(signal: str) -> str:
+    key, _sep, value = signal.partition("=")
+    return f"{key.replace('_', ' ')}: {value}" if value else key.replace("_", " ")
+
+
 def _build_hazard(
     obj: dict[str, Any],
     code: str,
@@ -98,7 +123,11 @@ def _build_hazard(
     definition = _ONTOLOGY_BY_CODE[code]
     grounded_confidence = float(obj.get("grounding_confidence", obj.get("confidence", 0.4)))
     report_confidence = _clamp((float(obj.get("confidence", 0.4)) + grounded_confidence) / 2.0)
+    observation_count = int(obj.get("observation_count", 1))
     evidence_ids = list(obj.get("evidence_ids", []))[:3]
+    priority_score = _clamp(score * 0.58 + report_confidence * 0.27 + 0.15)
+    recommendation_text = recommendation or definition.default_action
+    evidence_label = confidence_bucket(report_confidence)
 
     return {
         "hazard_code": definition.code,
@@ -113,15 +142,39 @@ def _build_hazard(
             f"{definition.title} involving {obj.get('label', 'an object')} "
             f"in the {obj.get('location_label', 'scan area')}."
         ),
+        "what": (
+            f"{definition.title} involving {obj.get('label', 'an object')} "
+            f"in the {obj.get('location_label', 'scan area')}."
+        ),
         "why": why,
-        "recommendation": recommendation or definition.default_action,
+        "why_it_matters": why,
+        "recommendation": recommendation_text,
+        "what_to_do_next": recommendation_text,
         "confidence": round(report_confidence, 2),
+        "confidence_label": evidence_label,
+        "priority_score": round(priority_score, 3),
         "evidence": {
-            "observation_count": int(obj.get("observation_count", 1)),
+            "observation_count": observation_count,
             "grounding_confidence": round(grounded_confidence, 2),
             "signals": signals,
             "evidence_ids": evidence_ids,
         },
+        "reasoning": {
+            "signals": [_format_signal(signal) for signal in signals],
+            "support_summary": (
+                f"{observation_count} supporting observation"
+                f"{'' if observation_count == 1 else 's'} across the scan"
+            ),
+            "grounding_confidence": round(grounded_confidence, 2),
+            "grounding_confidence_label": confidence_bucket(grounded_confidence),
+            "evidence_ids": evidence_ids,
+        },
+        "feedback_summary": {
+            "useful": 0,
+            "wrong": 0,
+            "duplicate": 0,
+        },
+        "latest_feedback": None,
     }
 
 
@@ -294,27 +347,94 @@ def evaluate_upload_hazards(objects: list[dict[str, Any]]) -> list[dict[str, Any
     return findings[:10]
 
 
+def build_fix_first_actions(hazards: list[dict[str, Any]], limit: int = 3) -> list[dict[str, Any]]:
+    """Return the top actions a user should take first."""
+    best_by_object: dict[str, dict[str, Any]] = {}
+
+    for hazard in hazards:
+        object_key = str(
+            hazard.get("object_id") or hazard.get("object_label") or hazard.get("hazard_code")
+        )
+        existing = best_by_object.get(object_key)
+        current_score = float(hazard.get("priority_score", hazard.get("risk_score", 0.0)))
+        if existing is None or current_score > float(
+            existing.get("priority_score", existing.get("risk_score", 0.0))
+        ):
+            best_by_object[object_key] = hazard
+
+    ranked = sorted(
+        best_by_object.values(),
+        key=lambda hazard: (
+            float(hazard.get("priority_score", hazard.get("risk_score", 0.0))),
+            severity_rank(str(hazard.get("severity", "low"))),
+        ),
+        reverse=True,
+    )
+
+    actions: list[dict[str, Any]] = []
+    generated_at = datetime.now(UTC).isoformat()
+    for hazard in ranked[:limit]:
+        actions.append(
+            {
+                "title": str(hazard.get("hazard_title", "Fix first")),
+                "action": str(hazard.get("what_to_do_next", hazard.get("recommendation", ""))),
+                "why": str(hazard.get("why_it_matters", hazard.get("why", ""))),
+                "location": str(hazard.get("location_label", "scan area")),
+                "severity": str(hazard.get("severity", "low")),
+                "confidence": float(hazard.get("confidence", 0.0)),
+                "confidence_label": str(hazard.get("confidence_label", "weak")),
+                "hazard_code": str(hazard.get("hazard_code", "")),
+                "object_id": str(hazard.get("object_id", "")),
+                "priority_score": round(
+                    float(hazard.get("priority_score", hazard.get("risk_score", 0.0))),
+                    3,
+                ),
+                "generated_at": generated_at,
+            }
+        )
+
+    return actions
+
+
 def build_recommendations_from_hazards(hazards: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert hazard findings into action cards for the report UI."""
     recommendations: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    best_by_object: dict[str, dict[str, Any]] = {}
 
     for hazard in hazards:
-        key = (
-            str(hazard.get("object_label", "")).lower(),
-            str(hazard.get("hazard_code", "")),
+        object_key = str(
+            hazard.get("object_id") or hazard.get("object_label") or hazard.get("hazard_code")
         )
-        if key in seen:
-            continue
-        seen.add(key)
+        current_score = float(hazard.get("priority_score", hazard.get("risk_score", 0.0)))
+        existing = best_by_object.get(object_key)
+        if existing is None or current_score > float(
+            existing.get("priority_score", existing.get("risk_score", 0.0))
+        ):
+            best_by_object[object_key] = hazard
+
+    ranked = sorted(
+        best_by_object.values(),
+        key=lambda hazard: (
+            float(hazard.get("priority_score", hazard.get("risk_score", 0.0))),
+            severity_rank(str(hazard.get("severity", "low"))),
+        ),
+        reverse=True,
+    )
+
+    for hazard in ranked:
         recommendations.append(
             {
                 "title": str(hazard.get("hazard_title", "Recommendation")),
                 "priority": str(hazard.get("severity", "low")),
                 "location": str(hazard.get("location_label", "scan area")),
-                "action": str(hazard.get("recommendation", "")),
-                "why": str(hazard.get("why", "")),
+                "action": str(hazard.get("what_to_do_next", hazard.get("recommendation", ""))),
+                "why": str(hazard.get("why_it_matters", hazard.get("why", ""))),
                 "hazard_code": str(hazard.get("hazard_code", "")),
+                "confidence_label": str(hazard.get("confidence_label", "weak")),
+                "priority_score": round(
+                    float(hazard.get("priority_score", hazard.get("risk_score", 0.0))),
+                    3,
+                ),
             }
         )
 

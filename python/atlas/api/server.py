@@ -15,6 +15,7 @@ import contextlib
 import io
 import pathlib
 import uuid
+from datetime import UTC, datetime
 from email.parser import BytesParser
 from email.policy import default
 from typing import Annotated, Any
@@ -665,6 +666,24 @@ def _update_job(job: dict[str, Any], **fields: Any) -> None:
     _save_job(job)
 
 
+def _feedback_counts(events: list[dict[str, Any]]) -> dict[str, int]:
+    """Return aggregate verdict counts for stored feedback events."""
+    counts = {"useful": 0, "wrong": 0, "duplicate": 0}
+    for event in events:
+        verdict = str(event.get("verdict", "")).lower()
+        if verdict in counts:
+            counts[verdict] += 1
+    return counts
+
+
+def _finding_key(hazard: dict[str, Any]) -> str:
+    """Build a stable identifier for one report finding."""
+    return (
+        f"{hazard.get('object_id') or hazard.get('object_label') or 'finding'}:"
+        f"{hazard.get('hazard_code') or 'unknown'}"
+    )
+
+
 class UploadJobStatus(BaseModel):
     """Status of a media upload and analysis job."""
 
@@ -675,13 +694,26 @@ class UploadJobStatus(BaseModel):
     progress: float
     objects: list[dict[str, Any]] | None = None
     risks: list[dict[str, Any]] | None = None
+    fix_first: list[dict[str, Any]] | None = None
     summary: dict[str, Any] | None = None
     recommendations: list[dict[str, Any]] | None = None
     evidence_frames: list[dict[str, Any]] | None = None
+    scan_quality: dict[str, Any] | None = None
     trust_notes: list[str] | None = None
     scene_source: str | None = None
+    finding_feedback: list[dict[str, Any]] | None = None
+    feedback_summary: dict[str, int] | None = None
     report_url: str | None = None
     error: str | None = None
+
+
+class FindingFeedbackRequest(BaseModel):
+    """One user feedback event for a specific report finding."""
+
+    hazard_code: str
+    verdict: str
+    object_id: str | None = None
+    note: str | None = None
 
 
 async def _get_or_init_upload_vlm() -> VLMEngine:
@@ -1060,7 +1092,9 @@ def _build_pdf_report(job: dict[str, Any]) -> bytes:
     """Generate a compact PDF report without extra runtime dependencies."""
     summary = job.get("summary") or {}
     risks = job.get("risks") or []
+    fix_first = job.get("fix_first") or []
     recommendations = job.get("recommendations") or []
+    scan_quality = job.get("scan_quality") or {}
     trust_notes = job.get("trust_notes") or []
 
     lines = [
@@ -1069,16 +1103,34 @@ def _build_pdf_report(job: dict[str, Any]) -> bytes:
         f"Hazards found: {summary.get('hazard_count', 0)}",
         f"Objects detected: {summary.get('object_count', 0)}",
         f"Scene source: {summary.get('scene_source', 'unknown')}",
+        (
+            "Scan quality: "
+            f"{str(scan_quality.get('status', 'unknown')).upper()} "
+            f"({int(float(scan_quality.get('score', 0.0)) * 100)} / 100)"
+        ),
         "",
-        "Top hazards:",
+        "Fix first:",
     ]
+
+    if fix_first:
+        for action in fix_first[:3]:
+            lines.append(f"- {action.get('title', 'Action')}: {action.get('action', '')}")
+    else:
+        lines.append("- No high-priority actions were generated.")
+
+    lines.extend(
+        [
+            "",
+            "Top hazards:",
+        ]
+    )
 
     if risks:
         for risk in risks[:5]:
             lines.append(
-                f"- {risk.get('object_label', 'Object')} "
+                f"- {risk.get('hazard_title', risk.get('object_label', 'Object'))} "
                 f"({str(risk.get('severity', 'low')).upper()}): "
-                f"{risk.get('description', '')}"
+                f"{risk.get('what', risk.get('description', ''))}"
             )
     else:
         lines.append("- No significant hazards were detected in this scan.")
@@ -1089,6 +1141,11 @@ def _build_pdf_report(job: dict[str, Any]) -> bytes:
             lines.append(f"- {rec.get('title', 'Action')}: {rec.get('action', '')}")
     else:
         lines.append("- No follow-up actions were generated.")
+
+    if scan_quality.get("warnings"):
+        lines.extend(["", "Scan quality warnings:"])
+        for warning in scan_quality["warnings"][:3]:
+            lines.append(f"- {warning}")
 
     if trust_notes:
         lines.extend(["", "Trust notes:"])
@@ -1369,11 +1426,15 @@ async def _process_upload(job_id: str, content: bytes, content_type: str) -> Non
             objects=result.objects,
             risks=result.risks,
             point_cloud=result.point_cloud,
+            fix_first=result.fix_first,
             summary=result.summary,
             recommendations=result.recommendations,
             evidence_frames=result.evidence_frames,
+            scan_quality=result.scan_quality,
             trust_notes=result.trust_notes,
             scene_source=result.scene_source,
+            finding_feedback=[],
+            feedback_summary={"useful": 0, "wrong": 0, "duplicate": 0},
             report_url=f"/reports/{job['job_id']}.pdf",
         )
 
@@ -1474,11 +1535,15 @@ async def upload_media(request: Request) -> UploadJobStatus:
         "progress": 0.0,
         "objects": None,
         "risks": None,
+        "fix_first": None,
         "summary": None,
         "recommendations": None,
         "evidence_frames": None,
+        "scan_quality": None,
         "trust_notes": None,
         "scene_source": None,
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
         "report_url": None,
         "error": None,
     }
@@ -1514,6 +1579,60 @@ def get_upload_job(job_id: str) -> UploadJobStatus:
     if job_id not in _upload_jobs:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
     return UploadJobStatus(**_upload_jobs[job_id])
+
+
+@app.post("/jobs/{job_id}/feedback", response_model=UploadJobStatus)
+def record_job_feedback(job_id: str, payload: FindingFeedbackRequest) -> UploadJobStatus:
+    """Store user feedback for one finding in a completed upload report."""
+    job = _upload_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+    if job.get("status") != "complete":
+        raise HTTPException(status_code=409, detail="Feedback is only accepted for completed jobs.")
+
+    verdict = payload.verdict.lower().strip()
+    if verdict not in {"useful", "wrong", "duplicate"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Feedback verdict must be useful, wrong, or duplicate.",
+        )
+
+    risks = job.get("risks") or []
+    target = next(
+        (
+            risk
+            for risk in risks
+            if str(risk.get("hazard_code", "")) == payload.hazard_code
+            and (payload.object_id is None or str(risk.get("object_id", "")) == payload.object_id)
+        ),
+        None,
+    )
+    if target is None:
+        raise HTTPException(status_code=404, detail="Matching finding was not found in the report.")
+
+    event = {
+        "hazard_code": payload.hazard_code,
+        "object_id": payload.object_id or target.get("object_id"),
+        "verdict": verdict,
+        "note": (payload.note or "").strip() or None,
+        "created_at": datetime.now(UTC).isoformat(),
+        "finding_key": _finding_key(target),
+    }
+
+    events = list(job.get("finding_feedback") or [])
+    events.append(event)
+    counts = dict(target.get("feedback_summary") or {"useful": 0, "wrong": 0, "duplicate": 0})
+    counts[verdict] = counts.get(verdict, 0) + 1
+    target["feedback_summary"] = counts
+    target["latest_feedback"] = verdict
+
+    _update_job(
+        job,
+        risks=risks,
+        finding_feedback=events,
+        feedback_summary=_feedback_counts(events),
+    )
+    return UploadJobStatus(**job)
 
 
 @app.get("/reports/{job_id}.pdf")

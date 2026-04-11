@@ -34,6 +34,9 @@ async def test_sample_walkthrough_matches_expected_report() -> None:
     assert result.scene_source == expected["scene_source"]
     assert len(result.objects) >= expected["min_object_count"]
     assert len(result.risks) >= expected["min_hazard_count"]
+    assert len(result.fix_first) >= 1
+    assert result.scan_quality["status"] in {"good", "fair", "poor"}
+    assert "scan_quality_label" in result.summary
     assert hazard_codes[0] == expected["top_hazard_code"]
     for code in expected["required_hazard_codes"]:
         assert code in hazard_codes

@@ -15,7 +15,12 @@ from PIL import Image
 
 from atlas.utils.video import ExtractedFrame, extract_frame_samples
 from atlas.vlm.inference import SemanticLabel
-from atlas.world_model.hazards import build_recommendations_from_hazards, evaluate_upload_hazards
+from atlas.world_model.hazards import (
+    build_fix_first_actions,
+    build_recommendations_from_hazards,
+    confidence_bucket,
+    evaluate_upload_hazards,
+)
 
 Labeler = Callable[[bytes, str], Awaitable[SemanticLabel]]
 
@@ -57,8 +62,10 @@ class UploadAnalysisResult:
 
     objects: list[dict[str, Any]]
     risks: list[dict[str, Any]]
+    fix_first: list[dict[str, Any]]
     recommendations: list[dict[str, Any]]
     evidence_frames: list[dict[str, Any]]
+    scan_quality: dict[str, Any]
     trust_notes: list[str]
     summary: dict[str, Any]
     scene_source: str
@@ -228,10 +235,11 @@ def location_label(position: tuple[float, float, float]) -> str:
     return f"{depth}-{horizontal}".replace("-center", "")
 
 
-def build_trust_notes(scene_source: str) -> list[str]:
+def build_trust_notes(scene_source: str, scan_quality: dict[str, Any] | None = None) -> list[str]:
     """Return explicit honesty notes for the current grounding mode."""
+    notes: list[str]
     if scene_source == "estimated_multiview":
-        return [
+        notes = [
             (
                 "Locations are estimated from repeated frame observations,"
                 " not survey-grade reconstruction."
@@ -245,8 +253,8 @@ def build_trust_notes(scene_source: str) -> list[str]:
                 " than one-off detections."
             ),
         ]
-    if scene_source == "single_view_estimate":
-        return [
+    elif scene_source == "single_view_estimate":
+        notes = [
             (
                 "This report is based on a single uploaded image, so location"
                 " and depth are estimated from one view."
@@ -256,7 +264,15 @@ def build_trust_notes(scene_source: str) -> list[str]:
                 " rather than precise measurements."
             ),
         ]
-    return ["This report is based on heuristic scene estimates."]
+    else:
+        notes = ["This report is based on heuristic scene estimates."]
+
+    if scan_quality and scan_quality.get("warnings"):
+        notes.append(
+            "Capture quality limited some conclusions. Review the scan quality"
+            " panel before treating weak findings as high confidence."
+        )
+    return notes
 
 
 async def analyze_uploaded_image(
@@ -311,17 +327,20 @@ async def analyze_frame_samples(
 
     decoded_frames = [_decode_rgb(sample.image_bytes) for sample in frame_samples]
     camera_positions = _estimate_camera_path(decoded_frames)
+    regions_per_frame = [_extract_salient_regions(frame_arr) for frame_arr in decoded_frames]
+    scan_quality = _assess_scan_quality(decoded_frames, camera_positions, regions_per_frame)
 
     observations: list[Observation] = []
     evidence_frames: list[dict[str, Any]] = []
 
-    for sample, frame_arr, camera_position in zip(
+    for sample, _frame_arr, camera_position, frame_regions in zip(
         frame_samples,
         decoded_frames,
         camera_positions,
+        regions_per_frame,
         strict=True,
     ):
-        for region_idx, region in enumerate(_extract_salient_regions(frame_arr), start=1):
+        for region_idx, region in enumerate(frame_regions, start=1):
             hint = f"frame {sample.index + 1} region {region_idx}"
             label = await labeler(region.crop_bytes, hint)
 
@@ -361,16 +380,19 @@ async def analyze_frame_samples(
     objects = _build_objects_from_tracks(tracks)
     scene_source = "estimated_multiview" if len(frame_samples) > 1 else "single_view_estimate"
     risks = evaluate_upload_hazards(objects)
+    fix_first = build_fix_first_actions(risks)
     recommendations = build_recommendations_from_hazards(risks)
-    summary = _build_summary(filename, objects, risks, scene_source)
+    summary = _build_summary(filename, objects, risks, scene_source, scan_quality)
     point_cloud = _build_scene_point_cloud(tracks)
 
     return UploadAnalysisResult(
         objects=objects,
         risks=risks,
+        fix_first=fix_first,
         recommendations=recommendations,
         evidence_frames=evidence_frames,
-        trust_notes=build_trust_notes(scene_source),
+        scan_quality=scan_quality,
+        trust_notes=build_trust_notes(scene_source, scan_quality),
         summary=summary,
         scene_source=scene_source,
         point_cloud=point_cloud,
@@ -756,11 +778,118 @@ def _build_scene_point_cloud(tracks: list[list[Observation]]) -> list[list[float
     return scene_points[:1200]
 
 
+def _assess_scan_quality(
+    decoded_frames: list[np.ndarray],
+    camera_positions: list[tuple[float, float]],
+    regions_per_frame: list[list[RegionCandidate]],
+) -> dict[str, Any]:
+    """Estimate whether the upload is visually usable for hazard reporting."""
+    if not decoded_frames:
+        return {
+            "status": "poor",
+            "score": 0.0,
+            "usable": False,
+            "warnings": ["No frames were available to assess scan quality."],
+            "retry_guidance": ["Upload a valid image or a 20-60 second walkthrough video."],
+            "metrics": {},
+        }
+
+    brightness_values: list[float] = []
+    dark_clip_values: list[float] = []
+    bright_clip_values: list[float] = []
+    sharpness_values: list[float] = []
+    saliency_coverages: list[float] = []
+
+    for frame_arr, regions in zip(decoded_frames, regions_per_frame, strict=True):
+        gray = frame_arr.astype(np.float32).mean(axis=2) / 255.0
+        brightness_values.append(float(np.mean(gray)))
+        dark_clip_values.append(float(np.mean(gray < 0.15)))
+        bright_clip_values.append(float(np.mean(gray > 0.9)))
+        grad_y, grad_x = np.gradient(gray)
+        sharpness_values.append(float(np.mean(np.sqrt(grad_x**2 + grad_y**2))))
+        saliency_coverages.append(min(1.0, sum(region.area_ratio for region in regions) / 0.28))
+
+    frame_count = len(decoded_frames)
+    total_motion = (
+        sum(math.dist(previous, current) for previous, current in pairwise(camera_positions))
+        if len(camera_positions) > 1
+        else 0.0
+    )
+    mean_brightness = float(np.mean(brightness_values))
+    mean_dark_clip = float(np.mean(dark_clip_values))
+    mean_bright_clip = float(np.mean(bright_clip_values))
+    mean_sharpness = float(np.mean(sharpness_values))
+    mean_saliency = float(np.mean(saliency_coverages))
+
+    brightness_score = max(0.0, 1.0 - abs(mean_brightness - 0.5) / 0.35)
+    exposure_score = max(0.0, 1.0 - min(1.0, (mean_dark_clip + mean_bright_clip) * 1.8))
+    sharpness_score = min(1.0, mean_sharpness / 0.09)
+    motion_score = (
+        1.0 if frame_count == 1 else min(1.0, total_motion / max(0.9, (frame_count - 1) * 0.28))
+    )
+    saliency_score = min(1.0, mean_saliency)
+
+    score = (
+        brightness_score * 0.2
+        + exposure_score * 0.2
+        + sharpness_score * 0.24
+        + motion_score * 0.18
+        + saliency_score * 0.18
+    )
+
+    warnings: list[str] = []
+    guidance: list[str] = []
+
+    if sharpness_score < 0.42:
+        warnings.append("The scan looks blurry, which weakens object labeling and localization.")
+        guidance.append(
+            "Hold the phone steadier and pause briefly on shelves, tables," " and tall items."
+        )
+    if brightness_score < 0.42:
+        if mean_brightness < 0.35:
+            warnings.append("The scan is darker than ideal, so some hazards may be missed.")
+            guidance.append("Turn on room lights or rescan during brighter conditions.")
+        else:
+            warnings.append("Parts of the scan are overexposed, which can hide object edges.")
+            guidance.append("Avoid pointing directly at windows or bright lamps while scanning.")
+    if frame_count > 1 and motion_score < 0.32:
+        warnings.append("The walkthrough covers too little motion to ground objects confidently.")
+        guidance.append(
+            "Move slowly across the room so objects appear from more than" " one viewpoint."
+        )
+    if saliency_score < 0.34:
+        warnings.append("The frames contain limited clear object coverage for the report.")
+        guidance.append("Keep the main surfaces and objects centered in frame for a little longer.")
+    if frame_count > 1 and frame_count < 4:
+        warnings.append("The walkthrough is short, so spatial coverage is limited.")
+        guidance.append("Aim for a 20-60 second scan that sweeps the full room once.")
+
+    status = "good" if score >= 0.72 else "fair" if score >= 0.48 else "poor"
+
+    return {
+        "status": status,
+        "score": round(score, 2),
+        "usable": score >= 0.48,
+        "warnings": warnings[:4],
+        "retry_guidance": guidance[:4],
+        "metrics": {
+            "frame_count": frame_count,
+            "brightness": round(mean_brightness, 2),
+            "dark_clip": round(mean_dark_clip, 2),
+            "bright_clip": round(mean_bright_clip, 2),
+            "sharpness": round(mean_sharpness, 3),
+            "motion_coverage": round(motion_score, 2),
+            "saliency_coverage": round(mean_saliency, 2),
+        },
+    }
+
+
 def _build_summary(
     filename: str,
     objects: list[dict[str, Any]],
     risks: list[dict[str, Any]],
     scene_source: str,
+    scan_quality: dict[str, Any],
 ) -> dict[str, Any]:
     top_risk = max(risks, key=lambda entry: float(entry.get("risk_score", 0.0)), default=None)
     confidence_label = (
@@ -768,6 +897,7 @@ def _build_summary(
         if scene_source == "estimated_multiview"
         else "Single-view estimate"
     )
+    low_confidence_count = sum(1 for risk in risks if float(risk.get("confidence", 0.0)) < 0.6)
     return {
         "filename": filename,
         "object_count": len(objects),
@@ -776,4 +906,11 @@ def _build_summary(
         "top_hazard_label": top_risk.get("hazard_title") if top_risk else None,
         "scene_source": scene_source,
         "confidence_label": confidence_label,
+        "scan_quality_label": str(scan_quality.get("status", "unknown")).capitalize(),
+        "scan_quality_score": float(scan_quality.get("score", 0.0)),
+        "warning_count": len(scan_quality.get("warnings", [])),
+        "low_confidence_count": low_confidence_count,
+        "top_confidence_label": confidence_bucket(float(top_risk.get("confidence", 0.0)))
+        if top_risk
+        else "weak",
     }
