@@ -204,6 +204,9 @@ class ApiConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8420
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    access_token: str | None = None
+    allow_unauthenticated_loopback: bool = True
+    enable_job_listing: bool = False
 
     @field_validator("port")
     @classmethod
@@ -211,6 +214,12 @@ class ApiConfig(BaseModel):
         if not 1 <= v <= 65535:
             raise ValueError(f"port must be in [1, 65535], got {v}")
         return v
+
+    @field_validator("access_token")
+    @classmethod
+    def _empty_token_to_none(cls, v: str | None) -> str | None:
+        token = (v or "").strip()
+        return token or None
 
 
 class IpcConfig(BaseModel):
@@ -232,13 +241,29 @@ class UploadsConfig(BaseModel):
     """Upload/report persistence configuration."""
 
     storage_dir: str = ".atlas/uploads"
-    save_original_uploads: bool = True
+    save_original_uploads: bool = False
     max_persisted_jobs: int = 200
+    retention_days: int = 14
+    max_upload_bytes: int = 75_000_000
+    max_video_duration_seconds: float = 75.0
+    max_concurrent_jobs: int = 2
 
-    @field_validator("max_persisted_jobs")
+    @field_validator(
+        "max_persisted_jobs",
+        "retention_days",
+        "max_upload_bytes",
+        "max_concurrent_jobs",
+    )
     @classmethod
     def _positive_int(cls, v: int) -> int:
         if v <= 0:
+            raise ValueError(f"must be positive, got {v}")
+        return v
+
+    @field_validator("max_video_duration_seconds")
+    @classmethod
+    def _positive_float(cls, v: float) -> float:
+        if v <= 0.0:
             raise ValueError(f"must be positive, got {v}")
         return v
 

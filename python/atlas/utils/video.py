@@ -49,6 +49,14 @@ class ExtractedFrame:
     image_bytes: bytes
 
 
+@dataclass(frozen=True)
+class VideoMetadata:
+    """Basic metadata probed from a video container."""
+
+    duration_s: float
+    frame_count: int
+
+
 def extract_frames(
     video_bytes: bytes,
     max_frames: int = 8,
@@ -113,6 +121,23 @@ def extract_frame_samples(
     except Exception as exc:
         logger.warning("video_extract_failed", error=str(exc))
         return []
+
+
+def probe_video_metadata(video_bytes: bytes) -> VideoMetadata | None:
+    """Return basic duration/frame metadata for a video, if available."""
+    try:
+        import av  # type: ignore[import]
+    except ImportError:
+        return None
+
+    if not video_bytes:
+        return None
+
+    try:
+        return _probe_metadata(video_bytes, av)
+    except Exception as exc:
+        logger.warning("video_probe_failed", error=str(exc))
+        return None
 
 
 def _extract(
@@ -197,6 +222,28 @@ def _extract(
 
     logger.info("video_extract_done", frames_extracted=len(frames))
     return frames
+
+
+def _probe_metadata(video_bytes: bytes, av: object) -> VideoMetadata | None:
+    """Probe video duration and frame count without extracting frames."""
+    buf = io.BytesIO(video_bytes)
+
+    with av.open(buf) as container:  # type: ignore[union-attr]
+        video_stream = next((s for s in container.streams if s.type == "video"), None)
+        if video_stream is None:
+            return None
+
+        duration_s = float(
+            video_stream.duration * video_stream.time_base
+            if video_stream.duration
+            else container.duration / 1_000_000
+            if container.duration
+            else 0
+        )
+        return VideoMetadata(
+            duration_s=max(0.0, round(duration_s, 4)),
+            frame_count=int(video_stream.frames or 0),
+        )
 
 
 def _sample_indices(total_frames: int, max_frames: int) -> set[int]:

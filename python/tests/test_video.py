@@ -9,6 +9,7 @@ from atlas.utils.video import (
     _sample_indices,
     extract_frames,
     is_video_available,
+    probe_video_metadata,
 )
 
 # ── is_video_available ────────────────────────────────────────────────────────
@@ -181,3 +182,29 @@ def test_extract_frames_no_video_stream_returns_empty() -> None:
         result = extract_frames(b"fake_video", max_frames=4)
 
     assert result == []
+
+
+def test_probe_video_metadata_returns_duration_and_frame_count() -> None:
+    from fractions import Fraction
+
+    mock_stream = MagicMock()
+    mock_stream.type = "video"
+    mock_stream.frames = 24
+    mock_stream.duration = 120
+    mock_stream.time_base = Fraction(1, 24)
+
+    mock_container = MagicMock()
+    mock_container.streams = [mock_stream]
+    mock_container.duration = 5_000_000
+    mock_container.__enter__ = MagicMock(return_value=mock_container)
+    mock_container.__exit__ = MagicMock(return_value=False)
+
+    mock_av = MagicMock()
+    mock_av.open.return_value = mock_container
+
+    with patch.dict("sys.modules", {"av": mock_av}):
+        metadata = probe_video_metadata(b"video-bytes")
+
+    assert metadata is not None
+    assert metadata.frame_count == 24
+    assert metadata.duration_s == pytest.approx(5.0)

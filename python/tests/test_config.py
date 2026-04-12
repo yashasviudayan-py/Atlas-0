@@ -153,6 +153,10 @@ class TestLoadConfig:
         assert cfg.camera.slam_width == 640
         assert cfg.ipc.mmap_path == "/tmp/atlas.mmap"
         assert cfg.uploads.storage_dir == ".atlas/uploads"
+        assert cfg.uploads.save_original_uploads is False
+        assert cfg.uploads.retention_days == 14
+        assert cfg.uploads.max_upload_bytes == 75_000_000
+        assert cfg.api.enable_job_listing is False
 
     def test_env_atlas_config_selects_runtime_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -263,6 +267,18 @@ class TestValidation:
 
         with pytest.raises(ValidationError):
             UploadsConfig(max_persisted_jobs=0)
+
+    def test_invalid_max_upload_bytes(self) -> None:
+        from atlas.utils.config import UploadsConfig
+
+        with pytest.raises(ValidationError):
+            UploadsConfig(max_upload_bytes=0)
+
+    def test_invalid_max_video_duration(self) -> None:
+        from atlas.utils.config import UploadsConfig
+
+        with pytest.raises(ValidationError):
+            UploadsConfig(max_video_duration_seconds=0.0)
 
 
 # ── Default.toml round-trip ───────────────────────────────────────────────────
