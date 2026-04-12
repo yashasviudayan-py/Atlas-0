@@ -1,20 +1,43 @@
 """Tests for the Atlas-0 API server."""
 
+from pathlib import Path
+
 import pytest
-from atlas.api.server import _upload_jobs, app
+from atlas.api import server as server_mod
+from atlas.api.server import _api_cfg, _upload_cfg, _upload_jobs, _upload_store, app
+from atlas.utils.video import VideoMetadata
 from fastapi.testclient import TestClient
 
 client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def reset_upload_jobs():
+def reset_upload_jobs(tmp_path: Path):
     """Keep upload job state isolated across tests."""
     snapshot = dict(_upload_jobs)
+    api_snapshot = {
+        "access_token": _api_cfg.access_token,
+        "allow_unauthenticated_loopback": _api_cfg.allow_unauthenticated_loopback,
+        "enable_job_listing": _api_cfg.enable_job_listing,
+    }
+    upload_snapshot = {
+        "max_upload_bytes": _upload_cfg.max_upload_bytes,
+        "max_video_duration_seconds": _upload_cfg.max_video_duration_seconds,
+        "max_concurrent_jobs": _upload_cfg.max_concurrent_jobs,
+    }
+    root_snapshot = _upload_store.root_dir
     _upload_jobs.clear()
+    _upload_store.root_dir = tmp_path
     yield
     _upload_jobs.clear()
     _upload_jobs.update(snapshot)
+    _upload_store.root_dir = root_snapshot
+    _api_cfg.access_token = api_snapshot["access_token"]
+    _api_cfg.allow_unauthenticated_loopback = api_snapshot["allow_unauthenticated_loopback"]
+    _api_cfg.enable_job_listing = api_snapshot["enable_job_listing"]
+    _upload_cfg.max_upload_bytes = upload_snapshot["max_upload_bytes"]
+    _upload_cfg.max_video_duration_seconds = upload_snapshot["max_video_duration_seconds"]
+    _upload_cfg.max_concurrent_jobs = upload_snapshot["max_concurrent_jobs"]
 
 
 def test_health_check():
@@ -28,6 +51,22 @@ def test_spatial_query_empty():
     response = client.post("/query", json={"query": "where is the cup?"})
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_job_listing_disabled_by_default() -> None:
+    response = client.get("/jobs")
+    assert response.status_code == 403
+
+
+def test_job_listing_requires_token_when_configured() -> None:
+    _api_cfg.enable_job_listing = True
+    _api_cfg.access_token = "secret-token"
+
+    unauthenticated = client.get("/jobs")
+    authenticated = client.get("/jobs", headers={"Authorization": "Bearer secret-token"})
+
+    assert unauthenticated.status_code == 401
+    assert authenticated.status_code == 200
 
 
 def test_upload_job_status_exposes_report_fields():
@@ -128,6 +167,42 @@ def test_upload_job_status_exposes_report_fields():
     assert data["evidence_frames"][0]["caption"] == "Lamp near walkway"
     assert data["report_url"] == "/reports/job12345.pdf"
     assert data["scene_source"] == "heuristic_estimate"
+
+
+def test_download_evidence_returns_file_backed_artifact(tmp_path: Path) -> None:
+    _upload_jobs["jobev001"] = {
+        "job_id": "jobev001",
+        "filename": "kitchen.mp4",
+        "status": "complete",
+        "stage": "complete",
+        "progress": 1.0,
+        "objects": [],
+        "risks": [],
+        "fix_first": [],
+        "summary": {"filename": "kitchen.mp4", "hazard_count": 0, "object_count": 0},
+        "recommendations": [],
+        "evidence_frames": [
+            {
+                "evidence_id": "f00-r01",
+                "caption": "Cup observation",
+                "image_url": "/jobs/jobev001/evidence/f00-r01",
+            }
+        ],
+        "scan_quality": {"status": "good", "score": 0.8, "usable": True, "warnings": []},
+        "trust_notes": [],
+        "scene_source": "estimated_multiview",
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": "/reports/jobev001.pdf",
+        "error": None,
+    }
+    _upload_store.save_evidence_image("jobev001", "f00-r01", b"jpeg-evidence")
+
+    response = client.get("/jobs/jobev001/evidence/f00-r01")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/jpeg")
+    assert response.content == b"jpeg-evidence"
 
 
 def test_report_pdf_missing_job_returns_404():
@@ -268,3 +343,63 @@ def test_record_job_feedback_updates_job_and_finding() -> None:
     assert data["finding_feedback"][0]["verdict"] == "useful"
     assert data["risks"][0]["latest_feedback"] == "useful"
     assert data["risks"][0]["feedback_summary"]["useful"] == 1
+
+
+def test_delete_upload_job_removes_persisted_artifacts() -> None:
+    _upload_jobs["jobdel01"] = {
+        "job_id": "jobdel01",
+        "filename": "office.mp4",
+        "status": "complete",
+        "stage": "complete",
+        "progress": 1.0,
+        "objects": [],
+        "risks": [],
+        "fix_first": [],
+        "summary": {"filename": "office.mp4", "hazard_count": 0, "object_count": 0},
+        "recommendations": [],
+        "evidence_frames": [],
+        "scan_quality": {"status": "good", "score": 0.73, "usable": True, "warnings": []},
+        "trust_notes": [],
+        "scene_source": "estimated_multiview",
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": "/reports/jobdel01.pdf",
+        "error": None,
+    }
+    _upload_store.create_job(_upload_jobs["jobdel01"])
+    _upload_store.save_report_pdf("jobdel01", b"pdf")
+
+    response = client.delete("/jobs/jobdel01")
+
+    assert response.status_code == 204
+    assert "jobdel01" not in _upload_jobs
+    assert not _upload_store.job_dir("jobdel01").exists()
+
+
+def test_upload_rejects_request_over_size_limit() -> None:
+    _upload_cfg.max_upload_bytes = 4
+
+    response = client.post(
+        "/upload",
+        headers={"content-type": "application/octet-stream", "x-filename": "big.bin"},
+        content=b"12345",
+    )
+
+    assert response.status_code == 413
+
+
+def test_upload_rejects_video_over_duration_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    _upload_cfg.max_video_duration_seconds = 10.0
+    monkeypatch.setattr(
+        server_mod,
+        "probe_video_metadata",
+        lambda _content: VideoMetadata(duration_s=12.5, frame_count=42),
+    )
+
+    response = client.post(
+        "/upload",
+        headers={"content-type": "video/mp4", "x-filename": "long.mp4"},
+        content=b"fake-video",
+    )
+
+    assert response.status_code == 413

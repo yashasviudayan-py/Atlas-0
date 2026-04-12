@@ -12,7 +12,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import hmac
 import io
+import ipaddress
 import pathlib
 import uuid
 from datetime import UTC, datetime
@@ -51,6 +53,7 @@ from atlas.api.upload_analysis import (
 )
 from atlas.api.upload_store import UploadStore
 from atlas.utils.config import load_config
+from atlas.utils.video import probe_video_metadata
 from atlas.vlm.inference import SemanticLabel, VLMConfig, VLMEngine
 from atlas.world_model.agent import RiskEntry, WorldModelAgent
 from atlas.world_model.query_parser import QueryParser, QueryType
@@ -91,12 +94,16 @@ if _FRONTEND_DIR.exists():
 
 _state: dict[str, Any] = {}
 _query_parser = QueryParser()
-_upload_cfg = load_config().uploads
+_runtime_cfg = load_config()
+_api_cfg = _runtime_cfg.api
+_upload_cfg = _runtime_cfg.uploads
 _upload_store = UploadStore(
     pathlib.Path(_upload_cfg.storage_dir),
     save_original_uploads=_upload_cfg.save_original_uploads,
     max_persisted_jobs=_upload_cfg.max_persisted_jobs,
+    retention_days=_upload_cfg.retention_days,
 )
+_upload_worker_semaphore = asyncio.Semaphore(_upload_cfg.max_concurrent_jobs)
 
 
 def _get_agent() -> WorldModelAgent:
@@ -681,6 +688,60 @@ def _finding_key(hazard: dict[str, Any]) -> str:
     return (
         f"{hazard.get('object_id') or hazard.get('object_label') or 'finding'}:"
         f"{hazard.get('hazard_code') or 'unknown'}"
+    )
+
+
+def _request_host(request: Request) -> str:
+    """Return the peer host string for one request."""
+    return str(request.client.host if request.client else "")
+
+
+def _is_loopback_request(request: Request) -> bool:
+    """Return True when the request originates from loopback/testclient."""
+    host = _request_host(request)
+    if host in {"localhost", "testclient"}:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _extract_access_token(request: Request) -> str | None:
+    """Extract an API token from Authorization or X-Atlas-Key headers."""
+    authorization = request.headers.get("authorization", "").strip()
+    if authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+        return token or None
+    header_token = request.headers.get("x-atlas-key", "").strip()
+    return header_token or None
+
+
+def _require_private_access(request: Request) -> None:
+    """Enforce private-beta access for upload/report endpoints."""
+    configured_token = _api_cfg.access_token
+    if configured_token:
+        provided_token = _extract_access_token(request)
+        if not provided_token or not hmac.compare_digest(provided_token, configured_token):
+            raise HTTPException(status_code=401, detail="Missing or invalid Atlas API token.")
+        return
+
+    if _api_cfg.allow_unauthenticated_loopback and _is_loopback_request(request):
+        return
+
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "Atlas-0 upload/report access is restricted to loopback unless"
+            " api.access_token is configured."
+        ),
+    )
+
+
+def _active_upload_job_count() -> int:
+    """Return the number of queued or processing upload jobs."""
+    return sum(
+        1 for job in _upload_jobs.values() if str(job.get("status")) in {"queued", "processing"}
     )
 
 
@@ -1389,71 +1450,92 @@ async def _process_upload(job_id: str, content: bytes, content_type: str) -> Non
     job = _upload_jobs[job_id]
 
     try:
-        _update_job(job, status="processing", stage="ingest", progress=0.15)
-        await asyncio.sleep(0.3)
+        async with _upload_worker_semaphore:
+            _update_job(job, status="processing", stage="ingest", progress=0.15)
+            await asyncio.sleep(0.3)
 
-        is_image = content_type in _IMAGE_TYPES or content_type.startswith("image/")
-        is_video = content_type in _VIDEO_TYPES or content_type.startswith("video/")
+            is_image = content_type in _IMAGE_TYPES or content_type.startswith("image/")
+            is_video = content_type in _VIDEO_TYPES or content_type.startswith("video/")
 
-        if is_image:
-            _update_job(job, stage="vlm", progress=0.4)
-            await asyncio.sleep(0.2)
-            result = await analyze_uploaded_image(
-                content,
-                filename=job["filename"],
-                content_type=content_type,
-                labeler=_label_upload_region,
+            if is_image:
+                _update_job(job, stage="vlm", progress=0.4)
+                await asyncio.sleep(0.2)
+                result = await analyze_uploaded_image(
+                    content,
+                    filename=job["filename"],
+                    content_type=content_type,
+                    labeler=_label_upload_region,
+                )
+
+            elif is_video:
+                _update_job(job, stage="vlm", progress=0.35)
+                result = await analyze_uploaded_video(
+                    content,
+                    filename=job["filename"],
+                    labeler=_label_upload_region,
+                )
+            else:
+                msg = f"Unsupported file type: {content_type!r}"
+                raise ValueError(msg)
+
+            _update_job(job, stage="risk", progress=0.9)
+
+            evidence_frames = [dict(frame) for frame in result.evidence_frames]
+            for frame in evidence_frames:
+                evidence_id = str(frame.get("evidence_id", ""))
+                content_bytes = result.evidence_artifacts.get(evidence_id)
+                if not evidence_id or content_bytes is None:
+                    continue
+                _upload_store.save_evidence_image(job_id, evidence_id, content_bytes, suffix=".jpg")
+                frame["image_url"] = f"/jobs/{job_id}/evidence/{evidence_id}"
+
+            _update_job(
+                job,
+                status="complete",
+                stage="complete",
+                progress=1.0,
+                objects=result.objects,
+                risks=result.risks,
+                point_cloud=result.point_cloud,
+                fix_first=result.fix_first,
+                summary=result.summary,
+                recommendations=result.recommendations,
+                evidence_frames=evidence_frames,
+                scan_quality=result.scan_quality,
+                trust_notes=result.trust_notes,
+                scene_source=result.scene_source,
+                finding_feedback=[],
+                feedback_summary={"useful": 0, "wrong": 0, "duplicate": 0},
+                report_url=f"/reports/{job['job_id']}.pdf",
             )
 
-        elif is_video:
-            _update_job(job, stage="vlm", progress=0.35)
-            result = await analyze_uploaded_video(
-                content,
-                filename=job["filename"],
-                labeler=_label_upload_region,
+            pdf_bytes = _build_pdf_report(job)
+            _upload_store.save_report_pdf(job_id, pdf_bytes)
+
+            agent = _get_agent()
+            for obj in result.objects:
+                semantic_label = SemanticLabel(
+                    label=str(obj["label"]),
+                    material=str(obj["material"]),
+                    mass_kg=float(obj["mass_kg"]),
+                    fragility=float(obj["fragility"]),
+                    friction=float(obj["friction"]),
+                    confidence=float(obj["confidence"]),
+                )
+                position = tuple(float(v) for v in obj.get("position", [0.0, 0.8, 1.5]))
+                await agent.ingest_from_upload(semantic_label, position=position)
+
+    except asyncio.CancelledError:
+        logger.info("upload_processing_cancelled", job_id=job_id)
+        if job_id in _upload_jobs:
+            _update_job(
+                job,
+                status="error",
+                stage="complete",
+                progress=1.0,
+                error="Upload job deleted before processing completed.",
             )
-        else:
-            msg = f"Unsupported file type: {content_type!r}"
-            raise ValueError(msg)
-
-        _update_job(job, stage="risk", progress=0.9)
-
-        _update_job(
-            job,
-            status="complete",
-            stage="complete",
-            progress=1.0,
-            objects=result.objects,
-            risks=result.risks,
-            point_cloud=result.point_cloud,
-            fix_first=result.fix_first,
-            summary=result.summary,
-            recommendations=result.recommendations,
-            evidence_frames=result.evidence_frames,
-            scan_quality=result.scan_quality,
-            trust_notes=result.trust_notes,
-            scene_source=result.scene_source,
-            finding_feedback=[],
-            feedback_summary={"useful": 0, "wrong": 0, "duplicate": 0},
-            report_url=f"/reports/{job['job_id']}.pdf",
-        )
-
-        pdf_bytes = _build_pdf_report(job)
-        _upload_store.save_report_pdf(job_id, pdf_bytes)
-
-        agent = _get_agent()
-        for obj in result.objects:
-            semantic_label = SemanticLabel(
-                label=str(obj["label"]),
-                material=str(obj["material"]),
-                mass_kg=float(obj["mass_kg"]),
-                fragility=float(obj["fragility"]),
-                friction=float(obj["friction"]),
-                confidence=float(obj["confidence"]),
-            )
-            position = tuple(float(v) for v in obj.get("position", [0.0, 0.8, 1.5]))
-            await agent.ingest_from_upload(semantic_label, position=position)
-
+        raise
     except Exception as exc:
         logger.warning("upload_processing_failed", job_id=job_id, error=str(exc))
         _update_job(
@@ -1463,6 +1545,10 @@ async def _process_upload(job_id: str, content: bytes, content_type: str) -> Non
             progress=1.0,
             error=str(exc),
         )
+    finally:
+        tasks = _state.get("upload_tasks")
+        if isinstance(tasks, dict):
+            tasks.pop(job_id, None)
 
 
 # ── Upload endpoints ──────────────────────────────────────────────────────────
@@ -1496,7 +1582,7 @@ def _extract_single_file_from_multipart(
 async def _read_upload_request(request: Request) -> tuple[str, str, bytes]:
     """Read an upload request in raw or multipart form."""
     content_type = request.headers.get("content-type", "")
-    body = await request.body()
+    body = await _read_request_body_limited(request, _upload_cfg.max_upload_bytes)
     if not body:
         raise HTTPException(status_code=400, detail="Upload body is empty.")
 
@@ -1511,6 +1597,57 @@ async def _read_upload_request(request: Request) -> tuple[str, str, bytes]:
     return filename, fallback_type, body
 
 
+async def _read_request_body_limited(request: Request, max_bytes: int) -> bytes:
+    """Read one request body while enforcing a maximum byte size."""
+    content_length = request.headers.get("content-length")
+    if content_length:
+        with contextlib.suppress(ValueError):
+            if int(content_length) > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Upload exceeds the {max_bytes} byte limit.",
+                )
+
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Upload exceeds the {max_bytes} byte limit.",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _validate_upload_constraints(content_type: str, content: bytes) -> None:
+    """Reject uploads that violate configured size/type/duration constraints."""
+    if len(content) > _upload_cfg.max_upload_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Upload exceeds the {_upload_cfg.max_upload_bytes} byte limit.",
+        )
+
+    is_video = content_type in _VIDEO_TYPES or content_type.startswith("video/")
+    if not is_video:
+        return
+
+    metadata = probe_video_metadata(content)
+    if metadata is None:
+        return
+    if metadata.duration_s > _upload_cfg.max_video_duration_seconds:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Video duration {metadata.duration_s:.1f}s exceeds the "
+                f"{_upload_cfg.max_video_duration_seconds:.1f}s limit."
+            ),
+        )
+
+
 @app.post("/upload", response_model=UploadJobStatus)
 async def upload_media(request: Request) -> UploadJobStatus:
     """Accept an image or video file and run it through the analysis pipeline.
@@ -1522,7 +1659,19 @@ async def upload_media(request: Request) -> UploadJobStatus:
     Supported image formats: JPEG, PNG, WEBP, GIF.
     Accepts both ``multipart/form-data`` browser uploads and raw file bodies.
     """
+    _require_private_access(request)
+
+    if _active_upload_job_count() >= _upload_cfg.max_concurrent_jobs:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "Atlas-0 is already processing the maximum number of active"
+                " uploads. Please retry shortly."
+            ),
+        )
+
     filename, content_type, content = await _read_upload_request(request)
+    _validate_upload_constraints(content_type, content)
 
     job_id = uuid.uuid4().hex[:8]
 
@@ -1555,19 +1704,26 @@ async def upload_media(request: Request) -> UploadJobStatus:
 
     _task = asyncio.create_task(_process_upload(job_id, content, content_type))
     _state.setdefault("_tasks", []).append(_task)
+    _state.setdefault("upload_tasks", {})[job_id] = _task
 
     logger.info("upload_accepted", job_id=job_id, filename=filename, content_type=content_type)
     return UploadJobStatus(**job)
 
 
 @app.get("/jobs", response_model=list[UploadJobStatus])
-def list_upload_jobs() -> list[UploadJobStatus]:
+def list_upload_jobs(request: Request) -> list[UploadJobStatus]:
     """List all upload jobs and their current status."""
+    _require_private_access(request)
+    if not _api_cfg.enable_job_listing:
+        raise HTTPException(
+            status_code=403,
+            detail="Job listing is disabled. Query a known job ID directly instead.",
+        )
     return [UploadJobStatus(**j) for j in _upload_jobs.values()]
 
 
 @app.get("/jobs/{job_id}", response_model=UploadJobStatus)
-def get_upload_job(job_id: str) -> UploadJobStatus:
+def get_upload_job(job_id: str, request: Request) -> UploadJobStatus:
     """Return the current status of a specific upload job.
 
     Args:
@@ -1576,14 +1732,20 @@ def get_upload_job(job_id: str) -> UploadJobStatus:
     Raises:
         HTTPException: 404 if the job is not found.
     """
+    _require_private_access(request)
     if job_id not in _upload_jobs:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
     return UploadJobStatus(**_upload_jobs[job_id])
 
 
 @app.post("/jobs/{job_id}/feedback", response_model=UploadJobStatus)
-def record_job_feedback(job_id: str, payload: FindingFeedbackRequest) -> UploadJobStatus:
+def record_job_feedback(
+    job_id: str,
+    payload: FindingFeedbackRequest,
+    request: Request,
+) -> UploadJobStatus:
     """Store user feedback for one finding in a completed upload report."""
+    _require_private_access(request)
     job = _upload_jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
@@ -1635,9 +1797,43 @@ def record_job_feedback(job_id: str, payload: FindingFeedbackRequest) -> UploadJ
     return UploadJobStatus(**job)
 
 
+@app.get("/jobs/{job_id}/evidence/{evidence_id}")
+def download_evidence(job_id: str, evidence_id: str, request: Request) -> Response:
+    """Download one persisted evidence crop for a completed report."""
+    _require_private_access(request)
+    if job_id not in _upload_jobs:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+
+    artifact = _upload_store.load_evidence_image(job_id, evidence_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Evidence artifact not found.")
+
+    content, media_type = artifact
+    return Response(content=content, media_type=media_type)
+
+
+@app.delete("/jobs/{job_id}", status_code=204)
+def delete_upload_job(job_id: str, request: Request) -> Response:
+    """Delete one persisted upload job and its artifacts."""
+    _require_private_access(request)
+    task = None
+    tasks = _state.get("upload_tasks")
+    if isinstance(tasks, dict):
+        task = tasks.pop(job_id, None)
+    if task is not None and not task.done():
+        task.cancel()
+    existed = job_id in _upload_jobs
+    removed = _upload_store.delete_job(job_id)
+    _upload_jobs.pop(job_id, None)
+    if not existed and not removed:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+    return Response(status_code=204)
+
+
 @app.get("/reports/{job_id}.pdf")
-def download_report(job_id: str) -> Response:
+def download_report(job_id: str, request: Request) -> Response:
     """Download a generated PDF report for a completed scan job."""
+    _require_private_access(request)
     job = _upload_jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import io
 import math
 from collections.abc import Awaitable, Callable
@@ -65,17 +64,12 @@ class UploadAnalysisResult:
     fix_first: list[dict[str, Any]]
     recommendations: list[dict[str, Any]]
     evidence_frames: list[dict[str, Any]]
+    evidence_artifacts: dict[str, bytes]
     scan_quality: dict[str, Any]
     trust_notes: list[str]
     summary: dict[str, Any]
     scene_source: str
     point_cloud: list[list[float]]
-
-
-def encode_data_url(content: bytes, mime_type: str) -> str:
-    """Encode raw bytes as a data URL for inline report evidence."""
-    encoded = base64.b64encode(content).decode("ascii")
-    return f"data:{mime_type};base64,{encoded}"
 
 
 def analyze_image_heuristic(content: bytes) -> SemanticLabel:
@@ -325,6 +319,8 @@ async def analyze_frame_samples(
     if not frame_samples:
         raise ValueError("At least one frame sample is required.")
 
+    _ = source_content_type
+
     decoded_frames = [_decode_rgb(sample.image_bytes) for sample in frame_samples]
     camera_positions = _estimate_camera_path(decoded_frames)
     regions_per_frame = [_extract_salient_regions(frame_arr) for frame_arr in decoded_frames]
@@ -332,6 +328,7 @@ async def analyze_frame_samples(
 
     observations: list[Observation] = []
     evidence_frames: list[dict[str, Any]] = []
+    evidence_artifacts: dict[str, bytes] = {}
 
     for sample, _frame_arr, camera_position, frame_regions in zip(
         frame_samples,
@@ -363,16 +360,18 @@ async def analyze_frame_samples(
                 )
             )
             if len(evidence_frames) < 6:
+                evidence_artifacts[observation_id] = region.crop_bytes
                 evidence_frames.append(
                     {
                         "evidence_id": observation_id,
                         "caption": f"{label.label} observation",
                         "kind": "region_crop",
                         "confidence": round(label.confidence, 2),
-                        "image_url": encode_data_url(region.crop_bytes, source_content_type),
+                        "image_url": None,
                         "frame_index": sample.index,
                         "timestamp_s": round(sample.timestamp_s, 2),
                         "object_label": label.label,
+                        "media_type": "image/jpeg",
                     }
                 )
 
@@ -391,6 +390,7 @@ async def analyze_frame_samples(
         fix_first=fix_first,
         recommendations=recommendations,
         evidence_frames=evidence_frames,
+        evidence_artifacts=evidence_artifacts,
         scan_quality=scan_quality,
         trust_notes=build_trust_notes(scene_source, scan_quality),
         summary=summary,

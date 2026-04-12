@@ -57,3 +57,26 @@ def test_upload_store_manifest_is_json(tmp_path: Path) -> None:
 
     assert data["job_id"] == "job-004"
     assert data["status"] == "queued"
+
+
+def test_upload_store_persists_evidence_image(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path)
+    store.create_job({"job_id": "job-005"})
+
+    store.save_evidence_image("job-005", "evidence-01", b"jpeg-bytes")
+    loaded = store.load_evidence_image("job-005", "evidence-01")
+
+    assert loaded is not None
+    assert loaded[0] == b"jpeg-bytes"
+    assert loaded[1] == "image/jpeg"
+
+
+def test_upload_store_delete_job_removes_artifacts(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, save_original_uploads=True)
+    store.create_job({"job_id": "job-006"})
+    store.save_original_upload("job-006", "scan.mov", b"movie")
+    store.save_report_pdf("job-006", b"pdf")
+    store.save_evidence_image("job-006", "e-01", b"jpeg")
+
+    assert store.delete_job("job-006") is True
+    assert not (tmp_path / "job-006").exists()
