@@ -27,6 +27,12 @@ export class UploadView {
 
   init() {
     this._dropZone.addEventListener('click', () => this._fileInput.click());
+    this._dropZone.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        this._fileInput.click();
+      }
+    });
 
     this._fileInput.addEventListener('change', (event) => {
       const input = /** @type {HTMLInputElement} */ (event.currentTarget);

@@ -22,6 +22,9 @@ const state = {
 const navButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
   document.querySelectorAll('.nav-btn[data-view]')
 );
+const jumpButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
+  document.querySelectorAll('[data-jump-view]')
+);
 const viewElements = document.querySelectorAll('.view');
 const viewLabel = document.getElementById('hdr-view-label');
 
@@ -125,6 +128,9 @@ function upsertJob(job) {
 function renderUploads() {
   const jobs = [...state.jobs.values()].sort((a, b) => b.job_id.localeCompare(a.job_id));
   recentEmpty.style.display = jobs.length ? 'none' : '';
+  recentEmpty.textContent = jobs.length
+    ? ''
+    : 'No scans yet. Start with one room you know well, keep the camera steady, and the first report will appear here.';
 
   recentList.innerHTML = jobs.map((job) => {
     const summary = job.summary || {};
@@ -158,10 +164,10 @@ function renderUploads() {
 function renderProcessing(job) {
   if (!job) {
     processStage.textContent = 'Ready for upload';
-    processCopy.textContent = 'Upload a 20-60 second room walkthrough to generate a safety report.';
+    processCopy.textContent = 'Upload a short walkthrough and ATLAS-0 will build a calmer, evidence-backed room safety report.';
     processBar.style.width = '0%';
-    processMeta.textContent = 'No active scan';
-    uploadStatus.textContent = 'Waiting for scan';
+    processMeta.textContent = 'No active scan yet';
+    uploadStatus.textContent = 'Ready for first scan';
     reportStatus.textContent = 'No report yet';
     return;
   }
@@ -171,11 +177,11 @@ function renderProcessing(job) {
   processBar.style.width = `${Math.round((job.progress || 0) * 100)}%`;
 
   if (job.status === 'complete') {
-    processCopy.textContent = 'Evidence frames, hazard ranking, and recommendations are ready to review.';
+    processCopy.textContent = 'Your report is ready with top hazards, evidence frames, and practical next steps.';
   } else if (job.status === 'error') {
     processCopy.textContent = job.error || 'The scan could not be processed.';
   } else {
-    processCopy.textContent = 'ATLAS-0 is analyzing the upload and building an evidence-backed report.';
+    processCopy.textContent = 'ATLAS-0 is analyzing the upload, grounding the findings, and assembling the report.';
   }
 
   processMeta.textContent = `${escapeHtml(job.filename)} · ${escapeHtml(job.status)}`;
@@ -187,18 +193,18 @@ function renderReport(job) {
   if (!job || job.status !== 'complete') {
     reportHero.classList.add('empty');
     reportHeadline.textContent = 'No report yet';
-    reportSubhead.textContent = 'Run a scan to see hazards, evidence, and recommended actions.';
+    reportSubhead.textContent = 'Run one room scan to review hazards, evidence, and practical next steps in a single place.';
     summaryObjects.textContent = '0';
     summaryHazards.textContent = '0';
     summarySeverity.textContent = '—';
     summaryConfidence.textContent = '—';
     summarySource.textContent = '—';
-    fixFirstList.innerHTML = emptyMarkup('Priority actions will appear after a completed scan.');
-    scanQualityCard.innerHTML = emptyMarkup('Scan quality diagnostics will appear after a completed scan.');
-    reportHazards.innerHTML = emptyMarkup('No hazards to review yet.');
-    reportRecommendations.innerHTML = emptyMarkup('Recommendations will appear after a completed scan.');
-    reportEvidence.innerHTML = emptyMarkup('Evidence frames will appear after a completed scan.');
-    trustNotes.innerHTML = emptyMarkup('Trust notes will appear after a completed scan.');
+    fixFirstList.innerHTML = emptyMarkup('Priority actions will appear here once a scan finishes.');
+    scanQualityCard.innerHTML = emptyMarkup('Scan quality diagnostics will appear here after the upload is processed.');
+    reportHazards.innerHTML = emptyMarkup('Hazards will appear here once ATLAS-0 has something evidence-backed to show.');
+    reportRecommendations.innerHTML = emptyMarkup('Recommendations will appear here after a completed scan.');
+    reportEvidence.innerHTML = emptyMarkup('Evidence frames will appear here after a completed scan.');
+    trustNotes.innerHTML = emptyMarkup('Trust notes will appear here after a completed scan.');
     findingToggleNote.textContent = 'Low-confidence findings stay hidden until a report is ready.';
     exportPdfBtn.removeAttribute('href');
     exportPdfBtn.classList.add('disabled');
@@ -322,6 +328,7 @@ function renderReport(job) {
           <div class="evidence-copy">
             <strong>${escapeHtml(frame.caption || 'Evidence frame')}</strong>
             <span>${Math.round((frame.confidence || 0) * 100)}% label confidence</span>
+            <span>${escapeHtml(formatEvidenceMeta(frame))}</span>
           </div>
         </article>
       `).join('')
@@ -376,6 +383,10 @@ navButtons.forEach((button) => {
   button.addEventListener('click', () => switchView(button.dataset.view || 'scan'));
 });
 
+jumpButtons.forEach((button) => {
+  button.addEventListener('click', () => switchView(button.dataset.jumpView || 'scan'));
+});
+
 document.getElementById('scene-refresh-btn')?.addEventListener('click', () => {
   ensureScene();
   sceneViewer.refresh();
@@ -416,6 +427,20 @@ function capitalize(value) {
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
 }
 
+function formatEvidenceMeta(frame) {
+  const parts = [];
+  if (typeof frame.frame_index === 'number') {
+    parts.push(`Frame ${frame.frame_index}`);
+  }
+  if (typeof frame.timestamp_s === 'number') {
+    parts.push(`${frame.timestamp_s.toFixed(1)}s`);
+  }
+  if (frame.object_label) {
+    parts.push(String(frame.object_label));
+  }
+  return parts.join(' · ') || 'Stored evidence crop';
+}
+
 function isLowConfidenceRisk(risk) {
   return Number(risk?.confidence || 0) < 0.6 || Number(risk?.reasoning?.grounding_confidence || 0) < 0.55;
 }
@@ -441,7 +466,7 @@ function renderScanQuality(scanQuality) {
     </div>
     <div class="quality-copy">
       <strong>What this means</strong>
-      <span>${scanQuality.usable ? 'The scan is usable, but stronger evidence still depends on coverage and stability.' : 'The scan is likely to produce weaker findings and should ideally be rescanned.'}</span>
+      <span>${scanQuality.usable ? 'This scan is usable, but better lighting, steadier motion, and fuller coverage can still strengthen the report.' : 'This scan is likely to produce weaker findings and should ideally be rescanned before trusting smaller details.'}</span>
     </div>
     <div class="report-card-meta">
       <span>${escapeHtml(`${metrics.frame_count || 0} sampled frame(s)`)}</span>

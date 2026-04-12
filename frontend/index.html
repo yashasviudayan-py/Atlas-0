@@ -11,10 +11,10 @@
     *, *::before, *::after { box-sizing: border-box; }
 
     :root {
-      --bg: #f5efe5;
-      --bg-soft: rgba(255, 250, 243, 0.92);
-      --panel: rgba(255, 252, 247, 0.94);
-      --panel-strong: #fffdf9;
+      --bg: #f6efe6;
+      --bg-soft: rgba(255, 251, 245, 0.9);
+      --panel: rgba(255, 252, 248, 0.94);
+      --panel-strong: #fffdfa;
       --ink: #201916;
       --ink-soft: #62564e;
       --ink-muted: #897b72;
@@ -25,9 +25,12 @@
       --accent-wash: rgba(12, 128, 116, 0.1);
       --gold: #d67f30;
       --gold-wash: rgba(214, 127, 48, 0.12);
+      --rose: #d98b7b;
+      --rose-wash: rgba(217, 139, 123, 0.12);
       --danger: #c84b43;
       --danger-wash: rgba(200, 75, 67, 0.12);
       --shadow: 0 18px 60px rgba(41, 25, 15, 0.10);
+      --shadow-soft: 0 12px 34px rgba(41, 25, 15, 0.08);
       --radius-xl: 28px;
       --radius-lg: 20px;
       --radius-md: 16px;
@@ -39,10 +42,12 @@
     html, body {
       margin: 0;
       min-height: 100%;
+      scroll-behavior: smooth;
       background:
-        radial-gradient(circle at top left, rgba(214, 127, 48, 0.18), transparent 28%),
-        radial-gradient(circle at top right, rgba(12, 128, 116, 0.14), transparent 24%),
-        linear-gradient(180deg, #fbf5eb 0%, #f4ede1 100%);
+        radial-gradient(circle at top left, rgba(214, 127, 48, 0.20), transparent 26%),
+        radial-gradient(circle at top right, rgba(12, 128, 116, 0.16), transparent 22%),
+        radial-gradient(circle at 50% 120%, rgba(217, 139, 123, 0.10), transparent 30%),
+        linear-gradient(180deg, #fcf6ec 0%, #f4ede2 100%);
       color: var(--ink);
       font-family: var(--font-sans);
     }
@@ -57,6 +62,20 @@
       background-size: auto, 24px 24px;
       pointer-events: none;
       opacity: 0.38;
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      right: -120px;
+      top: 80px;
+      width: 360px;
+      height: 360px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(255,255,255,0.4), rgba(255,255,255,0));
+      filter: blur(12px);
+      pointer-events: none;
+      opacity: 0.72;
     }
 
     a { color: inherit; }
@@ -204,6 +223,8 @@
     }
 
     .hero {
+      position: relative;
+      overflow: hidden;
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
@@ -211,12 +232,29 @@
       padding: 24px 28px;
       border: 1px solid var(--line);
       border-radius: var(--radius-xl);
-      background: var(--bg-soft);
+      background:
+        radial-gradient(circle at top right, rgba(255,255,255,0.55), rgba(255,255,255,0) 34%),
+        linear-gradient(135deg, rgba(12, 128, 116, 0.09), rgba(214, 127, 48, 0.12), rgba(255,255,255,0.55)),
+        var(--bg-soft);
       backdrop-filter: blur(18px);
       box-shadow: var(--shadow);
     }
 
+    .hero::after {
+      content: '';
+      position: absolute;
+      right: -40px;
+      bottom: -80px;
+      width: 280px;
+      height: 280px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(255,255,255,0.55), rgba(255,255,255,0));
+      pointer-events: none;
+    }
+
     .hero-copy {
+      position: relative;
+      z-index: 1;
       max-width: 760px;
       display: grid;
       gap: 12px;
@@ -247,14 +285,75 @@
       font-size: 1rem;
     }
 
+    .hero-badges,
+    .hero-actions,
+    .hero-steps,
+    .guide-grid,
+    .scan-story {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .soft-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.68);
+      color: var(--ink-soft);
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .hero-steps {
+      margin-top: 4px;
+    }
+
+    .hero-step {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(79, 53, 40, 0.12);
+      background: rgba(255,255,255,0.62);
+      box-shadow: var(--shadow-soft);
+      color: var(--ink-soft);
+    }
+
+    .hero-step strong {
+      color: var(--ink);
+      font-size: 0.94rem;
+    }
+
+    .step-num {
+      width: 28px;
+      height: 28px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      background: linear-gradient(135deg, rgba(12, 128, 116, 0.18), rgba(214, 127, 48, 0.18));
+      color: var(--ink);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+    }
+
     .hero-side {
+      position: relative;
+      z-index: 1;
       min-width: 240px;
       display: grid;
       gap: 12px;
       padding: 18px;
       border: 1px solid var(--line);
       border-radius: var(--radius-lg);
-      background: linear-gradient(180deg, rgba(255,255,255,0.52), rgba(255,255,255,0.72));
+      background: linear-gradient(180deg, rgba(255,255,255,0.68), rgba(255,255,255,0.82));
+      box-shadow: var(--shadow-soft);
     }
 
     .hero-side strong {
@@ -266,6 +365,32 @@
       padding-left: 18px;
       color: var(--ink-soft);
       line-height: 1.6;
+    }
+
+    .hero-metric-band {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .hero-metric {
+      padding: 12px;
+      border-radius: var(--radius-md);
+      background: rgba(255,255,255,0.7);
+      border: 1px solid rgba(79, 53, 40, 0.1);
+    }
+
+    .hero-metric strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 1.1rem;
+      letter-spacing: -0.03em;
+    }
+
+    .hero-metric span {
+      color: var(--ink-soft);
+      font-size: 0.82rem;
+      line-height: 1.5;
     }
 
     .view {
@@ -300,6 +425,56 @@
     .panel {
       padding: 22px;
       min-width: 0;
+    }
+
+    .welcome-band {
+      display: grid;
+      gap: 16px;
+      margin-bottom: 18px;
+      padding: 18px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(79, 53, 40, 0.1);
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.72), rgba(255,255,255,0.54)),
+        linear-gradient(135deg, rgba(12, 128, 116, 0.06), rgba(217, 139, 123, 0.08));
+      box-shadow: var(--shadow-soft);
+    }
+
+    .welcome-band h4,
+    .guide-card h4 {
+      margin: 0;
+      font-size: 1.02rem;
+      letter-spacing: -0.03em;
+    }
+
+    .welcome-band p,
+    .guide-card p {
+      margin: 0;
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+
+    .guide-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .guide-card {
+      display: grid;
+      gap: 8px;
+      padding: 16px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(79, 53, 40, 0.1);
+      background: rgba(255,255,255,0.7);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .guide-kicker {
+      color: var(--ink-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
     }
 
     .section-head {
@@ -337,6 +512,20 @@
       transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
     }
 
+    .drop-zone::after {
+      content: '';
+      position: absolute;
+      right: 22px;
+      top: 22px;
+      width: 70px;
+      height: 70px;
+      border-radius: 24px;
+      background:
+        linear-gradient(135deg, rgba(12, 128, 116, 0.14), rgba(214, 127, 48, 0.18)),
+        rgba(255,255,255,0.85);
+      box-shadow: var(--shadow-soft);
+    }
+
     .drop-zone:hover,
     .drop-zone.drag-over {
       transform: translateY(-2px);
@@ -347,6 +536,8 @@
     }
 
     .drop-grid {
+      position: relative;
+      z-index: 1;
       display: grid;
       gap: 10px;
     }
@@ -364,9 +555,31 @@
     }
 
     .drop-foot {
+      position: relative;
+      z-index: 1;
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
+    }
+
+    .scan-story {
+      margin-top: 16px;
+    }
+
+    .story-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.72);
+      border: 1px solid rgba(79, 53, 40, 0.08);
+      color: var(--ink-soft);
+      font-size: 0.84rem;
+    }
+
+    .story-pill strong {
+      color: var(--ink);
     }
 
     .pill {
@@ -435,6 +648,10 @@
       transform: translateY(-1px);
       border-color: rgba(12, 128, 116, 0.34);
       background: rgba(255, 255, 255, 0.98);
+    }
+
+    .scan-card.active {
+      box-shadow: 0 18px 36px rgba(12, 128, 116, 0.08);
     }
 
     .scan-card-top,
@@ -533,6 +750,12 @@
         var(--panel);
       border: 1px solid var(--line);
       box-shadow: var(--shadow);
+    }
+
+    .report-hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
     }
 
     .report-hero.empty {
@@ -703,6 +926,7 @@
       overflow: hidden;
       display: grid;
       grid-template-rows: 180px auto;
+      transition: transform 0.16s ease, border-color 0.16s ease;
     }
 
     .evidence-card img {
@@ -710,6 +934,11 @@
       height: 100%;
       object-fit: cover;
       background: #e7e0d4;
+    }
+
+    .evidence-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(12, 128, 116, 0.24);
     }
 
     .evidence-copy {
@@ -760,6 +989,12 @@
       font-weight: 700;
       letter-spacing: -0.01em;
       transition: transform 0.16s ease, opacity 0.16s ease;
+    }
+
+    .button-link.ghost {
+      background: rgba(255,255,255,0.74);
+      color: var(--ink);
+      border-color: var(--line);
     }
 
     .button-link:hover {
@@ -918,6 +1153,24 @@
       transform: translateY(0);
     }
 
+    @keyframes riseIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .hero,
+    .panel,
+    .report-hero,
+    .stat-card {
+      animation: riseIn 0.5s ease both;
+    }
+
     input[type="file"] {
       display: none;
     }
@@ -958,6 +1211,11 @@
         width: 100%;
       }
 
+      .hero-metric-band,
+      .guide-grid {
+        grid-template-columns: 1fr;
+      }
+
       .nav-stack {
         grid-template-columns: 1fr;
       }
@@ -978,6 +1236,11 @@
 
       .hero h2 {
         max-width: 100%;
+      }
+
+      .hero-actions {
+        flex-direction: column;
+        align-items: flex-start;
       }
     }
   </style>
@@ -1033,18 +1296,46 @@
     <main class="main">
       <section class="hero">
         <div class="hero-copy">
+          <div class="hero-badges">
+            <span class="soft-badge">Private beta</span>
+            <span class="soft-badge">Evidence-backed findings</span>
+            <span class="soft-badge">Room safety focus</span>
+          </div>
           <p class="eyebrow">Trust First</p>
-          <h2>Upload once. Review hazards. Export a report.</h2>
-          <p>ATLAS-0 now favors an honest scan workflow over a flashy dashboard. Each result should point back to a file, evidence frame, confidence signal, and recommended next action.</p>
+          <h2>A friendlier room safety scan that turns one walkthrough into a useful report.</h2>
+          <p>ATLAS-0 is moving away from “impressive-looking demos” and toward a calmer, more honest experience: upload one room, review what looks risky, and leave with a PDF a real person can act on.</p>
+          <div class="hero-actions">
+            <button class="button-link" type="button" data-jump-view="scan">Start a scan</button>
+            <button class="button-link ghost" type="button" data-jump-view="report">See the report layout</button>
+          </div>
+          <div class="hero-steps" aria-label="How it works">
+            <div class="hero-step"><span class="step-num">01</span><span><strong>Upload</strong> a 20-60s walkthrough</span></div>
+            <div class="hero-step"><span class="step-num">02</span><span><strong>Review</strong> hazards with evidence</span></div>
+            <div class="hero-step"><span class="step-num">03</span><span><strong>Export</strong> a clean PDF report</span></div>
+          </div>
         </div>
         <div class="hero-side">
-          <span class="mono-label">Product intent</span>
-          <strong>Designed for a 20-60 second room walkthrough.</strong>
+          <span class="mono-label">Why this feels different</span>
+          <strong>Less dashboard theater, more guidance a homeowner or renter can actually use.</strong>
           <ul>
-            <li>No fake scene fallback in the primary flow.</li>
-            <li>Report, evidence, and PDF export first.</li>
-            <li>Scene view stays available for spatial context.</li>
+            <li>The primary experience stays report-first and grounded in evidence.</li>
+            <li>Weak findings stay hidden by default so the report feels calmer.</li>
+            <li>Scene view remains available, but it no longer hijacks the story.</li>
           </ul>
+          <div class="hero-metric-band">
+            <div class="hero-metric">
+              <strong>1 room</strong>
+              <span>Keep each scan focused for clearer findings.</span>
+            </div>
+            <div class="hero-metric">
+              <strong>20-60s</strong>
+              <span>Shorter, steadier walkthroughs ground better.</span>
+            </div>
+            <div class="hero-metric">
+              <strong>PDF out</strong>
+              <span>Shareable report for follow-up and action.</span>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1054,9 +1345,33 @@
             <div class="section-head">
               <div>
                 <h3>Start a room scan</h3>
-                <p>Drop an MP4, MOV, or WEBM file to begin the upload-to-report pipeline.</p>
+                <p>Drop an MP4, MOV, or WEBM file to begin a gentler, report-first upload flow.</p>
               </div>
               <span class="pill">Upload first</span>
+            </div>
+
+            <div class="welcome-band">
+              <div>
+                <h4>Make the first scan feel easy.</h4>
+                <p>If someone is trying this for the first time, we want them to know exactly what to record and what they’ll get back.</p>
+              </div>
+              <div class="guide-grid">
+                <article class="guide-card">
+                  <span class="guide-kicker">Record</span>
+                  <h4>Walk slowly and finish the room.</h4>
+                  <p>Keep the camera moving, avoid whip-pans, and let shelves, counters, and corners stay in frame for a moment.</p>
+                </article>
+                <article class="guide-card">
+                  <span class="guide-kicker">Expect</span>
+                  <h4>Get hazards, evidence, and next steps.</h4>
+                  <p>The output is a ranked report with confidence, approximate location, and a practical action for each finding.</p>
+                </article>
+                <article class="guide-card">
+                  <span class="guide-kicker">Trust</span>
+                  <h4>Weak scans are called out clearly.</h4>
+                  <p>If coverage, blur, or lighting is poor, the report now says so instead of pretending the scan was stronger than it was.</p>
+                </article>
+              </div>
             </div>
 
             <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Upload a room scan">
@@ -1064,13 +1379,19 @@
               <div class="drop-grid">
                 <p class="mono-label">Recommended capture</p>
                 <h3>Choose one room, walk slowly, keep the camera moving.</h3>
-                <p>You’ll get a hazard summary, approximate locations, evidence frames, and a downloadable PDF report.</p>
+                <p>You’ll get a welcoming report flow with top hazards, approximate locations, evidence frames, and a downloadable PDF.</p>
               </div>
               <div class="drop-foot">
                 <span class="pill">20-60 seconds</span>
                 <span class="pill">One room at a time</span>
                 <span class="pill">Best with steady motion</span>
               </div>
+            </div>
+
+            <div class="scan-story" aria-label="Scan outcome highlights">
+              <div class="story-pill"><strong>Top hazards</strong><span>Ranked so the first screen feels actionable.</span></div>
+              <div class="story-pill"><strong>Evidence frames</strong><span>So the report can point to what it saw.</span></div>
+              <div class="story-pill"><strong>Trust notes</strong><span>So uncertainty is visible, not hidden.</span></div>
             </div>
           </section>
 
@@ -1111,6 +1432,11 @@
           <p class="eyebrow">Hazard report</p>
           <h3 id="report-headline">No report yet</h3>
           <p id="report-subhead">Run a scan to see hazards, evidence, and recommended actions.</p>
+          <div class="report-hero-meta">
+            <span class="soft-badge">Action-first</span>
+            <span class="soft-badge">Evidence-backed</span>
+            <span class="soft-badge">Shareable PDF</span>
+          </div>
         </section>
 
         <section class="stats-grid" aria-label="Report summary">
