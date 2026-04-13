@@ -439,7 +439,9 @@ function renderAccessPanels(errorMessage = '') {
     { label: 'Processing jobs', value: String(settings.queue.processing_jobs) },
     { label: 'Failed jobs', value: String(settings.queue.failed_jobs) },
     { label: 'Stored jobs', value: String(settings.storage.persisted_jobs) },
+    { label: 'Storage budget', value: formatBytes(settings.storage.byte_budget || 0) },
     { label: 'Disk used', value: formatBytes(settings.storage.bytes_used || 0) },
+    { label: 'Budget used', value: `${settings.storage.usage_percent || 0}%` },
   ]);
 }
 
