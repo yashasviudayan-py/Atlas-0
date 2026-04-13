@@ -119,5 +119,11 @@ retention_days = 14
 max_upload_bytes = 75000000
 # Reject walkthroughs longer than this duration before processing.
 max_video_duration_seconds = 75.0
-# Backpressure limit for concurrently active upload jobs.
+# Number of worker tasks processing uploads at once.
 max_concurrent_jobs = 2
+# Maximum queued + processing jobs kept before the API starts rejecting new uploads.
+max_queue_depth = 24
+# Retry budget for failed uploads before they become terminal errors.
+max_job_attempts = 2
+# Per-job wall clock timeout for upload analysis workers.
+job_timeout_seconds = 180.0

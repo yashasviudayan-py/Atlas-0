@@ -247,12 +247,17 @@ class UploadsConfig(BaseModel):
     max_upload_bytes: int = 75_000_000
     max_video_duration_seconds: float = 75.0
     max_concurrent_jobs: int = 2
+    max_queue_depth: int = 24
+    max_job_attempts: int = 2
+    job_timeout_seconds: float = 180.0
 
     @field_validator(
         "max_persisted_jobs",
         "retention_days",
         "max_upload_bytes",
         "max_concurrent_jobs",
+        "max_queue_depth",
+        "max_job_attempts",
     )
     @classmethod
     def _positive_int(cls, v: int) -> int:
@@ -260,7 +265,7 @@ class UploadsConfig(BaseModel):
             raise ValueError(f"must be positive, got {v}")
         return v
 
-    @field_validator("max_video_duration_seconds")
+    @field_validator("max_video_duration_seconds", "job_timeout_seconds")
     @classmethod
     def _positive_float(cls, v: float) -> float:
         if v <= 0.0:

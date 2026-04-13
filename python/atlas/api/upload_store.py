@@ -42,6 +42,10 @@ class UploadStore:
         """Return the persisted PDF path for one upload job."""
         return self.job_dir(job_id) / "report.pdf"
 
+    def queued_input_path(self, job_id: str, suffix: str = ".bin") -> Path:
+        """Return the persisted worker-input path for one upload job."""
+        return self.job_dir(job_id) / f"queued-input{suffix}"
+
     def evidence_dir(self, job_id: str) -> Path:
         """Return the directory holding evidence crops for one job."""
         return self.job_dir(job_id) / "evidence"
@@ -95,6 +99,34 @@ class UploadStore:
         upload_path.write_bytes(content)
         return upload_path
 
+    def save_job_input(self, job_id: str, filename: str, content: bytes) -> Path:
+        """Persist the queued worker input for a job regardless of retention policy."""
+        suffix = Path(filename).suffix or ".bin"
+        input_path = self.queued_input_path(job_id, suffix=suffix)
+        input_path.parent.mkdir(parents=True, exist_ok=True)
+        input_path.write_bytes(content)
+        return input_path
+
+    def load_job_input(self, job_id: str) -> bytes | None:
+        """Load queued worker input bytes for one job, if still present."""
+        job_dir = self.job_dir(job_id)
+        for path in sorted(job_dir.glob("queued-input.*")):
+            if path.is_file():
+                return path.read_bytes()
+        return None
+
+    def has_job_input(self, job_id: str) -> bool:
+        """Return True when queued worker input exists for one job."""
+        job_dir = self.job_dir(job_id)
+        return any(path.is_file() for path in job_dir.glob("queued-input.*"))
+
+    def remove_job_input(self, job_id: str) -> None:
+        """Delete queued worker input after the job reaches a terminal state."""
+        job_dir = self.job_dir(job_id)
+        for path in job_dir.glob("queued-input.*"):
+            if path.is_file():
+                path.unlink(missing_ok=True)
+
     def save_report_pdf(self, job_id: str, pdf_bytes: bytes) -> Path:
         """Persist a generated PDF report for a job."""
         report_path = self.report_path(job_id)
@@ -142,6 +174,38 @@ class UploadStore:
             return False
         self._delete_tree(job_dir)
         return True
+
+    def storage_summary(self) -> dict[str, int]:
+        """Return a coarse storage summary for operator diagnostics."""
+        persisted_jobs = 0
+        bytes_used = 0
+        queued_inputs = 0
+        reports = 0
+        evidence_files = 0
+
+        for job_dir in self.root_dir.iterdir():
+            if not job_dir.is_dir():
+                continue
+            persisted_jobs += 1
+            for path in job_dir.rglob("*"):
+                if not path.is_file():
+                    continue
+                bytes_used += path.stat().st_size
+                name = path.name
+                if name.startswith("queued-input."):
+                    queued_inputs += 1
+                elif name == "report.pdf":
+                    reports += 1
+                elif path.parent.name == "evidence":
+                    evidence_files += 1
+
+        return {
+            "persisted_jobs": persisted_jobs,
+            "bytes_used": bytes_used,
+            "queued_inputs": queued_inputs,
+            "reports": reports,
+            "evidence_files": evidence_files,
+        }
 
     def _prune_old_jobs(self) -> None:
         """Best-effort pruning to keep persisted job storage bounded."""

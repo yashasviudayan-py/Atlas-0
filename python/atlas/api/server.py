@@ -68,8 +68,11 @@ async def _lifespan(application: FastAPI):  # type: ignore[type-arg]
     """Start the world-model agent on server startup; stop it on shutdown."""
     agent = _get_agent()
     await agent.start()
+    await _start_upload_workers()
+    await _resume_pending_upload_jobs()
     logger.info("world_model_agent_started_via_lifespan")
     yield
+    await _stop_upload_workers()
     await agent.stop()
     logger.info("world_model_agent_stopped_via_lifespan")
 
@@ -103,7 +106,6 @@ _upload_store = UploadStore(
     max_persisted_jobs=_upload_cfg.max_persisted_jobs,
     retention_days=_upload_cfg.retention_days,
 )
-_upload_worker_semaphore = asyncio.Semaphore(_upload_cfg.max_concurrent_jobs)
 
 
 def _get_agent() -> WorldModelAgent:
@@ -220,6 +222,24 @@ class SceneState(BaseModel):
     """Pseudo-depth point cloud from uploaded images — each entry is [x, y, z, r, g, b]
     where rgb is normalised 0-1.  Used by the 3DGS frontend to render upload-derived
     structure in world space."""
+
+
+class OperatorAccessResponse(BaseModel):
+    """Public-facing access policy used by the hosted frontend."""
+
+    requires_token: bool
+    allow_unauthenticated_loopback: bool
+    enable_job_listing: bool
+    mode: str
+
+
+class OperatorSettingsResponse(BaseModel):
+    """Protected operator diagnostics for hosted beta deployments."""
+
+    access: dict[str, Any]
+    uploads: dict[str, Any]
+    queue: dict[str, Any]
+    storage: dict[str, Any]
 
 
 class OverlayRiskEntry(BaseModel):
@@ -463,6 +483,40 @@ async def get_scene(
         risk_count=len(risks),
         risks=[_to_risk_info(r) for r in risks],
         point_cloud=all_points,
+    )
+
+
+@app.get("/operator/access", response_model=OperatorAccessResponse)
+def operator_access() -> OperatorAccessResponse:
+    """Expose the minimal hosted-access policy needed by the frontend."""
+    return OperatorAccessResponse(**_operator_access_descriptor())
+
+
+@app.get("/operator/settings", response_model=OperatorSettingsResponse)
+def operator_settings(request: Request) -> OperatorSettingsResponse:
+    """Return protected operator diagnostics and upload-policy visibility."""
+    _require_private_access(request)
+    counts = _job_status_counts()
+    return OperatorSettingsResponse(
+        access=_operator_access_descriptor(),
+        uploads={
+            "save_original_uploads": _upload_cfg.save_original_uploads,
+            "retention_days": _upload_cfg.retention_days,
+            "max_upload_bytes": _upload_cfg.max_upload_bytes,
+            "max_video_duration_seconds": _upload_cfg.max_video_duration_seconds,
+            "max_concurrent_jobs": _upload_cfg.max_concurrent_jobs,
+            "max_queue_depth": _upload_cfg.max_queue_depth,
+            "max_job_attempts": _upload_cfg.max_job_attempts,
+            "job_timeout_seconds": _upload_cfg.job_timeout_seconds,
+        },
+        queue={
+            "queued_jobs": counts["queued"],
+            "processing_jobs": counts["processing"],
+            "completed_jobs": counts["complete"],
+            "failed_jobs": counts["error"],
+            "worker_count": _upload_cfg.max_concurrent_jobs,
+        },
+        storage=_upload_store.storage_summary(),
     )
 
 
@@ -713,6 +767,9 @@ def _extract_access_token(request: Request) -> str | None:
     if authorization.lower().startswith("bearer "):
         token = authorization[7:].strip()
         return token or None
+    query_token = request.query_params.get("access_token", "").strip()
+    if query_token:
+        return query_token
     header_token = request.headers.get("x-atlas-key", "").strip()
     return header_token or None
 
@@ -736,6 +793,167 @@ def _require_private_access(request: Request) -> None:
             " api.access_token is configured."
         ),
     )
+
+
+def _utc_now_iso() -> str:
+    """Return the current UTC timestamp in ISO-8601 format."""
+    return datetime.now(UTC).isoformat()
+
+
+def _upload_queue() -> asyncio.Queue[str | None] | None:
+    """Return the background upload queue when workers are running."""
+    queue = _state.get("upload_queue")
+    return queue if isinstance(queue, asyncio.Queue) else None
+
+
+def _upload_queue_ids() -> set[str]:
+    """Return the set of queued job IDs."""
+    queued = _state.setdefault("upload_queue_ids", set())
+    return queued if isinstance(queued, set) else set()
+
+
+def _upload_cancelled_jobs() -> set[str]:
+    """Return the set of deleted jobs that workers should ignore."""
+    cancelled = _state.setdefault("upload_cancelled_jobs", set())
+    return cancelled if isinstance(cancelled, set) else set()
+
+
+def _is_upload_cancelled(job_id: str) -> bool:
+    """Return True when one job has been deleted/cancelled."""
+    return job_id in _upload_cancelled_jobs()
+
+
+def _job_status_counts() -> dict[str, int]:
+    """Aggregate upload-job status counts for operator diagnostics."""
+    counts = {"queued": 0, "processing": 0, "complete": 0, "error": 0}
+    for job in _upload_jobs.values():
+        status = str(job.get("status", "")).lower()
+        if status in counts:
+            counts[status] += 1
+    return counts
+
+
+def _operator_access_descriptor() -> dict[str, Any]:
+    """Return the effective access policy for upload/report features."""
+    requires_token = bool(_api_cfg.access_token)
+    mode = (
+        "token"
+        if requires_token
+        else "loopback"
+        if _api_cfg.allow_unauthenticated_loopback
+        else "restricted"
+    )
+    return {
+        "requires_token": requires_token,
+        "allow_unauthenticated_loopback": _api_cfg.allow_unauthenticated_loopback,
+        "enable_job_listing": _api_cfg.enable_job_listing,
+        "mode": mode,
+    }
+
+
+async def _start_upload_workers() -> None:
+    """Start the persistent upload queue and worker tasks once."""
+    if _upload_queue() is not None:
+        return
+
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
+    _state["upload_queue"] = queue
+    _state["upload_queue_ids"] = set()
+    _state["upload_cancelled_jobs"] = set()
+    _state["upload_worker_tasks"] = [
+        asyncio.create_task(_upload_worker_loop(index))
+        for index in range(_upload_cfg.max_concurrent_jobs)
+    ]
+
+
+async def _stop_upload_workers() -> None:
+    """Stop background upload workers and clear queue state."""
+    queue = _upload_queue()
+    tasks = _state.get("upload_worker_tasks")
+    if queue is None or not isinstance(tasks, list):
+        return
+
+    for _ in tasks:
+        await queue.put(None)
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+    _state.pop("upload_worker_tasks", None)
+    _state.pop("upload_queue", None)
+    _state.pop("upload_queue_ids", None)
+    _state.pop("upload_cancelled_jobs", None)
+
+
+async def _enqueue_upload_job(job_id: str) -> None:
+    """Queue one upload job for background processing exactly once."""
+    await _start_upload_workers()
+    queue = _upload_queue()
+    if queue is None:
+        return
+
+    queued_ids = _upload_queue_ids()
+    if job_id in queued_ids:
+        return
+
+    queued_ids.add(job_id)
+    await queue.put(job_id)
+
+
+async def _resume_pending_upload_jobs() -> None:
+    """Requeue persisted jobs that were interrupted before finishing."""
+    for job_id, job in _upload_jobs.items():
+        status = str(job.get("status", "")).lower()
+        if status not in {"queued", "processing"}:
+            continue
+
+        if not _upload_store.has_job_input(job_id):
+            _update_job(
+                job,
+                status="error",
+                stage="complete",
+                progress=1.0,
+                error=(
+                    "Queued upload could not be resumed because its source file is no longer"
+                    " available on disk."
+                ),
+                completed_at=_utc_now_iso(),
+            )
+            continue
+
+        _update_job(
+            job,
+            status="queued",
+            stage="upload",
+            progress=min(float(job.get("progress") or 0.0), 0.1),
+            error=None,
+            queued_at=_utc_now_iso(),
+        )
+        await _enqueue_upload_job(job_id)
+
+
+async def _upload_worker_loop(worker_index: int) -> None:
+    """Worker task that pulls queued upload jobs from the persistent queue."""
+    queue = _upload_queue()
+    if queue is None:
+        return
+
+    while True:
+        job_id = await queue.get()
+        if job_id is None:
+            queue.task_done()
+            break
+
+        _upload_queue_ids().discard(job_id)
+        try:
+            await _process_upload(job_id)
+        except Exception as exc:  # pragma: no cover - safety net for worker loop
+            logger.exception(
+                "upload_worker_failed",
+                worker_index=worker_index,
+                job_id=job_id,
+                error=str(exc),
+            )
+        finally:
+            queue.task_done()
 
 
 def _active_upload_job_count() -> int:
@@ -766,6 +984,10 @@ class UploadJobStatus(BaseModel):
     feedback_summary: dict[str, int] | None = None
     report_url: str | None = None
     error: str | None = None
+    attempt_count: int = 0
+    queued_at: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
 
 
 class FindingFeedbackRequest(BaseModel):
@@ -1445,13 +1667,40 @@ async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
     )
 
 
-async def _process_upload(job_id: str, content: bytes, content_type: str) -> None:
-    """Background task: run the file through the analysis pipeline."""
-    job = _upload_jobs[job_id]
+async def _process_upload(job_id: str) -> None:
+    """Worker task: load one queued upload from disk and process it."""
+    job = _upload_jobs.get(job_id)
+    if job is None or _is_upload_cancelled(job_id):
+        _upload_cancelled_jobs().discard(job_id)
+        return
+
+    content = _upload_store.load_job_input(job_id)
+    if content is None:
+        _update_job(
+            job,
+            status="error",
+            stage="complete",
+            progress=1.0,
+            error="Queued upload input is missing from disk.",
+            completed_at=_utc_now_iso(),
+        )
+        return
+
+    content_type = str(job.get("content_type") or "application/octet-stream")
+    attempt_count = int(job.get("attempt_count") or 0) + 1
 
     try:
-        async with _upload_worker_semaphore:
-            _update_job(job, status="processing", stage="ingest", progress=0.15)
+        _update_job(
+            job,
+            status="processing",
+            stage="ingest",
+            progress=0.15,
+            attempt_count=attempt_count,
+            started_at=_utc_now_iso(),
+            error=None,
+        )
+
+        async with asyncio.timeout(_upload_cfg.job_timeout_seconds):
             await asyncio.sleep(0.3)
 
             is_image = content_type in _IMAGE_TYPES or content_type.startswith("image/")
@@ -1466,7 +1715,6 @@ async def _process_upload(job_id: str, content: bytes, content_type: str) -> Non
                     content_type=content_type,
                     labeler=_label_upload_region,
                 )
-
             elif is_video:
                 _update_job(job, stage="vlm", progress=0.35)
                 result = await analyze_uploaded_video(
@@ -1478,77 +1726,113 @@ async def _process_upload(job_id: str, content: bytes, content_type: str) -> Non
                 msg = f"Unsupported file type: {content_type!r}"
                 raise ValueError(msg)
 
-            _update_job(job, stage="risk", progress=0.9)
+        if _is_upload_cancelled(job_id) or job_id not in _upload_jobs:
+            return
 
-            evidence_frames = [dict(frame) for frame in result.evidence_frames]
-            for frame in evidence_frames:
-                evidence_id = str(frame.get("evidence_id", ""))
-                content_bytes = result.evidence_artifacts.get(evidence_id)
-                if not evidence_id or content_bytes is None:
-                    continue
-                _upload_store.save_evidence_image(job_id, evidence_id, content_bytes, suffix=".jpg")
-                frame["image_url"] = f"/jobs/{job_id}/evidence/{evidence_id}"
+        _update_job(job, stage="risk", progress=0.9)
 
-            _update_job(
-                job,
-                status="complete",
-                stage="complete",
-                progress=1.0,
-                objects=result.objects,
-                risks=result.risks,
-                point_cloud=result.point_cloud,
-                fix_first=result.fix_first,
-                summary=result.summary,
-                recommendations=result.recommendations,
-                evidence_frames=evidence_frames,
-                scan_quality=result.scan_quality,
-                trust_notes=result.trust_notes,
-                scene_source=result.scene_source,
-                finding_feedback=[],
-                feedback_summary={"useful": 0, "wrong": 0, "duplicate": 0},
-                report_url=f"/reports/{job['job_id']}.pdf",
+        evidence_frames = [dict(frame) for frame in result.evidence_frames]
+        for frame in evidence_frames:
+            evidence_id = str(frame.get("evidence_id", ""))
+            content_bytes = result.evidence_artifacts.get(evidence_id)
+            if not evidence_id or content_bytes is None:
+                continue
+            _upload_store.save_evidence_image(job_id, evidence_id, content_bytes, suffix=".jpg")
+            frame["image_url"] = f"/jobs/{job_id}/evidence/{evidence_id}"
+
+        _update_job(
+            job,
+            status="complete",
+            stage="complete",
+            progress=1.0,
+            objects=result.objects,
+            risks=result.risks,
+            point_cloud=result.point_cloud,
+            fix_first=result.fix_first,
+            summary=result.summary,
+            recommendations=result.recommendations,
+            evidence_frames=evidence_frames,
+            scan_quality=result.scan_quality,
+            trust_notes=result.trust_notes,
+            scene_source=result.scene_source,
+            finding_feedback=[],
+            feedback_summary={"useful": 0, "wrong": 0, "duplicate": 0},
+            report_url=f"/reports/{job['job_id']}.pdf",
+            completed_at=_utc_now_iso(),
+        )
+
+        pdf_bytes = _build_pdf_report(job)
+        _upload_store.save_report_pdf(job_id, pdf_bytes)
+
+        agent = _get_agent()
+        for obj in result.objects:
+            semantic_label = SemanticLabel(
+                label=str(obj["label"]),
+                material=str(obj["material"]),
+                mass_kg=float(obj["mass_kg"]),
+                fragility=float(obj["fragility"]),
+                friction=float(obj["friction"]),
+                confidence=float(obj["confidence"]),
             )
+            position = tuple(float(v) for v in obj.get("position", [0.0, 0.8, 1.5]))
+            await agent.ingest_from_upload(semantic_label, position=position)
 
-            pdf_bytes = _build_pdf_report(job)
-            _upload_store.save_report_pdf(job_id, pdf_bytes)
-
-            agent = _get_agent()
-            for obj in result.objects:
-                semantic_label = SemanticLabel(
-                    label=str(obj["label"]),
-                    material=str(obj["material"]),
-                    mass_kg=float(obj["mass_kg"]),
-                    fragility=float(obj["fragility"]),
-                    friction=float(obj["friction"]),
-                    confidence=float(obj["confidence"]),
-                )
-                position = tuple(float(v) for v in obj.get("position", [0.0, 0.8, 1.5]))
-                await agent.ingest_from_upload(semantic_label, position=position)
-
+        _upload_store.remove_job_input(job_id)
     except asyncio.CancelledError:
         logger.info("upload_processing_cancelled", job_id=job_id)
-        if job_id in _upload_jobs:
+        raise
+    except TimeoutError:
+        logger.warning("upload_processing_timed_out", job_id=job_id)
+        if job_id not in _upload_jobs or _is_upload_cancelled(job_id):
+            return
+        if attempt_count < _upload_cfg.max_job_attempts:
             _update_job(
                 job,
-                status="error",
-                stage="complete",
-                progress=1.0,
-                error="Upload job deleted before processing completed.",
+                status="queued",
+                stage="upload",
+                progress=0.05,
+                error="Upload analysis timed out. Retrying automatically.",
+                queued_at=_utc_now_iso(),
             )
-        raise
+            await _enqueue_upload_job(job_id)
+            return
+
+        _update_job(
+            job,
+            status="error",
+            stage="complete",
+            progress=1.0,
+            error="Upload analysis timed out.",
+            completed_at=_utc_now_iso(),
+        )
+        _upload_store.remove_job_input(job_id)
     except Exception as exc:
         logger.warning("upload_processing_failed", job_id=job_id, error=str(exc))
+        if job_id not in _upload_jobs or _is_upload_cancelled(job_id):
+            return
+        if attempt_count < _upload_cfg.max_job_attempts:
+            _update_job(
+                job,
+                status="queued",
+                stage="upload",
+                progress=0.05,
+                error=f"Retrying after failure: {exc}",
+                queued_at=_utc_now_iso(),
+            )
+            await _enqueue_upload_job(job_id)
+            return
+
         _update_job(
             job,
             status="error",
             stage="complete",
             progress=1.0,
             error=str(exc),
+            completed_at=_utc_now_iso(),
         )
+        _upload_store.remove_job_input(job_id)
     finally:
-        tasks = _state.get("upload_tasks")
-        if isinstance(tasks, dict):
-            tasks.pop(job_id, None)
+        _upload_cancelled_jobs().discard(job_id)
 
 
 # ── Upload endpoints ──────────────────────────────────────────────────────────
@@ -1661,12 +1945,12 @@ async def upload_media(request: Request) -> UploadJobStatus:
     """
     _require_private_access(request)
 
-    if _active_upload_job_count() >= _upload_cfg.max_concurrent_jobs:
+    if _active_upload_job_count() >= _upload_cfg.max_queue_depth:
         raise HTTPException(
             status_code=429,
             detail=(
-                "Atlas-0 is already processing the maximum number of active"
-                " uploads. Please retry shortly."
+                "Atlas-0 is already holding the maximum number of queued and"
+                " active uploads. Please retry shortly."
             ),
         )
 
@@ -1674,6 +1958,7 @@ async def upload_media(request: Request) -> UploadJobStatus:
     _validate_upload_constraints(content_type, content)
 
     job_id = uuid.uuid4().hex[:8]
+    now = _utc_now_iso()
 
     job: dict[str, Any] = {
         "job_id": job_id,
@@ -1695,16 +1980,18 @@ async def upload_media(request: Request) -> UploadJobStatus:
         "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
         "report_url": None,
         "error": None,
+        "attempt_count": 0,
+        "queued_at": now,
+        "started_at": None,
+        "completed_at": None,
     }
     _upload_jobs[job_id] = job
     _upload_store.create_job(job)
+    _upload_store.save_job_input(job_id, filename, content)
     _upload_store.save_original_upload(job_id, filename, content)
 
     _update_job(job, stage="upload", progress=0.1)
-
-    _task = asyncio.create_task(_process_upload(job_id, content, content_type))
-    _state.setdefault("_tasks", []).append(_task)
-    _state.setdefault("upload_tasks", {})[job_id] = _task
+    await _enqueue_upload_job(job_id)
 
     logger.info("upload_accepted", job_id=job_id, filename=filename, content_type=content_type)
     return UploadJobStatus(**job)
@@ -1816,16 +2103,13 @@ def download_evidence(job_id: str, evidence_id: str, request: Request) -> Respon
 def delete_upload_job(job_id: str, request: Request) -> Response:
     """Delete one persisted upload job and its artifacts."""
     _require_private_access(request)
-    task = None
-    tasks = _state.get("upload_tasks")
-    if isinstance(tasks, dict):
-        task = tasks.pop(job_id, None)
-    if task is not None and not task.done():
-        task.cancel()
+    cancelled = _upload_cancelled_jobs()
+    cancelled.add(job_id)
     existed = job_id in _upload_jobs
     removed = _upload_store.delete_job(job_id)
     _upload_jobs.pop(job_id, None)
     if not existed and not removed:
+        cancelled.discard(job_id)
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
     return Response(status_code=204)
 

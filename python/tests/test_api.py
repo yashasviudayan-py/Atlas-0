@@ -1,10 +1,12 @@
 """Tests for the Atlas-0 API server."""
 
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from atlas.api import server as server_mod
-from atlas.api.server import _api_cfg, _upload_cfg, _upload_jobs, _upload_store, app
+from atlas.api.server import _api_cfg, _state, _upload_cfg, _upload_jobs, _upload_store, app
 from atlas.utils.video import VideoMetadata
 from fastapi.testclient import TestClient
 
@@ -15,6 +17,12 @@ client = TestClient(app)
 def reset_upload_jobs(tmp_path: Path):
     """Keep upload job state isolated across tests."""
     snapshot = dict(_upload_jobs)
+    state_snapshot = {
+        "upload_queue": _state.get("upload_queue"),
+        "upload_queue_ids": _state.get("upload_queue_ids"),
+        "upload_cancelled_jobs": _state.get("upload_cancelled_jobs"),
+        "upload_worker_tasks": _state.get("upload_worker_tasks"),
+    }
     api_snapshot = {
         "access_token": _api_cfg.access_token,
         "allow_unauthenticated_loopback": _api_cfg.allow_unauthenticated_loopback,
@@ -24,20 +32,35 @@ def reset_upload_jobs(tmp_path: Path):
         "max_upload_bytes": _upload_cfg.max_upload_bytes,
         "max_video_duration_seconds": _upload_cfg.max_video_duration_seconds,
         "max_concurrent_jobs": _upload_cfg.max_concurrent_jobs,
+        "max_queue_depth": _upload_cfg.max_queue_depth,
+        "max_job_attempts": _upload_cfg.max_job_attempts,
+        "job_timeout_seconds": _upload_cfg.job_timeout_seconds,
     }
     root_snapshot = _upload_store.root_dir
     _upload_jobs.clear()
     _upload_store.root_dir = tmp_path
+    _state["upload_queue"] = asyncio.Queue()
+    _state["upload_queue_ids"] = set()
+    _state["upload_cancelled_jobs"] = set()
+    _state["upload_worker_tasks"] = []
     yield
     _upload_jobs.clear()
     _upload_jobs.update(snapshot)
     _upload_store.root_dir = root_snapshot
+    for key, value in state_snapshot.items():
+        if value is None:
+            _state.pop(key, None)
+        else:
+            _state[key] = value
     _api_cfg.access_token = api_snapshot["access_token"]
     _api_cfg.allow_unauthenticated_loopback = api_snapshot["allow_unauthenticated_loopback"]
     _api_cfg.enable_job_listing = api_snapshot["enable_job_listing"]
     _upload_cfg.max_upload_bytes = upload_snapshot["max_upload_bytes"]
     _upload_cfg.max_video_duration_seconds = upload_snapshot["max_video_duration_seconds"]
     _upload_cfg.max_concurrent_jobs = upload_snapshot["max_concurrent_jobs"]
+    _upload_cfg.max_queue_depth = upload_snapshot["max_queue_depth"]
+    _upload_cfg.max_job_attempts = upload_snapshot["max_job_attempts"]
+    _upload_cfg.job_timeout_seconds = upload_snapshot["job_timeout_seconds"]
 
 
 def test_health_check():
@@ -58,6 +81,13 @@ def test_job_listing_disabled_by_default() -> None:
     assert response.status_code == 403
 
 
+def test_operator_access_is_public() -> None:
+    response = client.get("/operator/access")
+
+    assert response.status_code == 200
+    assert response.json()["mode"] in {"loopback", "token"}
+
+
 def test_job_listing_requires_token_when_configured() -> None:
     _api_cfg.enable_job_listing = True
     _api_cfg.access_token = "secret-token"
@@ -67,6 +97,20 @@ def test_job_listing_requires_token_when_configured() -> None:
 
     assert unauthenticated.status_code == 401
     assert authenticated.status_code == 200
+
+
+def test_operator_settings_require_token_when_configured() -> None:
+    _api_cfg.access_token = "secret-token"
+
+    unauthenticated = client.get("/operator/settings")
+    authenticated = client.get(
+        "/operator/settings",
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert unauthenticated.status_code == 401
+    assert authenticated.status_code == 200
+    assert authenticated.json()["uploads"]["max_queue_depth"] == _upload_cfg.max_queue_depth
 
 
 def test_upload_job_status_exposes_report_fields():
@@ -294,6 +338,36 @@ def test_report_pdf_download_for_completed_job():
     assert response.content.startswith(b"%PDF-")
 
 
+def test_report_pdf_download_accepts_query_token() -> None:
+    _api_cfg.access_token = "secret-token"
+    _upload_jobs["jobpdf02"] = {
+        "job_id": "jobpdf02",
+        "filename": "study.mp4",
+        "status": "complete",
+        "stage": "complete",
+        "progress": 1.0,
+        "objects": [],
+        "risks": [],
+        "fix_first": [],
+        "summary": {"filename": "study.mp4", "hazard_count": 0, "object_count": 0},
+        "recommendations": [],
+        "evidence_frames": [],
+        "scan_quality": {"status": "good", "score": 0.8, "usable": True, "warnings": []},
+        "trust_notes": [],
+        "scene_source": "estimated_multiview",
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": "/reports/jobpdf02.pdf",
+        "error": None,
+    }
+    _upload_store.create_job(_upload_jobs["jobpdf02"])
+    _upload_store.save_report_pdf("jobpdf02", b"%PDF-1.4\nfixture\n")
+
+    response = client.get("/reports/jobpdf02.pdf?access_token=secret-token")
+
+    assert response.status_code == 200
+
+
 def test_record_job_feedback_updates_job_and_finding() -> None:
     _upload_jobs["jobfeed1"] = {
         "job_id": "jobfeed1",
@@ -376,6 +450,38 @@ def test_delete_upload_job_removes_persisted_artifacts() -> None:
     assert not _upload_store.job_dir("jobdel01").exists()
 
 
+def test_upload_rejects_when_queue_depth_is_full() -> None:
+    _upload_cfg.max_queue_depth = 1
+    _upload_jobs["busyjob1"] = {
+        "job_id": "busyjob1",
+        "filename": "busy.mp4",
+        "status": "queued",
+        "stage": "upload",
+        "progress": 0.1,
+        "objects": None,
+        "risks": None,
+        "fix_first": None,
+        "summary": None,
+        "recommendations": None,
+        "evidence_frames": None,
+        "scan_quality": None,
+        "trust_notes": None,
+        "scene_source": None,
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": None,
+        "error": None,
+    }
+
+    response = client.post(
+        "/upload",
+        headers={"content-type": "application/octet-stream", "x-filename": "room.bin"},
+        content=b"1234",
+    )
+
+    assert response.status_code == 429
+
+
 def test_upload_rejects_request_over_size_limit() -> None:
     _upload_cfg.max_upload_bytes = 4
 
@@ -403,3 +509,126 @@ def test_upload_rejects_video_over_duration_limit(monkeypatch: pytest.MonkeyPatc
     )
 
     assert response.status_code == 413
+
+
+def test_upload_persists_job_input_and_enqueues_work(monkeypatch: pytest.MonkeyPatch) -> None:
+    queued: list[str] = []
+
+    async def fake_enqueue(job_id: str) -> None:
+        queued.append(job_id)
+
+    monkeypatch.setattr(server_mod, "_enqueue_upload_job", fake_enqueue)
+
+    response = client.post(
+        "/upload",
+        headers={"content-type": "application/octet-stream", "x-filename": "room.bin"},
+        content=b"1234",
+    )
+
+    assert response.status_code == 200
+    job_id = response.json()["job_id"]
+    assert queued == [job_id]
+    assert _upload_store.has_job_input(job_id) is True
+
+
+async def test_resume_pending_upload_jobs_requeues_processing_jobs() -> None:
+    _upload_jobs["jobresume"] = {
+        "job_id": "jobresume",
+        "filename": "resume.mp4",
+        "content_type": "video/mp4",
+        "status": "processing",
+        "stage": "vlm",
+        "progress": 0.5,
+        "objects": None,
+        "risks": None,
+        "fix_first": None,
+        "summary": None,
+        "recommendations": None,
+        "evidence_frames": None,
+        "scan_quality": None,
+        "trust_notes": None,
+        "scene_source": None,
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": None,
+        "error": None,
+    }
+    _upload_store.create_job(_upload_jobs["jobresume"])
+    _upload_store.save_job_input("jobresume", "resume.mp4", b"video")
+
+    await server_mod._resume_pending_upload_jobs()
+
+    queue = _state["upload_queue"]
+    assert _upload_jobs["jobresume"]["status"] == "queued"
+    assert await queue.get() == "jobresume"
+
+
+async def test_process_upload_retries_then_completes(monkeypatch: pytest.MonkeyPatch) -> None:
+    job = {
+        "job_id": "jobproc1",
+        "filename": "room.png",
+        "content_type": "image/png",
+        "status": "queued",
+        "stage": "upload",
+        "progress": 0.1,
+        "objects": None,
+        "risks": None,
+        "fix_first": None,
+        "summary": None,
+        "recommendations": None,
+        "evidence_frames": None,
+        "scan_quality": None,
+        "trust_notes": None,
+        "scene_source": None,
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": None,
+        "error": None,
+        "attempt_count": 0,
+    }
+    _upload_jobs["jobproc1"] = job
+    _upload_store.create_job(job)
+    _upload_store.save_job_input("jobproc1", "room.png", b"image")
+    _upload_cfg.max_job_attempts = 2
+
+    calls = {"count": 0}
+
+    async def fake_analyze(*_args, **_kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("temporary failure")
+        return SimpleNamespace(
+            objects=[],
+            risks=[],
+            point_cloud=[],
+            fix_first=[],
+            summary={"filename": "room.png", "hazard_count": 0, "object_count": 0},
+            recommendations=[],
+            evidence_frames=[],
+            evidence_artifacts={},
+            scan_quality={"status": "good", "score": 0.8, "usable": True, "warnings": []},
+            trust_notes=[],
+            scene_source="estimated_multiview",
+        )
+
+    async def fake_ingest(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(server_mod, "analyze_uploaded_image", fake_analyze)
+    monkeypatch.setattr(server_mod, "_build_pdf_report", lambda _job: b"%PDF-1.4\nfixture\n")
+    monkeypatch.setattr(
+        server_mod,
+        "_get_agent",
+        lambda: SimpleNamespace(ingest_from_upload=fake_ingest),
+    )
+
+    await server_mod._process_upload("jobproc1")
+
+    assert _upload_jobs["jobproc1"]["status"] == "queued"
+    assert _upload_jobs["jobproc1"]["attempt_count"] == 1
+
+    await server_mod._process_upload("jobproc1")
+
+    assert _upload_jobs["jobproc1"]["status"] == "complete"
+    assert _upload_jobs["jobproc1"]["attempt_count"] == 2
+    assert _upload_store.has_job_input("jobproc1") is False

@@ -80,3 +80,35 @@ def test_upload_store_delete_job_removes_artifacts(tmp_path: Path) -> None:
 
     assert store.delete_job("job-006") is True
     assert not (tmp_path / "job-006").exists()
+
+
+def test_upload_store_persists_and_removes_job_input(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path)
+    store.create_job({"job_id": "job-007"})
+
+    store.save_job_input("job-007", "scan.mp4", b"video-bytes")
+
+    assert store.has_job_input("job-007") is True
+    assert store.load_job_input("job-007") == b"video-bytes"
+
+    store.remove_job_input("job-007")
+
+    assert store.has_job_input("job-007") is False
+    assert store.load_job_input("job-007") is None
+
+
+def test_upload_store_storage_summary_counts_files(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, save_original_uploads=True)
+    store.create_job({"job_id": "job-008"})
+    store.save_job_input("job-008", "scan.mov", b"queue")
+    store.save_original_upload("job-008", "scan.mov", b"original")
+    store.save_report_pdf("job-008", b"pdf")
+    store.save_evidence_image("job-008", "e-01", b"jpeg")
+
+    summary = store.storage_summary()
+
+    assert summary["persisted_jobs"] == 1
+    assert summary["queued_inputs"] == 1
+    assert summary["reports"] == 1
+    assert summary["evidence_files"] == 1
+    assert summary["bytes_used"] >= len(b"queue") + len(b"original") + len(b"pdf") + len(b"jpeg")

@@ -156,6 +156,9 @@ class TestLoadConfig:
         assert cfg.uploads.save_original_uploads is False
         assert cfg.uploads.retention_days == 14
         assert cfg.uploads.max_upload_bytes == 75_000_000
+        assert cfg.uploads.max_queue_depth == 24
+        assert cfg.uploads.max_job_attempts == 2
+        assert cfg.uploads.job_timeout_seconds == 180.0
         assert cfg.api.enable_job_listing is False
 
     def test_env_atlas_config_selects_runtime_file(
@@ -279,6 +282,24 @@ class TestValidation:
 
         with pytest.raises(ValidationError):
             UploadsConfig(max_video_duration_seconds=0.0)
+
+    def test_invalid_max_queue_depth(self) -> None:
+        from atlas.utils.config import UploadsConfig
+
+        with pytest.raises(ValidationError):
+            UploadsConfig(max_queue_depth=0)
+
+    def test_invalid_max_job_attempts(self) -> None:
+        from atlas.utils.config import UploadsConfig
+
+        with pytest.raises(ValidationError):
+            UploadsConfig(max_job_attempts=0)
+
+    def test_invalid_job_timeout(self) -> None:
+        from atlas.utils.config import UploadsConfig
+
+        with pytest.raises(ValidationError):
+            UploadsConfig(job_timeout_seconds=0.0)
 
 
 # ── Default.toml round-trip ───────────────────────────────────────────────────
