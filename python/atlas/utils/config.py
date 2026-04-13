@@ -250,6 +250,7 @@ class UploadsConfig(BaseModel):
     max_queue_depth: int = 24
     max_job_attempts: int = 2
     job_timeout_seconds: float = 180.0
+    max_storage_bytes: int = 1_500_000_000
 
     @field_validator(
         "max_persisted_jobs",
@@ -258,6 +259,7 @@ class UploadsConfig(BaseModel):
         "max_concurrent_jobs",
         "max_queue_depth",
         "max_job_attempts",
+        "max_storage_bytes",
     )
     @classmethod
     def _positive_int(cls, v: int) -> int:

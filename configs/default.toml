@@ -127,3 +127,5 @@ max_queue_depth = 24
 max_job_attempts = 2
 # Per-job wall clock timeout for upload analysis workers.
 job_timeout_seconds = 180.0
+# Best-effort storage budget across persisted upload artifacts.
+max_storage_bytes = 1500000000

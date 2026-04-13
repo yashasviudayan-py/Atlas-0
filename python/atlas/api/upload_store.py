@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 import structlog
 
 logger = structlog.get_logger(__name__)
+_ARTIFACT_BACKEND = "local_fs"
 
 
 class UploadStore:
@@ -23,11 +25,13 @@ class UploadStore:
         save_original_uploads: bool = False,
         max_persisted_jobs: int = 200,
         retention_days: int = 14,
+        max_storage_bytes: int = 1_500_000_000,
     ) -> None:
         self.root_dir = root_dir
         self._save_original_uploads = save_original_uploads
         self._max_persisted_jobs = max_persisted_jobs
         self._retention_days = retention_days
+        self._max_storage_bytes = max_storage_bytes
         self.root_dir.mkdir(parents=True, exist_ok=True)
 
     def job_dir(self, job_id: str) -> Path:
@@ -41,6 +45,10 @@ class UploadStore:
     def report_path(self, job_id: str) -> Path:
         """Return the persisted PDF path for one upload job."""
         return self.job_dir(job_id) / "report.pdf"
+
+    def upload_path(self, job_id: str, suffix: str = ".bin") -> Path:
+        """Return the persisted original-upload path for one job."""
+        return self.job_dir(job_id) / f"upload{suffix}"
 
     def queued_input_path(self, job_id: str, suffix: str = ".bin") -> Path:
         """Return the persisted worker-input path for one upload job."""
@@ -94,7 +102,7 @@ class UploadStore:
             return None
 
         suffix = Path(filename).suffix or ".bin"
-        upload_path = self.job_dir(job_id) / f"upload{suffix}"
+        upload_path = self.upload_path(job_id, suffix=suffix)
         upload_path.parent.mkdir(parents=True, exist_ok=True)
         upload_path.write_bytes(content)
         return upload_path
@@ -175,6 +183,29 @@ class UploadStore:
         self._delete_tree(job_dir)
         return True
 
+    def artifact_pointer(
+        self,
+        job_id: str,
+        relative_path: str | Path,
+        *,
+        kind: str,
+        media_type: str | None = None,
+        url: str | None = None,
+    ) -> dict[str, Any]:
+        """Build one artifact pointer using storage-key semantics."""
+        rel_path = Path(relative_path)
+        full_path = self.job_dir(job_id) / rel_path
+        size_bytes = full_path.stat().st_size if full_path.exists() else 0
+        return {
+            "kind": kind,
+            "storage_backend": _ARTIFACT_BACKEND,
+            "storage_key": f"jobs/{job_id}/{rel_path.as_posix()}",
+            "relative_path": rel_path.as_posix(),
+            "media_type": media_type,
+            "size_bytes": size_bytes,
+            "url": url,
+        }
+
     def storage_summary(self) -> dict[str, int]:
         """Return a coarse storage summary for operator diagnostics."""
         persisted_jobs = 0
@@ -182,6 +213,7 @@ class UploadStore:
         queued_inputs = 0
         reports = 0
         evidence_files = 0
+        original_uploads = 0
 
         for job_dir in self.root_dir.iterdir():
             if not job_dir.is_dir():
@@ -194,15 +226,21 @@ class UploadStore:
                 name = path.name
                 if name.startswith("queued-input."):
                     queued_inputs += 1
+                elif name.startswith("upload."):
+                    original_uploads += 1
                 elif name == "report.pdf":
                     reports += 1
                 elif path.parent.name == "evidence":
                     evidence_files += 1
 
+        usage_ratio = 0.0 if self._max_storage_bytes <= 0 else bytes_used / self._max_storage_bytes
         return {
             "persisted_jobs": persisted_jobs,
             "bytes_used": bytes_used,
+            "byte_budget": self._max_storage_bytes,
+            "usage_percent": math.floor(usage_ratio * 100),
             "queued_inputs": queued_inputs,
+            "original_uploads": original_uploads,
             "reports": reports,
             "evidence_files": evidence_files,
         }
@@ -235,6 +273,23 @@ class UploadStore:
             except OSError as exc:
                 logger.warning("upload_store_prune_failed", path=str(path), error=str(exc))
 
+        if self._max_storage_bytes > 0:
+            job_dirs = sorted(
+                (path for path in self.root_dir.iterdir() if path.is_dir()),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+            total_bytes = sum(self._job_size_bytes(path) for path in job_dirs)
+            for path in reversed(job_dirs):
+                if total_bytes <= self._max_storage_bytes:
+                    break
+                try:
+                    size_bytes = self._job_size_bytes(path)
+                    self._delete_tree(path)
+                    total_bytes -= size_bytes
+                except OSError as exc:
+                    logger.warning("upload_store_prune_failed", path=str(path), error=str(exc))
+
     def _delete_tree(self, path: Path) -> None:
         """Delete a directory tree without requiring shutil."""
         for child in sorted(path.rglob("*"), reverse=True):
@@ -243,3 +298,7 @@ class UploadStore:
             elif child.is_dir():
                 child.rmdir()
         path.rmdir()
+
+    def _job_size_bytes(self, job_dir: Path) -> int:
+        """Return the total byte size for one job directory."""
+        return sum(path.stat().st_size for path in job_dir.rglob("*") if path.is_file())

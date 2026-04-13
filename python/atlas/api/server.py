@@ -105,6 +105,7 @@ _upload_store = UploadStore(
     save_original_uploads=_upload_cfg.save_original_uploads,
     max_persisted_jobs=_upload_cfg.max_persisted_jobs,
     retention_days=_upload_cfg.retention_days,
+    max_storage_bytes=_upload_cfg.max_storage_bytes,
 )
 
 
@@ -508,6 +509,7 @@ def operator_settings(request: Request) -> OperatorSettingsResponse:
             "max_queue_depth": _upload_cfg.max_queue_depth,
             "max_job_attempts": _upload_cfg.max_job_attempts,
             "job_timeout_seconds": _upload_cfg.job_timeout_seconds,
+            "max_storage_bytes": _upload_cfg.max_storage_bytes,
         },
         queue={
             "queued_jobs": counts["queued"],
@@ -725,6 +727,105 @@ def _update_job(job: dict[str, Any], **fields: Any) -> None:
     """Update a job dict and persist the new state."""
     job.update(fields)
     _save_job(job)
+
+
+def _job_artifacts(job: dict[str, Any]) -> dict[str, Any]:
+    """Return the mutable artifact map stored on one job."""
+    artifacts = job.get("artifacts")
+    if isinstance(artifacts, dict):
+        return artifacts
+    fresh: dict[str, Any] = {}
+    job["artifacts"] = fresh
+    return fresh
+
+
+def _set_job_artifact(job: dict[str, Any], name: str, pointer: dict[str, Any] | None) -> None:
+    """Attach or remove one artifact pointer on a job."""
+    artifacts = _job_artifacts(job)
+    if pointer is None:
+        artifacts.pop(name, None)
+    else:
+        artifacts[name] = pointer
+
+
+def _refresh_job_artifacts(job: dict[str, Any]) -> None:
+    """Rebuild artifact pointers for one persisted job from files on disk."""
+    job_id = str(job.get("job_id", ""))
+    if not job_id:
+        return
+
+    _job_artifacts(job)
+
+    if _upload_store.has_job_input(job_id):
+        queued_path = next(_upload_store.job_dir(job_id).glob("queued-input.*"), None)
+        if queued_path is not None:
+            _set_job_artifact(
+                job,
+                "queued_input",
+                _upload_store.artifact_pointer(
+                    job_id,
+                    queued_path.relative_to(_upload_store.job_dir(job_id)),
+                    kind="queued_input",
+                    media_type=str(job.get("content_type") or "application/octet-stream"),
+                ),
+            )
+    else:
+        _set_job_artifact(job, "queued_input", None)
+
+    upload_path = next(_upload_store.job_dir(job_id).glob("upload.*"), None)
+    if upload_path is not None:
+        _set_job_artifact(
+            job,
+            "original_upload",
+            _upload_store.artifact_pointer(
+                job_id,
+                upload_path.relative_to(_upload_store.job_dir(job_id)),
+                kind="original_upload",
+                media_type=str(job.get("content_type") or "application/octet-stream"),
+            ),
+        )
+    else:
+        _set_job_artifact(job, "original_upload", None)
+
+    report_path = _upload_store.report_path(job_id)
+    if report_path.exists():
+        _set_job_artifact(
+            job,
+            "report_pdf",
+            _upload_store.artifact_pointer(
+                job_id,
+                report_path.relative_to(_upload_store.job_dir(job_id)),
+                kind="report_pdf",
+                media_type="application/pdf",
+                url=str(job.get("report_url") or f"/reports/{job_id}.pdf"),
+            ),
+        )
+    else:
+        _set_job_artifact(job, "report_pdf", None)
+
+    evidence_artifacts: dict[str, dict[str, Any]] = {}
+    for path in sorted(_upload_store.evidence_dir(job_id).glob("*")):
+        if not path.is_file():
+            continue
+        evidence_id = path.stem
+        media_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+        evidence_artifacts[evidence_id] = _upload_store.artifact_pointer(
+            job_id,
+            path.relative_to(_upload_store.job_dir(job_id)),
+            kind="evidence_image",
+            media_type=media_type,
+            url=f"/jobs/{job_id}/evidence/{evidence_id}",
+        )
+    _set_job_artifact(job, "evidence", evidence_artifacts or None)
+
+    for frame in job.get("evidence_frames") or []:
+        evidence_id = str(frame.get("evidence_id", ""))
+        if evidence_id and evidence_id in evidence_artifacts:
+            frame["artifact"] = evidence_artifacts[evidence_id]
+
+
+for _job in _upload_jobs.values():
+    _refresh_job_artifacts(_job)
 
 
 def _feedback_counts(events: list[dict[str, Any]]) -> dict[str, int]:
@@ -984,6 +1085,7 @@ class UploadJobStatus(BaseModel):
     feedback_summary: dict[str, int] | None = None
     report_url: str | None = None
     error: str | None = None
+    artifacts: dict[str, Any] | None = None
     attempt_count: int = 0
     queued_at: str | None = None
     started_at: str | None = None
@@ -1732,13 +1834,28 @@ async def _process_upload(job_id: str) -> None:
         _update_job(job, stage="risk", progress=0.9)
 
         evidence_frames = [dict(frame) for frame in result.evidence_frames]
+        evidence_artifacts: dict[str, dict[str, Any]] = {}
         for frame in evidence_frames:
             evidence_id = str(frame.get("evidence_id", ""))
             content_bytes = result.evidence_artifacts.get(evidence_id)
             if not evidence_id or content_bytes is None:
                 continue
-            _upload_store.save_evidence_image(job_id, evidence_id, content_bytes, suffix=".jpg")
+            evidence_path = _upload_store.save_evidence_image(
+                job_id,
+                evidence_id,
+                content_bytes,
+                suffix=".jpg",
+            )
             frame["image_url"] = f"/jobs/{job_id}/evidence/{evidence_id}"
+            pointer = _upload_store.artifact_pointer(
+                job_id,
+                evidence_path.relative_to(_upload_store.job_dir(job_id)),
+                kind="evidence_image",
+                media_type="image/jpeg",
+                url=frame["image_url"],
+            )
+            frame["artifact"] = pointer
+            evidence_artifacts[evidence_id] = pointer
 
         _update_job(
             job,
@@ -1762,7 +1879,17 @@ async def _process_upload(job_id: str) -> None:
         )
 
         pdf_bytes = _build_pdf_report(job)
-        _upload_store.save_report_pdf(job_id, pdf_bytes)
+        report_path = _upload_store.save_report_pdf(job_id, pdf_bytes)
+        artifacts = _job_artifacts(job)
+        artifacts["report_pdf"] = _upload_store.artifact_pointer(
+            job_id,
+            report_path.relative_to(_upload_store.job_dir(job_id)),
+            kind="report_pdf",
+            media_type="application/pdf",
+            url=f"/reports/{job['job_id']}.pdf",
+        )
+        if evidence_artifacts:
+            artifacts["evidence"] = evidence_artifacts
 
         agent = _get_agent()
         for obj in result.objects:
@@ -1778,6 +1905,8 @@ async def _process_upload(job_id: str) -> None:
             await agent.ingest_from_upload(semantic_label, position=position)
 
         _upload_store.remove_job_input(job_id)
+        artifacts.pop("queued_input", None)
+        _save_job(job)
     except asyncio.CancelledError:
         logger.info("upload_processing_cancelled", job_id=job_id)
         raise
@@ -1806,6 +1935,7 @@ async def _process_upload(job_id: str) -> None:
             completed_at=_utc_now_iso(),
         )
         _upload_store.remove_job_input(job_id)
+        _set_job_artifact(job, "queued_input", None)
     except Exception as exc:
         logger.warning("upload_processing_failed", job_id=job_id, error=str(exc))
         if job_id not in _upload_jobs or _is_upload_cancelled(job_id):
@@ -1831,6 +1961,7 @@ async def _process_upload(job_id: str) -> None:
             completed_at=_utc_now_iso(),
         )
         _upload_store.remove_job_input(job_id)
+        _set_job_artifact(job, "queued_input", None)
     finally:
         _upload_cancelled_jobs().discard(job_id)
 
@@ -1980,6 +2111,7 @@ async def upload_media(request: Request) -> UploadJobStatus:
         "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
         "report_url": None,
         "error": None,
+        "artifacts": {},
         "attempt_count": 0,
         "queued_at": now,
         "started_at": None,
@@ -1987,8 +2119,29 @@ async def upload_media(request: Request) -> UploadJobStatus:
     }
     _upload_jobs[job_id] = job
     _upload_store.create_job(job)
-    _upload_store.save_job_input(job_id, filename, content)
-    _upload_store.save_original_upload(job_id, filename, content)
+    queued_input_path = _upload_store.save_job_input(job_id, filename, content)
+    _set_job_artifact(
+        job,
+        "queued_input",
+        _upload_store.artifact_pointer(
+            job_id,
+            queued_input_path.relative_to(_upload_store.job_dir(job_id)),
+            kind="queued_input",
+            media_type=content_type,
+        ),
+    )
+    original_upload_path = _upload_store.save_original_upload(job_id, filename, content)
+    if original_upload_path is not None:
+        _set_job_artifact(
+            job,
+            "original_upload",
+            _upload_store.artifact_pointer(
+                job_id,
+                original_upload_path.relative_to(_upload_store.job_dir(job_id)),
+                kind="original_upload",
+                media_type=content_type,
+            ),
+        )
 
     _update_job(job, stage="upload", progress=0.1)
     await _enqueue_upload_job(job_id)
@@ -2127,7 +2280,18 @@ def download_report(job_id: str, request: Request) -> Response:
     pdf_bytes = _upload_store.load_report_pdf(job_id)
     if pdf_bytes is None:
         pdf_bytes = _build_pdf_report(job)
-        _upload_store.save_report_pdf(job_id, pdf_bytes)
+        report_path = _upload_store.save_report_pdf(job_id, pdf_bytes)
+        _set_job_artifact(
+            job,
+            "report_pdf",
+            _upload_store.artifact_pointer(
+                job_id,
+                report_path.relative_to(_upload_store.job_dir(job_id)),
+                kind="report_pdf",
+                media_type="application/pdf",
+                url=f"/reports/{job_id}.pdf",
+            ),
+        )
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

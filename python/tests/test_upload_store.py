@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from atlas.api.upload_store import UploadStore
@@ -108,7 +109,41 @@ def test_upload_store_storage_summary_counts_files(tmp_path: Path) -> None:
     summary = store.storage_summary()
 
     assert summary["persisted_jobs"] == 1
+    assert summary["byte_budget"] == 1_500_000_000
     assert summary["queued_inputs"] == 1
+    assert summary["original_uploads"] == 1
     assert summary["reports"] == 1
     assert summary["evidence_files"] == 1
     assert summary["bytes_used"] >= len(b"queue") + len(b"original") + len(b"pdf") + len(b"jpeg")
+
+
+def test_upload_store_artifact_pointer_uses_storage_keys(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path)
+    store.create_job({"job_id": "job-009"})
+    store.save_report_pdf("job-009", b"pdf")
+
+    pointer = store.artifact_pointer(
+        "job-009",
+        "report.pdf",
+        kind="report_pdf",
+        media_type="application/pdf",
+        url="/reports/job-009.pdf",
+    )
+
+    assert pointer["storage_backend"] == "local_fs"
+    assert pointer["storage_key"] == "jobs/job-009/report.pdf"
+    assert pointer["url"] == "/reports/job-009.pdf"
+
+
+def test_upload_store_prunes_oldest_jobs_when_byte_budget_exceeded(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, max_storage_bytes=500)
+    store.create_job({"job_id": "job-010"})
+    store.save_report_pdf("job-010", b"1" * 220)
+    os.utime(store.job_dir("job-010"), (1, 1))
+    store.create_job({"job_id": "job-011"})
+    store.save_report_pdf("job-011", b"2" * 220)
+
+    store.create_job({"job_id": "job-012"})
+
+    assert store.job_dir("job-010").exists() is False
+    assert store.job_dir("job-011").exists() is True

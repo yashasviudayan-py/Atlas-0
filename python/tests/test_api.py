@@ -111,6 +111,7 @@ def test_operator_settings_require_token_when_configured() -> None:
     assert unauthenticated.status_code == 401
     assert authenticated.status_code == 200
     assert authenticated.json()["uploads"]["max_queue_depth"] == _upload_cfg.max_queue_depth
+    assert authenticated.json()["uploads"]["max_storage_bytes"] == _upload_cfg.max_storage_bytes
 
 
 def test_upload_job_status_exposes_report_fields():
@@ -198,6 +199,17 @@ def test_upload_job_status_exposes_report_fields():
         "finding_feedback": [],
         "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
         "report_url": "/reports/job12345.pdf",
+        "artifacts": {
+            "report_pdf": {
+                "kind": "report_pdf",
+                "storage_backend": "local_fs",
+                "storage_key": "jobs/job12345/report.pdf",
+                "relative_path": "report.pdf",
+                "media_type": "application/pdf",
+                "size_bytes": 12,
+                "url": "/reports/job12345.pdf",
+            }
+        },
         "error": None,
     }
 
@@ -210,6 +222,7 @@ def test_upload_job_status_exposes_report_fields():
     assert data["scan_quality"]["status"] == "fair"
     assert data["evidence_frames"][0]["caption"] == "Lamp near walkway"
     assert data["report_url"] == "/reports/job12345.pdf"
+    assert data["artifacts"]["report_pdf"]["storage_key"] == "jobs/job12345/report.pdf"
     assert data["scene_source"] == "heuristic_estimate"
 
 
@@ -526,9 +539,11 @@ def test_upload_persists_job_input_and_enqueues_work(monkeypatch: pytest.MonkeyP
     )
 
     assert response.status_code == 200
-    job_id = response.json()["job_id"]
+    data = response.json()
+    job_id = data["job_id"]
     assert queued == [job_id]
     assert _upload_store.has_job_input(job_id) is True
+    assert data["artifacts"]["queued_input"]["storage_key"] == f"jobs/{job_id}/queued-input.bin"
 
 
 async def test_resume_pending_upload_jobs_requeues_processing_jobs() -> None:
