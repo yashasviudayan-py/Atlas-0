@@ -17,6 +17,8 @@ const state = {
   activeJobId: null,
   jobs: new Map(),
   showLowConfidence: false,
+  accessPolicy: null,
+  operatorSettings: null,
 };
 
 const navButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
@@ -39,6 +41,13 @@ const processMeta = document.getElementById('process-meta');
 
 const recentList = document.getElementById('upload-list');
 const recentEmpty = document.getElementById('upload-empty');
+const accessBanner = document.getElementById('access-banner');
+const accessHelp = document.getElementById('access-help');
+const operatorPolicy = document.getElementById('operator-policy');
+const operatorQueue = document.getElementById('operator-queue');
+const accessTokenInput = /** @type {HTMLInputElement} */ (document.getElementById('access-token-input'));
+const accessTokenSave = /** @type {HTMLButtonElement} */ (document.getElementById('access-token-save'));
+const accessTokenClear = /** @type {HTMLButtonElement} */ (document.getElementById('access-token-clear'));
 
 const reportHero = document.getElementById('report-hero');
 const summaryObjects = document.getElementById('summary-objects');
@@ -57,6 +66,7 @@ const reportRecommendations = document.getElementById('rec-list');
 const reportEvidence = document.getElementById('evidence-grid');
 const trustNotes = document.getElementById('trust-notes');
 const exportPdfBtn = /** @type {HTMLAnchorElement} */ (document.getElementById('export-pdf-btn'));
+const deleteJobBtn = /** @type {HTMLButtonElement} */ (document.getElementById('delete-job-btn'));
 
 const sceneCanvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene-canvas'));
 const sceneEmpty = document.getElementById('scene-empty');
@@ -104,6 +114,7 @@ function activeJob() {
 function setActiveJob(jobId) {
   state.activeJobId = jobId;
   renderUploads();
+  renderProcessing(activeJob());
   renderReport(activeJob());
 }
 
@@ -123,6 +134,17 @@ function upsertJob(job) {
   } else if (job.status === 'error') {
     showToast(job.error || 'Scan failed.', 3600);
   }
+}
+
+function removeJob(jobId) {
+  state.jobs.delete(jobId);
+  if (state.activeJobId === jobId) {
+    const nextJob = [...state.jobs.values()].sort((a, b) => b.job_id.localeCompare(a.job_id))[0] || null;
+    state.activeJobId = nextJob?.job_id || null;
+  }
+  renderUploads();
+  renderProcessing(activeJob());
+  renderReport(activeJob());
 }
 
 function renderUploads() {
@@ -208,6 +230,8 @@ function renderReport(job) {
     findingToggleNote.textContent = 'Low-confidence findings stay hidden until a report is ready.';
     exportPdfBtn.removeAttribute('href');
     exportPdfBtn.classList.add('disabled');
+    deleteJobBtn.classList.add('disabled');
+    deleteJobBtn.disabled = true;
     return;
   }
 
@@ -324,7 +348,7 @@ function renderReport(job) {
   reportEvidence.innerHTML = evidence.length
     ? evidence.map((frame) => `
         <article class="evidence-card">
-          <img src="${frame.image_url}" alt="${escapeHtml(frame.caption || 'Evidence frame')}" />
+          <img src="${api.withAccessToken(frame.image_url || '')}" alt="${escapeHtml(frame.caption || 'Evidence frame')}" />
           <div class="evidence-copy">
             <strong>${escapeHtml(frame.caption || 'Evidence frame')}</strong>
             <span>${Math.round((frame.confidence || 0) * 100)}% label confidence</span>
@@ -340,11 +364,83 @@ function renderReport(job) {
 
   exportPdfBtn.href = api.reportPdfUrl(job.job_id);
   exportPdfBtn.classList.remove('disabled');
+  deleteJobBtn.classList.remove('disabled');
+  deleteJobBtn.disabled = false;
   attachFeedbackHandlers(job.job_id);
 }
 
 function emptyMarkup(message) {
   return `<div class="empty-card">${escapeHtml(message)}</div>`;
+}
+
+function renderPolicyItems(items) {
+  return items.map((item) => `
+    <div class="policy-item">
+      <span>${escapeHtml(item.label)}</span>
+      <strong>${escapeHtml(item.value)}</strong>
+    </div>
+  `).join('');
+}
+
+function renderAccessPanels(errorMessage = '') {
+  const access = state.accessPolicy;
+  const settings = state.operatorSettings;
+  const tokenStored = Boolean(api.getAccessToken());
+
+  accessTokenClear.disabled = !tokenStored;
+
+  if (!access) {
+    accessBanner.className = 'status-banner';
+    accessBanner.innerHTML = '<strong>Could not load access policy.</strong>';
+    accessHelp.textContent = 'The hosted access policy could not be loaded from the API.';
+    operatorPolicy.innerHTML = emptyMarkup('Operator policy details are unavailable right now.');
+    operatorQueue.innerHTML = emptyMarkup('Queue diagnostics are unavailable right now.');
+    return;
+  }
+
+  const locked = access.requires_token && !settings;
+  accessBanner.className = `status-banner ${locked ? 'locked' : 'ready'}`;
+  accessBanner.innerHTML = locked
+    ? '<strong>Hosted upload/report access is locked.</strong> Add the private-beta token to use protected scans, reports, and diagnostics.'
+    : access.requires_token
+      ? '<strong>Hosted access is unlocked.</strong> Protected upload/report endpoints are available with the stored token.'
+      : access.mode === 'loopback'
+        ? '<strong>Local access is open.</strong> Loopback requests can use upload/report flows without a token.'
+        : '<strong>Upload/report access is restricted.</strong> This environment is not accepting unauthenticated hosted requests.';
+
+  accessHelp.textContent = locked
+    ? (errorMessage || 'Your token stays in this browser only and is sent as a Bearer token for protected Atlas-0 endpoints.')
+    : tokenStored
+      ? 'A token is stored locally for this browser session and will be appended to protected API requests.'
+      : 'No token is stored locally. You only need one when the hosted environment requires it.';
+
+  if (!settings) {
+    operatorPolicy.innerHTML = emptyMarkup(
+      access.requires_token
+        ? 'Enter a valid token to load retention, queue, and access settings.'
+        : 'Operator settings are not available yet.',
+    );
+    operatorQueue.innerHTML = emptyMarkup('Queue diagnostics will appear here once operator access is available.');
+    return;
+  }
+
+  operatorPolicy.innerHTML = renderPolicyItems([
+    { label: 'Access mode', value: settings.access.mode === 'token' ? 'Token protected' : settings.access.mode === 'loopback' ? 'Loopback-friendly' : 'Restricted' },
+    { label: 'Job listing', value: settings.access.enable_job_listing ? 'Enabled' : 'Direct job IDs only' },
+    { label: 'Retention window', value: `${settings.uploads.retention_days} day(s)` },
+    { label: 'Keep originals', value: settings.uploads.save_original_uploads ? 'Yes' : 'No' },
+    { label: 'Queue depth limit', value: String(settings.uploads.max_queue_depth) },
+    { label: 'Retry budget', value: `${settings.uploads.max_job_attempts} attempt(s)` },
+  ]);
+
+  operatorQueue.innerHTML = renderPolicyItems([
+    { label: 'Workers', value: String(settings.queue.worker_count) },
+    { label: 'Queued jobs', value: String(settings.queue.queued_jobs) },
+    { label: 'Processing jobs', value: String(settings.queue.processing_jobs) },
+    { label: 'Failed jobs', value: String(settings.queue.failed_jobs) },
+    { label: 'Stored jobs', value: String(settings.storage.persisted_jobs) },
+    { label: 'Disk used', value: formatBytes(settings.storage.bytes_used || 0) },
+  ]);
 }
 
 async function pollHealth() {
@@ -357,8 +453,16 @@ async function pollHealth() {
 }
 
 async function bootstrapJobs() {
+  if (!state.operatorSettings?.access?.enable_job_listing) {
+    renderUploads();
+    renderProcessing(activeJob());
+    renderReport(activeJob());
+    return;
+  }
+
   try {
     const jobs = await api.fetchJobs();
+    state.jobs.clear();
     jobs.forEach((job) => state.jobs.set(job.job_id, job));
     const latest = jobs.at(-1) || jobs[jobs.length - 1];
     if (latest) {
@@ -379,6 +483,25 @@ async function bootstrapJobs() {
   }
 }
 
+async function refreshOperatorState(errorMessage = '') {
+  try {
+    state.operatorSettings = await api.fetchOperatorSettings();
+  } catch {
+    state.operatorSettings = null;
+  }
+  renderAccessPanels(errorMessage);
+}
+
+async function bootstrapApp() {
+  try {
+    state.accessPolicy = await api.fetchAccessPolicy();
+  } catch {
+    state.accessPolicy = null;
+  }
+  await refreshOperatorState();
+  await bootstrapJobs();
+}
+
 navButtons.forEach((button) => {
   button.addEventListener('click', () => switchView(button.dataset.view || 'scan'));
 });
@@ -395,8 +518,9 @@ document.getElementById('scene-refresh-btn')?.addEventListener('click', () => {
 const uploadView = new UploadView({
   dropZone: document.getElementById('drop-zone'),
   fileInput: /** @type {HTMLInputElement} */ (document.getElementById('file-input')),
-  onJobCreated: (job) => {
+  onJobCreated: async (job) => {
     upsertJob(job);
+    await refreshOperatorState();
     switchView('scan');
   },
   onJobUpdate: (job) => upsertJob(job),
@@ -404,7 +528,7 @@ const uploadView = new UploadView({
 });
 
 uploadView.init();
-bootstrapJobs();
+bootstrapApp();
 pollHealth();
 setInterval(pollHealth, 6000);
 switchView('scan');
@@ -412,6 +536,50 @@ switchView('scan');
 lowConfidenceToggle?.addEventListener('change', (event) => {
   state.showLowConfidence = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
   renderReport(activeJob());
+});
+
+accessTokenSave?.addEventListener('click', async () => {
+  const token = accessTokenInput.value.trim();
+  if (!token) {
+    showToast('Enter a token before saving.', 3200);
+    return;
+  }
+
+  api.setAccessToken(token);
+  accessTokenInput.value = '';
+  await refreshOperatorState('The stored token did not unlock operator access.');
+  await bootstrapJobs();
+  showToast(state.operatorSettings ? 'Access token saved.' : 'Token saved, but access is still blocked.', 3200);
+});
+
+accessTokenClear?.addEventListener('click', async () => {
+  api.clearAccessToken();
+  accessTokenInput.value = '';
+  state.operatorSettings = null;
+  state.jobs.clear();
+  state.activeJobId = null;
+  renderAccessPanels();
+  renderUploads();
+  renderProcessing(null);
+  renderReport(null);
+  showToast('Stored access token cleared.');
+});
+
+deleteJobBtn?.addEventListener('click', async () => {
+  const job = activeJob();
+  if (!job) {
+    return;
+  }
+
+  try {
+    await api.deleteJob(job.job_id);
+    removeJob(job.job_id);
+    await refreshOperatorState();
+    showToast('Report deleted.');
+    switchView('scan');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not delete report.', 3600);
+  }
 });
 
 function escapeHtml(value) {
@@ -439,6 +607,17 @@ function formatEvidenceMeta(frame) {
     parts.push(String(frame.object_label));
   }
   return parts.join(' · ') || 'Stored evidence crop';
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function isLowConfidenceRisk(risk) {

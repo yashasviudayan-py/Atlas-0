@@ -62,8 +62,8 @@ export class UploadView {
   async _handle(file) {
     try {
       const job = await api.uploadFile(file);
-      this._onJobCreated(job);
-      this._onJobUpdate(job);
+      await this._onJobCreated(job);
+      await this._onJobUpdate(job);
       this._poll(job.job_id);
     } catch (error) {
       this._onJobError(

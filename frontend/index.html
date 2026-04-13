@@ -477,6 +477,95 @@
       font-size: 0.7rem;
     }
 
+    .operator-grid,
+    .policy-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .status-banner {
+      padding: 14px 16px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(79, 53, 40, 0.12);
+      background: rgba(255,255,255,0.72);
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+
+    .status-banner strong {
+      color: var(--ink);
+    }
+
+    .status-banner.locked {
+      border-color: rgba(200, 75, 67, 0.16);
+      background: linear-gradient(135deg, rgba(200, 75, 67, 0.08), rgba(255,255,255,0.78));
+    }
+
+    .status-banner.ready {
+      border-color: rgba(12, 128, 116, 0.18);
+      background: linear-gradient(135deg, rgba(12, 128, 116, 0.08), rgba(255,255,255,0.78));
+    }
+
+    .inline-form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .field-stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    .field-label {
+      color: var(--ink-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+    }
+
+    .text-input {
+      min-height: 46px;
+      min-width: min(100%, 320px);
+      padding: 0 14px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.82);
+      color: var(--ink);
+      font: inherit;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .text-input::placeholder {
+      color: var(--ink-muted);
+    }
+
+    .policy-item {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(79, 53, 40, 0.1);
+      background: rgba(255,255,255,0.74);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .policy-item span {
+      color: var(--ink-soft);
+      line-height: 1.5;
+    }
+
+    .policy-item strong {
+      color: var(--ink);
+      font-size: 0.96rem;
+      text-align: right;
+      letter-spacing: -0.02em;
+    }
+
     .section-head {
       display: flex;
       align-items: flex-start;
@@ -997,6 +1086,12 @@
       border-color: var(--line);
     }
 
+    .button-link.danger {
+      background: rgba(255,255,255,0.78);
+      color: #8f332d;
+      border-color: rgba(200, 75, 67, 0.2);
+    }
+
     .button-link:hover {
       transform: translateY(-1px);
     }
@@ -1425,6 +1520,46 @@
           <div id="upload-empty" class="empty-card">No scans yet. Upload a room walkthrough to create the first report.</div>
           <div id="upload-list" class="upload-list"></div>
         </section>
+
+        <section class="insight-grid">
+          <section class="panel">
+            <div class="section-head">
+              <div>
+                <h3>Hosted access</h3>
+                <p>Use a token for hosted beta deployments. Local loopback access can stay friction-light.</p>
+              </div>
+              <span class="pill">Operator</span>
+            </div>
+            <div id="access-banner" class="status-banner ready">
+              <strong>Checking access policy…</strong>
+            </div>
+            <div class="field-stack" style="margin-top: 14px;">
+              <label class="field-label" for="access-token-input">Access token</label>
+              <div class="inline-form">
+                <input id="access-token-input" class="text-input" type="password" placeholder="Enter hosted access token" autocomplete="off" />
+                <button id="access-token-save" class="button-link ghost" type="button">Save token</button>
+                <button id="access-token-clear" class="button-link ghost danger" type="button">Clear</button>
+              </div>
+              <p id="access-help" class="meta-copy">Token entry is only needed when upload/report endpoints are protected for hosted use.</p>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <div>
+                <h3>Queue and retention</h3>
+                <p>Operator visibility for upload pressure, storage policy, and what will stay on disk.</p>
+              </div>
+              <span class="pill">Diagnostics</span>
+            </div>
+            <div id="operator-policy" class="policy-list">
+              <div class="empty-card">Operator policy details will appear after access is available.</div>
+            </div>
+            <div id="operator-queue" class="policy-list" style="margin-top: 12px;">
+              <div class="empty-card">Queue diagnostics will appear after access is available.</div>
+            </div>
+          </section>
+        </section>
       </section>
 
       <section id="view-report" class="view" aria-label="Report view">
@@ -1496,6 +1631,7 @@
 
         <section class="actions report-tools">
           <a id="export-pdf-btn" class="button-link disabled" href="#">Download PDF report</a>
+          <button id="delete-job-btn" class="button-link ghost danger" type="button">Delete this report</button>
           <label class="toggle-pill" for="low-confidence-toggle">
             <input id="low-confidence-toggle" type="checkbox" />
             <span>Show lower-confidence findings</span>

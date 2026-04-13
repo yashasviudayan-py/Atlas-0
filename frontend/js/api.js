@@ -2,8 +2,24 @@
  * api.js — Atlas-0 REST API client (relative URLs, same origin).
  */
 
+const ACCESS_TOKEN_KEY = 'atlas0.accessToken';
+
+function accessToken() {
+  return window.localStorage.getItem(ACCESS_TOKEN_KEY) || '';
+}
+
+function authHeaders(headers = {}) {
+  const token = accessToken().trim();
+  return token
+    ? { ...headers, Authorization: `Bearer ${token}` }
+    : headers;
+}
+
 async function json(url, opts = {}) {
-  const res = await fetch(url, opts);
+  const res = await fetch(url, {
+    ...opts,
+    headers: authHeaders(opts.headers || {}),
+  });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`HTTP ${res.status} ${res.statusText}: ${body.slice(0, 120)}`);
@@ -11,12 +27,35 @@ async function json(url, opts = {}) {
   return res.json();
 }
 
+export function getAccessToken() {
+  return accessToken();
+}
+
+export function setAccessToken(token) {
+  window.localStorage.setItem(ACCESS_TOKEN_KEY, String(token || '').trim());
+}
+
+export function clearAccessToken() {
+  window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+}
+
+export function withAccessToken(url) {
+  const token = accessToken().trim();
+  if (!token) {
+    return url;
+  }
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}access_token=${encodeURIComponent(token)}`;
+}
+
 export const fetchHealth  = ()         => json('/health');
 export const fetchObjects = ()         => json('/objects');
 export const fetchScene   = ()         => json('/scene');
 export const fetchJob     = (id)       => json(`/jobs/${id}`);
 export const fetchJobs    = ()         => json('/jobs');
-export const reportPdfUrl = (id)      => `/reports/${id}.pdf`;
+export const fetchAccessPolicy = ()    => json('/operator/access');
+export const fetchOperatorSettings = () => json('/operator/settings');
+export const reportPdfUrl = (id)      => withAccessToken(`/reports/${id}.pdf`);
 export const submitFindingFeedback = (jobId, payload) => json(`/jobs/${jobId}/feedback`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -34,10 +73,25 @@ export function postQuery(query, maxResults = 5) {
 export async function uploadFile(file) {
   const form = new FormData();
   form.append('file', file);
-  const res = await fetch('/upload', { method: 'POST', body: form });
+  const res = await fetch('/upload', {
+    method: 'POST',
+    body: form,
+    headers: authHeaders(),
+  });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`Upload failed ${res.status}: ${body.slice(0, 120)}`);
   }
   return res.json();
+}
+
+export async function deleteJob(id) {
+  const res = await fetch(`/jobs/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Delete failed ${res.status}: ${body.slice(0, 120)}`);
+  }
 }
