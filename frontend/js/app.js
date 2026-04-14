@@ -38,6 +38,7 @@ const processStage = document.getElementById('process-stage');
 const processCopy = document.getElementById('process-copy');
 const processBar = document.getElementById('process-bar');
 const processMeta = document.getElementById('process-meta');
+const processGuidance = document.getElementById('process-guidance');
 
 const recentList = document.getElementById('upload-list');
 const recentEmpty = document.getElementById('upload-empty');
@@ -50,13 +51,17 @@ const accessTokenSave = /** @type {HTMLButtonElement} */ (document.getElementByI
 const accessTokenClear = /** @type {HTMLButtonElement} */ (document.getElementById('access-token-clear'));
 
 const reportHero = document.getElementById('report-hero');
+const reportHeroMeta = document.getElementById('report-hero-meta');
 const summaryObjects = document.getElementById('summary-objects');
 const summaryHazards = document.getElementById('summary-hazards');
 const summarySeverity = document.getElementById('summary-severity');
 const summaryConfidence = document.getElementById('summary-confidence');
+const summaryCoverage = document.getElementById('summary-coverage');
 const summarySource = document.getElementById('summary-source');
 const fixFirstList = document.getElementById('fix-first-list');
 const scanQualityCard = document.getElementById('scan-quality-card');
+const reportPostureCard = document.getElementById('report-posture-card');
+const reportEvalCard = document.getElementById('report-eval-card');
 const lowConfidenceToggle = /** @type {HTMLInputElement} */ (document.getElementById('low-confidence-toggle'));
 const findingToggleNote = document.getElementById('finding-toggle-note');
 const reportHeadline = document.getElementById('report-headline');
@@ -189,6 +194,7 @@ function renderProcessing(job) {
     processCopy.textContent = 'Upload a short walkthrough and ATLAS-0 will build a calmer, evidence-backed room safety report.';
     processBar.style.width = '0%';
     processMeta.textContent = 'No active scan yet';
+    processGuidance.innerHTML = renderProcessGuidance(null);
     uploadStatus.textContent = 'Ready for first scan';
     reportStatus.textContent = 'No report yet';
     return;
@@ -207,6 +213,7 @@ function renderProcessing(job) {
   }
 
   processMeta.textContent = `${escapeHtml(job.filename)} · ${escapeHtml(job.status)}`;
+  processGuidance.innerHTML = renderProcessGuidance(job);
   uploadStatus.textContent = job.status === 'complete' ? 'Latest scan complete' : 'Scan in progress';
   reportStatus.textContent = job.status === 'complete' ? 'Report ready' : 'Waiting for report';
 }
@@ -216,13 +223,21 @@ function renderReport(job) {
     reportHero.classList.add('empty');
     reportHeadline.textContent = 'No report yet';
     reportSubhead.textContent = 'Run one room scan to review hazards, evidence, and practical next steps in a single place.';
+    reportHeroMeta.innerHTML = `
+      <span class="soft-badge">Action-first</span>
+      <span class="soft-badge">Evidence-backed</span>
+      <span class="soft-badge">Shareable PDF</span>
+    `;
     summaryObjects.textContent = '0';
     summaryHazards.textContent = '0';
     summarySeverity.textContent = '—';
     summaryConfidence.textContent = '—';
+    summaryCoverage.textContent = '—';
     summarySource.textContent = '—';
     fixFirstList.innerHTML = emptyMarkup('Priority actions will appear here once a scan finishes.');
     scanQualityCard.innerHTML = emptyMarkup('Scan quality diagnostics will appear here after the upload is processed.');
+    reportPostureCard.innerHTML = emptyMarkup('Report posture details will appear here after a completed scan.');
+    reportEvalCard.innerHTML = emptyMarkup('Feedback and review coverage will appear here after a completed scan.');
     reportHazards.innerHTML = emptyMarkup('Hazards will appear here once ATLAS-0 has something evidence-backed to show.');
     reportRecommendations.innerHTML = emptyMarkup('Recommendations will appear here after a completed scan.');
     reportEvidence.innerHTML = emptyMarkup('Evidence frames will appear here after a completed scan.');
@@ -245,11 +260,13 @@ function renderReport(job) {
   const evidence = job.evidence_frames || [];
   const scanQuality = job.scan_quality || {};
   const notes = job.trust_notes || [];
+  const evaluation = job.evaluation_summary || {};
 
-  reportHeadline.textContent = summary.top_hazard_label
+  reportHeadline.textContent = summary.headline || (summary.top_hazard_label
     ? `Top concern: ${summary.top_hazard_label}`
-    : 'Hazard report';
-  reportSubhead.textContent = `${escapeHtml(job.filename)} · ${summary.confidence_label || 'Approximate grounding'}`;
+    : 'Hazard report');
+  reportSubhead.textContent = summary.overview || `${job.filename} · ${summary.confidence_label || 'Approximate grounding'}`;
+  reportHeroMeta.innerHTML = renderHeroBadges(summary);
 
   summaryObjects.textContent = String(summary.object_count || 0);
   summaryHazards.textContent = String(summary.hazard_count || 0);
@@ -257,6 +274,7 @@ function renderReport(job) {
   summaryConfidence.textContent = summary.scan_quality_label
     ? `${summary.confidence_label || 'Approximate grounding'} · ${summary.scan_quality_label} scan`
     : summary.confidence_label || 'Approximate grounding';
+  summaryCoverage.textContent = capitalize(summary.coverage_label || 'unknown');
   summarySource.textContent = summary.scene_source || 'unknown';
   findingToggleNote.textContent = hiddenCount > 0 && !state.showLowConfidence
     ? `${hiddenCount} lower-confidence finding${hiddenCount === 1 ? '' : 's'} hidden to keep the report focused.`
@@ -286,6 +304,8 @@ function renderReport(job) {
     : emptyMarkup('No high-priority actions were generated for this scan.');
 
   scanQualityCard.innerHTML = renderScanQuality(scanQuality);
+  reportPostureCard.innerHTML = renderReportPosture(summary, scanQuality);
+  reportEvalCard.innerHTML = renderEvaluationSummary(evaluation);
 
   reportHazards.innerHTML = visibleHazards.length
     ? visibleHazards.map((risk) => `
@@ -326,7 +346,9 @@ function renderReport(job) {
     : emptyMarkup(
         hazards.length
           ? 'Only lower-confidence findings remain. Toggle them on if you want the full raw report.'
-          : 'No significant hazards were detected in this scan.',
+          : summary.rescan_recommended
+            ? 'No high-confidence hazards were detected, but this scan had limited coverage. Rescan before treating the room as low risk.'
+            : 'No high-confidence hazards were detected. This is still a screening result, not a safety clearance.',
       );
 
   reportRecommendations.innerHTML = recommendations.length
@@ -367,6 +389,72 @@ function renderReport(job) {
   deleteJobBtn.classList.remove('disabled');
   deleteJobBtn.disabled = false;
   attachFeedbackHandlers(job.job_id);
+}
+
+function renderHeroBadges(summary) {
+  const badges = [
+    summary.report_posture || 'screening',
+    summary.coverage_label ? `${summary.coverage_label} coverage` : 'Coverage pending',
+    summary.rescan_recommended ? 'Rescan recommended' : 'Evidence-backed',
+  ];
+  return badges.map((badge) => `<span class="soft-badge">${escapeHtml(badge)}</span>`).join('');
+}
+
+function renderProcessGuidance(job) {
+  if (!job) {
+    return `
+      <article class="guidance-card">
+        <strong>Best first scan</strong>
+        <p>Choose one room, move steadily, and keep shelves, tables, and corners visible for a moment so weaker hazards do not look stronger than the scan supports.</p>
+      </article>
+      <article class="guidance-card">
+        <strong>What you’ll get</strong>
+        <p>A ranked screening report with top hazards, evidence crops, approximate locations, confidence labels, and a downloadable PDF.</p>
+      </article>
+    `;
+  }
+
+  if (job.status === 'error') {
+    return `
+      <article class="guidance-card">
+        <strong>Scan needs another try</strong>
+        <p>${escapeHtml(job.error || 'The scan could not be processed this time.')}</p>
+        <ul class="guidance-list">
+          <li>Retry with one room only.</li>
+          <li>Keep the motion slower and steadier than feels natural.</li>
+          <li>If lighting was poor, add light before rescanning.</li>
+        </ul>
+      </article>
+    `;
+  }
+
+  if (job.status === 'complete') {
+    const scanQuality = job.scan_quality || {};
+    const guidance = scanQuality.retry_guidance || [];
+    const summary = job.summary || {};
+    return `
+      <article class="guidance-card">
+        <strong>${escapeHtml(scanQuality.rescan_recommended ? 'Use this report carefully' : 'Report is ready')}</strong>
+        <p>${escapeHtml(summary.screening_statement || 'This report flags likely hazards from the uploaded scan. It does not certify that the room is safe.')}</p>
+      </article>
+      <article class="guidance-card">
+        <strong>Next best move</strong>
+        <p>${escapeHtml(scanQuality.capture_summary || 'Review the top hazards and trust notes before acting on smaller details.')}</p>
+        ${guidance.length ? `<ul class="guidance-list">${guidance.slice(0, 2).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+      </article>
+    `;
+  }
+
+  return `
+    <article class="guidance-card">
+      <strong>What ATLAS-0 is doing now</strong>
+      <p>${escapeHtml(stageExplanation(job.stage))}</p>
+    </article>
+    <article class="guidance-card">
+      <strong>While you wait</strong>
+      <p>Keep this tab open. When the report is ready, we’ll switch you straight into the report view.</p>
+    </article>
+  `;
 }
 
 function emptyMarkup(message) {
@@ -647,7 +735,7 @@ function renderScanQuality(scanQuality) {
     </div>
     <div class="quality-copy">
       <strong>What this means</strong>
-      <span>${scanQuality.usable ? 'This scan is usable, but better lighting, steadier motion, and fuller coverage can still strengthen the report.' : 'This scan is likely to produce weaker findings and should ideally be rescanned before trusting smaller details.'}</span>
+      <span>${escapeHtml(scanQuality.capture_summary || (scanQuality.usable ? 'This scan is usable, but better lighting, steadier motion, and fuller coverage can still strengthen the report.' : 'This scan is likely to produce weaker findings and should ideally be rescanned before trusting smaller details.'))}</span>
     </div>
     <div class="report-card-meta">
       <span>${escapeHtml(`${metrics.frame_count || 0} sampled frame(s)`)}</span>
@@ -655,7 +743,68 @@ function renderScanQuality(scanQuality) {
       <span>${escapeHtml(`${Math.round((metrics.saliency_coverage || 0) * 100)}% object coverage`)}</span>
     </div>
     ${warnings.length ? `<ul class="quality-warning-list">${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>` : '<div class="empty-card">No major scan-quality warnings were detected.</div>'}
-    ${guidance.length ? `<div class="quality-copy"><strong>Retry guidance</strong><span>${escapeHtml(guidance[0])}</span></div>` : ''}
+    ${guidance.length ? `<div class="quality-copy"><strong>Retry guidance</strong><span>${escapeHtml(guidance.slice(0, 2).join(' '))}</span></div>` : ''}
+  `;
+}
+
+function renderReportPosture(summary, scanQuality) {
+  const posture = summary.report_posture || 'screening';
+  const guidance = scanQuality.retry_guidance || [];
+
+  return `
+    <div class="report-copy-block">
+      <strong>What this report supports</strong>
+      <span>${escapeHtml(summary.overview || 'This upload produced a first-pass room hazard screen.')}</span>
+    </div>
+    <div class="report-copy-block">
+      <strong>Coverage summary</strong>
+      <span>${escapeHtml(summary.coverage_summary || 'Coverage details were not recorded for this scan.')}</span>
+    </div>
+    <div class="report-copy-block">
+      <strong>What it does not claim</strong>
+      <span>${escapeHtml(summary.screening_statement || 'This report flags likely hazards from the uploaded scan. It does not certify that the room is safe.')}</span>
+    </div>
+    <div class="report-card-meta">
+      <span>${escapeHtml(posture)}</span>
+      <span>${escapeHtml(summary.coverage_label || 'Unknown')} coverage</span>
+      <span>${summary.rescan_recommended ? 'Rescan recommended' : 'No rescan required for first-pass review'}</span>
+    </div>
+    ${guidance.length ? `<ul class="quality-warning-list">${guidance.slice(0, 2).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+  `;
+}
+
+function renderEvaluationSummary(evaluation) {
+  if (!evaluation || Object.keys(evaluation).length === 0) {
+    return emptyMarkup('No review coverage has been recorded for this report yet.');
+  }
+
+  return `
+    <div class="report-copy-block">
+      <strong>Review status</strong>
+      <span>${escapeHtml(evaluation.summary || 'No review summary available.')}</span>
+    </div>
+    <div class="meta-grid">
+      <div class="meta-tile">
+        <span>Review coverage</span>
+        <strong>${Math.round((evaluation.review_coverage || 0) * 100)}%</strong>
+      </div>
+      <div class="meta-tile">
+        <span>Pending findings</span>
+        <strong>${escapeHtml(String(evaluation.pending_findings ?? 0))}</strong>
+      </div>
+      <div class="meta-tile">
+        <span>Marked useful</span>
+        <strong>${escapeHtml(String(evaluation.useful_events ?? 0))}</strong>
+      </div>
+      <div class="meta-tile">
+        <span>Wrong or duplicate</span>
+        <strong>${escapeHtml(String((evaluation.wrong_events || 0) + (evaluation.duplicate_events || 0)))}</strong>
+      </div>
+    </div>
+    <div class="report-card-meta">
+      <span>${escapeHtml(String(evaluation.high_priority_pending ?? 0))} high-priority findings unreviewed</span>
+      <span>${evaluation.needs_review ? 'More review still needed' : 'Review loop covered current findings'}</span>
+    </div>
   `;
 }
 
@@ -663,6 +812,15 @@ function qualityTone(status) {
   if (status === 'good') return 'low';
   if (status === 'fair') return 'medium';
   return 'high';
+}
+
+function stageExplanation(stage) {
+  if (stage === 'upload') return 'The upload was accepted and queued for processing.';
+  if (stage === 'ingest') return 'The media is being unpacked so frames can be sampled cleanly.';
+  if (stage === 'vlm') return 'ATLAS-0 is labeling observations and grounding them across the scan.';
+  if (stage === 'risk') return 'Findings, recommendations, and evidence artifacts are being assembled into the report.';
+  if (stage === 'complete') return 'The report is ready to review.';
+  return 'ATLAS-0 is processing the scan.';
 }
 
 function attachFeedbackHandlers(jobId) {

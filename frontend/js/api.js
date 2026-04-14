@@ -15,14 +15,25 @@ function authHeaders(headers = {}) {
     : headers;
 }
 
+async function errorMessage(res, fallback) {
+  try {
+    const body = await res.json();
+    if (typeof body?.detail === 'string' && body.detail.trim()) {
+      return body.detail.trim();
+    }
+  } catch {}
+
+  const text = await res.text().catch(() => '');
+  return `${fallback}: ${(text || res.statusText || 'Request failed').slice(0, 160)}`;
+}
+
 async function json(url, opts = {}) {
   const res = await fetch(url, {
     ...opts,
     headers: authHeaders(opts.headers || {}),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status} ${res.statusText}: ${body.slice(0, 120)}`);
+    throw new Error(await errorMessage(res, `HTTP ${res.status}`));
   }
   return res.json();
 }
@@ -79,8 +90,7 @@ export async function uploadFile(file) {
     headers: authHeaders(),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Upload failed ${res.status}: ${body.slice(0, 120)}`);
+    throw new Error(await errorMessage(res, `Upload failed ${res.status}`));
   }
   return res.json();
 }
@@ -91,7 +101,6 @@ export async function deleteJob(id) {
     headers: authHeaders(),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Delete failed ${res.status}: ${body.slice(0, 120)}`);
+    throw new Error(await errorMessage(res, `Delete failed ${res.status}`));
   }
 }

@@ -261,6 +261,11 @@ def build_trust_notes(scene_source: str, scan_quality: dict[str, Any] | None = N
     else:
         notes = ["This report is based on heuristic scene estimates."]
 
+    notes.append(
+        "ATLAS-0 is a screening tool for likely room hazards,"
+        " not a certification that the room is safe."
+    )
+
     if scan_quality and scan_quality.get("warnings"):
         notes.append(
             "Capture quality limited some conclusions. Review the scan quality"
@@ -789,6 +794,10 @@ def _assess_scan_quality(
             "status": "poor",
             "score": 0.0,
             "usable": False,
+            "capture_summary": (
+                "No usable frames were available, so the scan cannot support" " a report."
+            ),
+            "rescan_recommended": True,
             "warnings": ["No frames were available to assess scan quality."],
             "retry_guidance": ["Upload a valid image or a 20-60 second walkthrough video."],
             "metrics": {},
@@ -865,11 +874,21 @@ def _assess_scan_quality(
         guidance.append("Aim for a 20-60 second scan that sweeps the full room once.")
 
     status = "good" if score >= 0.72 else "fair" if score >= 0.48 else "poor"
+    capture_summary = (
+        "Broad enough for a first-pass hazard screen."
+        if status == "good"
+        else "Usable, but some weaker findings may need a rescan."
+        if status == "fair"
+        else "Too limited to trust smaller details without rescanning."
+    )
+    rescan_recommended = status == "poor" or len(warnings) >= 2
 
     return {
         "status": status,
         "score": round(score, 2),
         "usable": score >= 0.48,
+        "capture_summary": capture_summary,
+        "rescan_recommended": rescan_recommended,
         "warnings": warnings[:4],
         "retry_guidance": guidance[:4],
         "metrics": {
@@ -882,6 +901,55 @@ def _assess_scan_quality(
             "saliency_coverage": round(mean_saliency, 2),
         },
     }
+
+
+def _coverage_label(objects: list[dict[str, Any]], scan_quality: dict[str, Any]) -> str:
+    """Return a user-facing coverage band for the uploaded scan."""
+    metrics = scan_quality.get("metrics") or {}
+    frame_count = int(metrics.get("frame_count", 0) or 0)
+    motion = float(metrics.get("motion_coverage", 0.0) or 0.0)
+    saliency = float(metrics.get("saliency_coverage", 0.0) or 0.0)
+    object_count = len(objects)
+    score = (
+        float(scan_quality.get("score", 0.0)) * 0.45
+        + motion * 0.25
+        + saliency * 0.2
+        + min(1.0, object_count / 6.0) * 0.1
+    )
+    if frame_count >= 4 and score >= 0.72:
+        return "broad"
+    if frame_count >= 2 and score >= 0.48:
+        return "partial"
+    return "limited"
+
+
+def _coverage_summary(
+    coverage_label_value: str,
+    scan_quality: dict[str, Any],
+    *,
+    object_count: int,
+) -> str:
+    """Explain how complete the current upload coverage looks."""
+    metrics = scan_quality.get("metrics") or {}
+    frame_count = int(metrics.get("frame_count", 0) or 0)
+    motion = int(round(float(metrics.get("motion_coverage", 0.0) or 0.0) * 100))
+    saliency = int(round(float(metrics.get("saliency_coverage", 0.0) or 0.0) * 100))
+    if coverage_label_value == "broad":
+        return (
+            f"{frame_count} sampled frames captured broad room coverage with"
+            f" {motion}% motion coverage and {saliency}% object coverage."
+        )
+    if coverage_label_value == "partial":
+        return (
+            f"{frame_count} sampled frames produced a usable but incomplete screen."
+            f" ATLAS-0 tracked {object_count} object(s), so weaker findings should"
+            " still be reviewed with caution."
+        )
+    return (
+        f"{frame_count} sampled frames gave limited coverage with {motion}% motion"
+        f" coverage and {saliency}% object coverage. Treat the result as a narrow"
+        " screen and rescan before relying on smaller details."
+    )
 
 
 def _build_summary(
@@ -898,6 +966,43 @@ def _build_summary(
         else "Single-view estimate"
     )
     low_confidence_count = sum(1 for risk in risks if float(risk.get("confidence", 0.0)) < 0.6)
+    high_confidence_count = sum(
+        1
+        for risk in risks
+        if float(risk.get("confidence", 0.0)) >= 0.6
+        and float(risk.get("reasoning", {}).get("grounding_confidence", 0.0)) >= 0.55
+    )
+    coverage_label_value = _coverage_label(objects, scan_quality)
+    rescan_recommended = bool(scan_quality.get("rescan_recommended")) or (
+        coverage_label_value == "limited"
+    )
+    screening_statement = (
+        "This report flags likely hazards from the uploaded scan."
+        " It does not certify that the room is safe."
+    )
+    if top_risk:
+        headline = f"Start with {top_risk.get('hazard_title', 'the top hazard')}"
+        overview = (
+            f"ATLAS-0 flagged {len(risks)} likely hazard"
+            f"{'' if len(risks) == 1 else 's'} in this scan."
+            f" Begin with {top_risk.get('hazard_title', 'the top hazard')} and use"
+            " the evidence frames before treating smaller findings as certain."
+        )
+        report_posture = "actionable screening"
+    elif rescan_recommended:
+        headline = "Rescan recommended before trusting smaller details"
+        overview = (
+            "No high-confidence hazards were detected, but scan coverage was limited."
+            " Treat this as an incomplete screen rather than a clean bill of health."
+        )
+        report_posture = "limited screening"
+    else:
+        headline = "No high-confidence hazards detected"
+        overview = (
+            "ATLAS-0 did not surface a strong hazard in this upload, but this is still"
+            " a screening result, not proof that the room is safe."
+        )
+        report_posture = "preliminary screening"
     return {
         "filename": filename,
         "object_count": len(objects),
@@ -910,7 +1015,19 @@ def _build_summary(
         "scan_quality_score": float(scan_quality.get("score", 0.0)),
         "warning_count": len(scan_quality.get("warnings", [])),
         "low_confidence_count": low_confidence_count,
+        "high_confidence_hazard_count": high_confidence_count,
         "top_confidence_label": confidence_bucket(float(top_risk.get("confidence", 0.0)))
         if top_risk
         else "weak",
+        "coverage_label": coverage_label_value.capitalize(),
+        "coverage_summary": _coverage_summary(
+            coverage_label_value,
+            scan_quality,
+            object_count=len(objects),
+        ),
+        "report_posture": report_posture,
+        "rescan_recommended": rescan_recommended,
+        "headline": headline,
+        "overview": overview,
+        "screening_statement": screening_statement,
     }

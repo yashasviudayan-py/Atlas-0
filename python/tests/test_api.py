@@ -224,6 +224,8 @@ def test_upload_job_status_exposes_report_fields():
     assert data["report_url"] == "/reports/job12345.pdf"
     assert data["artifacts"]["report_pdf"]["storage_key"] == "jobs/job12345/report.pdf"
     assert data["scene_source"] == "heuristic_estimate"
+    assert data["evaluation_summary"]["total_findings"] == 1
+    assert data["evaluation_summary"]["pending_findings"] == 1
 
 
 def test_download_evidence_returns_file_backed_artifact(tmp_path: Path) -> None:
@@ -349,6 +351,7 @@ def test_report_pdf_download_for_completed_job():
     assert response.headers["content-type"].startswith("application/pdf")
     assert "atlas0-report-jobpdf01.pdf" in response.headers["content-disposition"]
     assert response.content.startswith(b"%PDF-")
+    assert b"Report posture" in response.content
 
 
 def test_report_pdf_download_accepts_query_token() -> None:
@@ -430,6 +433,9 @@ def test_record_job_feedback_updates_job_and_finding() -> None:
     assert data["finding_feedback"][0]["verdict"] == "useful"
     assert data["risks"][0]["latest_feedback"] == "useful"
     assert data["risks"][0]["feedback_summary"]["useful"] == 1
+    assert data["evaluation_summary"]["reviewed_findings"] == 1
+    assert data["evaluation_summary"]["pending_findings"] == 0
+    assert data["evaluation_summary"]["useful_events"] == 1
 
 
 def test_delete_upload_job_removes_persisted_artifacts() -> None:

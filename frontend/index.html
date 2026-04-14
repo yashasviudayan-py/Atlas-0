@@ -689,6 +689,46 @@
       gap: 16px;
     }
 
+    .process-guidance,
+    .posture-card,
+    .eval-card,
+    .checklist-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .guidance-card,
+    .checklist-card {
+      padding: 16px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(79, 53, 40, 0.1);
+      background: rgba(255,255,255,0.74);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .guidance-card strong,
+    .checklist-card strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.96rem;
+      letter-spacing: -0.02em;
+    }
+
+    .guidance-card p,
+    .checklist-card p {
+      margin: 0;
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+
+    .guidance-list,
+    .checklist-card ul {
+      margin: 8px 0 0;
+      padding-left: 18px;
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+
     .progress-track {
       width: 100%;
       height: 12px;
@@ -802,7 +842,7 @@
     .stats-grid {
       display: grid;
       gap: 12px;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
     }
 
     .insight-grid {
@@ -1050,6 +1090,44 @@
       padding-left: 20px;
       color: var(--ink-soft);
       line-height: 1.7;
+    }
+
+    .posture-card,
+    .eval-card {
+      padding: 18px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(79, 53, 40, 0.1);
+      background: rgba(255,255,255,0.72);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .meta-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .meta-tile {
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      background: rgba(255,255,255,0.78);
+      border: 1px solid rgba(79, 53, 40, 0.08);
+    }
+
+    .meta-tile span {
+      display: block;
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .meta-tile strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 1.05rem;
+      letter-spacing: -0.03em;
     }
 
     .empty-card {
@@ -1329,6 +1407,10 @@
         grid-template-columns: 1fr;
       }
 
+      .meta-grid {
+        grid-template-columns: 1fr;
+      }
+
       .hero h2 {
         max-width: 100%;
       }
@@ -1488,6 +1570,21 @@
               <div class="story-pill"><strong>Evidence frames</strong><span>So the report can point to what it saw.</span></div>
               <div class="story-pill"><strong>Trust notes</strong><span>So uncertainty is visible, not hidden.</span></div>
             </div>
+
+            <div class="checklist-grid" aria-label="Capture checklist">
+              <article class="checklist-card">
+                <strong>Before you upload</strong>
+                <ul>
+                  <li>Scan one room only.</li>
+                  <li>Keep shelves, tables, and corners in frame for a beat.</li>
+                  <li>Avoid fast pans, dark rooms, and direct glare.</li>
+                </ul>
+              </article>
+              <article class="checklist-card">
+                <strong>What comes back</strong>
+                <p>You’ll get a screening report with top hazards, evidence crops, approximate locations, confidence labels, and a PDF you can share or revisit later.</p>
+              </article>
+            </div>
           </section>
 
           <section class="panel process-panel">
@@ -1506,6 +1603,9 @@
               <div id="process-bar" class="progress-bar"></div>
             </div>
             <div id="process-meta" class="meta-strip">No active scan</div>
+            <div id="process-guidance" class="process-guidance">
+              <div class="empty-card">Capture coaching and retry guidance will appear here as scans move through the pipeline.</div>
+            </div>
           </section>
         </div>
 
@@ -1567,7 +1667,7 @@
           <p class="eyebrow">Hazard report</p>
           <h3 id="report-headline">No report yet</h3>
           <p id="report-subhead">Run a scan to see hazards, evidence, and recommended actions.</p>
-          <div class="report-hero-meta">
+          <div id="report-hero-meta" class="report-hero-meta">
             <span class="soft-badge">Action-first</span>
             <span class="soft-badge">Evidence-backed</span>
             <span class="soft-badge">Shareable PDF</span>
@@ -1594,6 +1694,11 @@
             <span class="mono-label">Confidence</span>
             <strong id="summary-confidence">—</strong>
             <span>How grounded the spatial estimate is right now.</span>
+          </article>
+          <article class="stat-card">
+            <span class="mono-label">Coverage</span>
+            <strong id="summary-coverage">—</strong>
+            <span>How complete the current scan coverage looks.</span>
           </article>
           <article class="stat-card">
             <span class="mono-label">Scene source</span>
@@ -1625,6 +1730,34 @@
             </div>
             <div id="scan-quality-card" class="quality-card">
               <div class="empty-card">Scan quality diagnostics will appear after a completed scan.</div>
+            </div>
+          </section>
+        </section>
+
+        <section class="insight-grid">
+          <section class="panel">
+            <div class="section-head">
+              <div>
+                <h3>Report posture</h3>
+                <p>What this result supports confidently, where it is still a screen, and whether a rescan is the safer next move.</p>
+              </div>
+              <span class="pill">Trust</span>
+            </div>
+            <div id="report-posture-card" class="posture-card">
+              <div class="empty-card">Report posture details will appear after a completed scan.</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <div>
+                <h3>Feedback loop</h3>
+                <p>Operator-facing review coverage so we can measure what is useful, wrong, or still unreviewed.</p>
+              </div>
+              <span class="pill">Eval</span>
+            </div>
+            <div id="report-eval-card" class="eval-card">
+              <div class="empty-card">Feedback and review coverage will appear after a completed scan.</div>
             </div>
           </section>
         </section>

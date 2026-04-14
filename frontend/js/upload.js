@@ -61,6 +61,12 @@ export class UploadView {
 
   async _handle(file) {
     try {
+      if (!file || file.size <= 0) {
+        throw new Error('Choose a non-empty image or walkthrough video to start a scan.');
+      }
+      if (!(file.type.startsWith('video/') || file.type.startsWith('image/'))) {
+        throw new Error('Choose an image or a walkthrough video such as MP4, MOV, or WEBM.');
+      }
       const job = await api.uploadFile(file);
       await this._onJobCreated(job);
       await this._onJobUpdate(job);
@@ -73,6 +79,11 @@ export class UploadView {
   }
 
   _poll(jobId) {
+    const existing = this._pollers.get(jobId);
+    if (existing) {
+      clearInterval(existing);
+    }
+
     const timer = setInterval(async () => {
       try {
         const job = await api.fetchJob(jobId);

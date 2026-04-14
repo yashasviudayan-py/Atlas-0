@@ -726,6 +726,8 @@ def _save_job(job: dict[str, Any]) -> None:
 def _update_job(job: dict[str, Any], **fields: Any) -> None:
     """Update a job dict and persist the new state."""
     job.update(fields)
+    if job.get("risks") is not None:
+        job["evaluation_summary"] = _build_evaluation_summary(job)
     _save_job(job)
 
 
@@ -836,6 +838,76 @@ def _feedback_counts(events: list[dict[str, Any]]) -> dict[str, int]:
         if verdict in counts:
             counts[verdict] += 1
     return counts
+
+
+def _build_evaluation_summary(job: dict[str, Any]) -> dict[str, Any]:
+    """Summarize report review coverage and correction signals."""
+    risks = list(job.get("risks") or [])
+    events = list(job.get("finding_feedback") or [])
+    event_counts = _feedback_counts(events)
+    total_findings = len(risks)
+    reviewed_findings = 0
+    disputed_findings = 0
+    helpful_findings = 0
+    high_priority_pending = 0
+
+    for risk in risks:
+        counts = dict(risk.get("feedback_summary") or {})
+        useful = int(counts.get("useful", 0) or 0)
+        wrong = int(counts.get("wrong", 0) or 0)
+        duplicate = int(counts.get("duplicate", 0) or 0)
+        total = useful + wrong + duplicate
+        if total > 0:
+            reviewed_findings += 1
+        if wrong > 0 or duplicate > 0:
+            disputed_findings += 1
+        if useful > 0:
+            helpful_findings += 1
+        if total == 0 and str(risk.get("severity", "")).lower() in {"critical", "high"}:
+            high_priority_pending += 1
+
+    pending_findings = max(0, total_findings - reviewed_findings)
+    review_coverage = round(reviewed_findings / total_findings, 2) if total_findings else 0.0
+
+    if total_findings == 0:
+        summary = "No findings to review yet."
+    elif reviewed_findings == 0:
+        summary = (
+            f"No findings have feedback yet. {high_priority_pending} higher-priority"
+            " finding(s) still need human review."
+        )
+    else:
+        summary = (
+            f"{reviewed_findings} of {total_findings} finding"
+            f"{'' if total_findings == 1 else 's'} reviewed."
+            f" {disputed_findings} marked wrong or duplicate so far."
+        )
+
+    return {
+        "total_findings": total_findings,
+        "reviewed_findings": reviewed_findings,
+        "pending_findings": pending_findings,
+        "review_coverage": review_coverage,
+        "useful_events": event_counts["useful"],
+        "wrong_events": event_counts["wrong"],
+        "duplicate_events": event_counts["duplicate"],
+        "helpful_findings": helpful_findings,
+        "disputed_findings": disputed_findings,
+        "high_priority_pending": high_priority_pending,
+        "needs_review": high_priority_pending > 0 or pending_findings > 0,
+        "summary": summary,
+    }
+
+
+def _ensure_job_derived_fields(job: dict[str, Any]) -> dict[str, Any]:
+    """Populate lightweight derived fields for older or manually inserted jobs."""
+    if job.get("risks") is not None and not isinstance(job.get("evaluation_summary"), dict):
+        job["evaluation_summary"] = _build_evaluation_summary(job)
+    return job
+
+
+for _job in _upload_jobs.values():
+    _ensure_job_derived_fields(_job)
 
 
 def _finding_key(hazard: dict[str, Any]) -> str:
@@ -1083,6 +1155,7 @@ class UploadJobStatus(BaseModel):
     scene_source: str | None = None
     finding_feedback: list[dict[str, Any]] | None = None
     feedback_summary: dict[str, int] | None = None
+    evaluation_summary: dict[str, Any] | None = None
     report_url: str | None = None
     error: str | None = None
     artifacts: dict[str, Any] | None = None
@@ -1481,6 +1554,7 @@ def _build_pdf_report(job: dict[str, Any]) -> bytes:
     recommendations = job.get("recommendations") or []
     scan_quality = job.get("scan_quality") or {}
     trust_notes = job.get("trust_notes") or []
+    evaluation_summary = job.get("evaluation_summary") or {}
 
     lines = [
         "ATLAS-0 Room Safety Report",
@@ -1488,10 +1562,19 @@ def _build_pdf_report(job: dict[str, Any]) -> bytes:
         f"Hazards found: {summary.get('hazard_count', 0)}",
         f"Objects detected: {summary.get('object_count', 0)}",
         f"Scene source: {summary.get('scene_source', 'unknown')}",
+        f"Report posture: {summary.get('report_posture', 'screening')}",
         (
             "Scan quality: "
             f"{str(scan_quality.get('status', 'unknown')).upper()} "
             f"({int(float(scan_quality.get('score', 0.0)) * 100)} / 100)"
+        ),
+        f"Coverage: {summary.get('coverage_label', 'Unknown')}",
+        summary.get(
+            "screening_statement",
+            (
+                "This report flags likely hazards from the uploaded scan."
+                " It does not certify that the room is safe."
+            ),
         ),
         "",
         "Fix first:",
@@ -1518,7 +1601,10 @@ def _build_pdf_report(job: dict[str, Any]) -> bytes:
                 f"{risk.get('what', risk.get('description', ''))}"
             )
     else:
-        lines.append("- No significant hazards were detected in this scan.")
+        lines.append(
+            "- No high-confidence hazards were detected in this scan."
+            " This is not a safety clearance."
+        )
 
     lines.extend(["", "Recommended actions:"])
     if recommendations:
@@ -1536,6 +1622,15 @@ def _build_pdf_report(job: dict[str, Any]) -> bytes:
         lines.extend(["", "Trust notes:"])
         for note in trust_notes[:3]:
             lines.append(f"- {note}")
+
+    if evaluation_summary:
+        lines.extend(
+            [
+                "",
+                "Review loop:",
+                f"- {evaluation_summary.get('summary', 'No review summary available.')}",
+            ]
+        )
 
     max_lines = 34
     visible_lines = lines[:max_lines]
@@ -2159,7 +2254,7 @@ def list_upload_jobs(request: Request) -> list[UploadJobStatus]:
             status_code=403,
             detail="Job listing is disabled. Query a known job ID directly instead.",
         )
-    return [UploadJobStatus(**j) for j in _upload_jobs.values()]
+    return [UploadJobStatus(**_ensure_job_derived_fields(j)) for j in _upload_jobs.values()]
 
 
 @app.get("/jobs/{job_id}", response_model=UploadJobStatus)
@@ -2175,7 +2270,7 @@ def get_upload_job(job_id: str, request: Request) -> UploadJobStatus:
     _require_private_access(request)
     if job_id not in _upload_jobs:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
-    return UploadJobStatus(**_upload_jobs[job_id])
+    return UploadJobStatus(**_ensure_job_derived_fields(_upload_jobs[job_id]))
 
 
 @app.post("/jobs/{job_id}/feedback", response_model=UploadJobStatus)
