@@ -1,0 +1,8 @@
+<svg width="920" height="140" viewBox="0 0 920 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="8" y="8" width="904" height="124" rx="28" fill="#171616"/>
+  <rect x="8" y="8" width="904" height="124" rx="28" stroke="#2B3B39" stroke-width="2"/>
+  <circle cx="84" cy="70" r="28" fill="#0C8074"/>
+  <path d="M84 46L101.392 76.5H66.6077L84 46Z" fill="#F7F4EE"/>
+  <path d="M84 58L93.5263 74.5H74.4737L84 58Z" fill="#171616"/>
+  <text x="148" y="86" fill="#FFFFFF" font-family="'Space Grotesk', Arial, sans-serif" font-size="54" font-weight="700" letter-spacing="2">ATLAS-0</text>
+</svg>

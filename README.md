@@ -1,4 +1,6 @@
-# ATLAS-0
+<p align="center">
+  <img src="docs/assets/atlas0-title.svg" alt="ATLAS-0" width="720" />
+</p>
 
 <p align="center">
   <img src="docs/assets/atlas0-logo.svg" alt="ATLAS-0 logo" width="720" />
