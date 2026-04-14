@@ -1,9 +1,5 @@
 <p align="center">
-  <img src="docs/assets/atlas0-title.svg" alt="ATLAS-0" width="720" />
-</p>
-
-<p align="center">
-  <img src="docs/assets/atlas0-logo.svg" alt="ATLAS-0 logo" width="720" />
+  <img src="docs/assets/atlas0-logo.svg" alt="ATLAS-0 hero" width="920" />
 </p>
 
 <p align="center">
@@ -20,7 +16,10 @@
   </a>
 </p>
 
-<p align="center"><strong>Scan your room. Catch what could fall, tip, or break.</strong></p>
+<p align="center">
+  <strong>Scan your room. Catch what could fall, tip, or break.</strong><br/>
+  <sub>ATLAS-0 is an upload-first room safety product built around trustworthy reports, not demo theater.</sub>
+</p>
 
 ATLAS-0 is now being built as an upload-first room safety product, not a broad
 "general spatial reasoning engine."

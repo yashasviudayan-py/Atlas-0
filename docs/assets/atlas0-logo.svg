@@ -1,24 +1,59 @@
-<svg width="960" height="280" viewBox="0 0 960 280" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">ATLAS-0 logo</title>
-  <desc id="desc">A geometric room-scan mark beside the ATLAS-0 wordmark.</desc>
+<svg width="1200" height="420" viewBox="0 0 1200 420" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">ATLAS-0 room safety scan hero</title>
+  <desc id="desc">A modern dark hero panel for ATLAS-0 with a room safety scan icon, product wordmark, and supporting copy.</desc>
   <defs>
-    <linearGradient id="panel" x1="24" y1="24" x2="184" y2="184" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FFF8EF"/>
-      <stop offset="1" stop-color="#F1E7D8"/>
+    <linearGradient id="heroBg" x1="96" y1="48" x2="1104" y2="372" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#171616"/>
+      <stop offset="0.55" stop-color="#1B1817"/>
+      <stop offset="1" stop-color="#121817"/>
     </linearGradient>
-    <linearGradient id="accent" x1="40" y1="40" x2="168" y2="168" gradientUnits="userSpaceOnUse">
+    <linearGradient id="heroStroke" x1="132" y1="72" x2="1026" y2="364" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#214742"/>
+      <stop offset="0.5" stop-color="#2D3E3B"/>
+      <stop offset="1" stop-color="#734A23"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="188" y1="120" x2="360" y2="292" gradientUnits="userSpaceOnUse">
       <stop stop-color="#0C8074"/>
       <stop offset="1" stop-color="#D67F30"/>
     </linearGradient>
+    <linearGradient id="card" x1="180" y1="112" x2="344" y2="284" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF9F0"/>
+      <stop offset="1" stop-color="#F1E7D8"/>
+    </linearGradient>
+    <filter id="softGlow" x="130" y="74" width="940" height="272" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
   </defs>
-  <rect x="24" y="24" width="160" height="160" rx="34" fill="url(#panel)"/>
-  <rect x="24" y="24" width="160" height="160" rx="34" stroke="url(#accent)" stroke-width="8"/>
-  <path d="M63 120L104 82L145 120" stroke="#201916" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M79 118V146H129V118" stroke="#201916" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M115 109C124 100 138 96 151 97" stroke="#0C8074" stroke-width="8" stroke-linecap="round"/>
-  <path d="M120 129C128 123 139 120 150 121" stroke="#D67F30" stroke-width="8" stroke-linecap="round"/>
-  <circle cx="104" cy="146" r="7" fill="#0C8074"/>
-  <text x="228" y="118" fill="#201916" font-family="'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif" font-size="82" font-weight="700" letter-spacing="-2.5">ATLAS-0</text>
-  <text x="232" y="164" fill="#62564E" font-family="'IBM Plex Mono', 'SFMono-Regular', monospace" font-size="26" letter-spacing="2">ROOM SAFETY SCAN</text>
-  <text x="232" y="204" fill="#897B72" font-family="'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif" font-size="24">Upload a walkthrough. Get a trustworthy hazard report.</text>
+
+  <rect width="1200" height="420" rx="36" fill="#0D1117"/>
+  <g filter="url(#softGlow)" opacity="0.32">
+    <ellipse cx="270" cy="112" rx="210" ry="88" fill="#0C8074"/>
+    <ellipse cx="964" cy="314" rx="248" ry="104" fill="#D67F30"/>
+  </g>
+
+  <rect x="92" y="56" width="1016" height="308" rx="42" fill="url(#heroBg)"/>
+  <rect x="92.75" y="56.75" width="1014.5" height="306.5" rx="41.25" stroke="url(#heroStroke)" stroke-width="1.5"/>
+
+  <g opacity="0.18">
+    <path d="M640 92H1042" stroke="#F7F4EE" stroke-width="1"/>
+    <path d="M640 132H1080" stroke="#F7F4EE" stroke-width="1"/>
+    <path d="M682 172H1100" stroke="#F7F4EE" stroke-width="1"/>
+    <path d="M712 212H1084" stroke="#F7F4EE" stroke-width="1"/>
+    <path d="M666 252H1060" stroke="#F7F4EE" stroke-width="1"/>
+    <path d="M634 292H1016" stroke="#F7F4EE" stroke-width="1"/>
+    <path d="M602 332H972" stroke="#F7F4EE" stroke-width="1"/>
+  </g>
+
+  <rect x="160" y="110" width="192" height="192" rx="40" fill="url(#card)"/>
+  <rect x="160" y="110" width="192" height="192" rx="40" stroke="url(#accent)" stroke-width="10"/>
+  <path d="M214 209L257.5 171L301 209" stroke="#201916" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M231 206.5V241.5H284V206.5" stroke="#201916" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M272 201C282 189 298 184 314 185" stroke="#0C8074" stroke-width="10" stroke-linecap="round"/>
+  <path d="M278 232C288 225 301 221 315 222" stroke="#D67F30" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="257.5" cy="241.5" r="9" fill="#0C8074"/>
+
+  <text x="404" y="170" fill="#F8F5F0" font-family="'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif" font-size="92" font-weight="700" letter-spacing="-3">ATLAS-0</text>
+  <text x="408" y="222" fill="#A89283" font-family="'IBM Plex Mono', 'SFMono-Regular', monospace" font-size="28" letter-spacing="5">ROOM SAFETY SCAN</text>
+  <text x="404" y="282" fill="#D8C7BA" font-family="'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif" font-size="33" font-weight="500">Upload a walkthrough. Get a trustworthy hazard report.</text>
+  <text x="404" y="320" fill="#8E8278" font-family="'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif" font-size="22">Report-first. Evidence-backed. Honest about uncertainty.</text>
 </svg>
