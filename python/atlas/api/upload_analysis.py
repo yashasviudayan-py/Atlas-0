@@ -10,7 +10,7 @@ from itertools import pairwise
 from typing import Any
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageOps
 
 from atlas.utils.video import ExtractedFrame, extract_frame_samples
 from atlas.vlm.inference import SemanticLabel
@@ -70,6 +70,55 @@ class UploadAnalysisResult:
     summary: dict[str, Any]
     scene_source: str
     point_cloud: list[list[float]]
+
+
+def build_finding_replays(
+    risks: list[dict[str, Any]],
+    evidence_artifacts: dict[str, bytes],
+    *,
+    max_replays: int = 3,
+) -> tuple[list[dict[str, Any]], dict[str, bytes]]:
+    """Build short GIF replays for the highest-priority findings."""
+    descriptors: list[dict[str, Any]] = []
+    replay_artifacts: dict[str, bytes] = {}
+
+    ranked_risks = sorted(
+        risks,
+        key=lambda risk: (
+            float(risk.get("priority_score", 0.0)),
+            float(risk.get("risk_score", 0.0)),
+        ),
+        reverse=True,
+    )
+    for index, risk in enumerate(ranked_risks[:max_replays], start=1):
+        evidence_ids = list(risk.get("reasoning", {}).get("evidence_ids") or [])
+        frame_bytes = [
+            evidence_artifacts[evidence_id]
+            for evidence_id in evidence_ids
+            if evidence_id in evidence_artifacts
+        ]
+        if not frame_bytes:
+            continue
+
+        replay_id = f"finding-{index:02d}"
+        replay_artifacts[replay_id] = _build_replay_gif(
+            frame_bytes,
+            title=str(risk.get("hazard_title", "Finding")),
+            subtitle=str(risk.get("location_label", "scan area")),
+        )
+        descriptors.append(
+            {
+                "replay_id": replay_id,
+                "hazard_code": risk.get("hazard_code"),
+                "object_id": risk.get("object_id"),
+                "caption": f"{risk.get('hazard_title', 'Finding')} replay",
+                "frame_count": len(frame_bytes),
+                "media_type": "image/gif",
+                "image_url": None,
+            }
+        )
+
+    return descriptors, replay_artifacts
 
 
 def analyze_image_heuristic(content: bytes) -> SemanticLabel:
@@ -364,8 +413,8 @@ async def analyze_frame_samples(
                     crop_bytes=region.crop_bytes,
                 )
             )
+            evidence_artifacts[observation_id] = region.crop_bytes
             if len(evidence_frames) < 6:
-                evidence_artifacts[observation_id] = region.crop_bytes
                 evidence_frames.append(
                     {
                         "evidence_id": observation_id,
@@ -570,6 +619,36 @@ def _encode_jpeg(arr: np.ndarray) -> bytes:
     image = Image.fromarray(arr.astype(np.uint8), mode="RGB")
     buf = io.BytesIO()
     image.save(buf, format="JPEG", quality=88, optimize=True)
+    return buf.getvalue()
+
+
+def _build_replay_gif(frame_bytes: list[bytes], *, title: str, subtitle: str) -> bytes:
+    """Compose a simple animated GIF for one finding replay."""
+    frames: list[Image.Image] = []
+    for raw in frame_bytes[:4]:
+        crop = Image.open(io.BytesIO(raw)).convert("RGB")
+        panel = Image.new("RGB", (420, 256), color="#171616")
+        fitted = ImageOps.contain(crop, (388, 188))
+        panel.paste(fitted, ((420 - fitted.width) // 2, 22))
+        draw = ImageDraw.Draw(panel)
+        draw.rounded_rectangle((18, 214, 402, 242), radius=14, fill="#221D1A")
+        draw.text((30, 221), title[:34], fill="#F8F5F0")
+        draw.text((30, 237), subtitle[:34], fill="#BDAEA2")
+        frames.append(panel)
+
+    if not frames:
+        return b""
+
+    buf = io.BytesIO()
+    frames[0].save(
+        buf,
+        format="GIF",
+        save_all=True,
+        append_images=frames[1:],
+        duration=650,
+        loop=0,
+        optimize=False,
+    )
     return buf.getvalue()
 
 

@@ -50,6 +50,7 @@ from atlas.api.overlay import CameraParams, OverlayBuilder
 from atlas.api.upload_analysis import (
     analyze_uploaded_image,
     analyze_uploaded_video,
+    build_finding_replays,
 )
 from atlas.api.upload_store import UploadStore
 from atlas.utils.config import load_config
@@ -824,6 +825,30 @@ def _refresh_job_artifacts(job: dict[str, Any]) -> None:
         evidence_id = str(frame.get("evidence_id", ""))
         if evidence_id and evidence_id in evidence_artifacts:
             frame["artifact"] = evidence_artifacts[evidence_id]
+
+    replay_artifacts: dict[str, dict[str, Any]] = {}
+    for path in sorted(_upload_store.replay_dir(job_id).glob("*.gif")):
+        if not path.is_file():
+            continue
+        replay_id = path.stem
+        replay_artifacts[replay_id] = _upload_store.artifact_pointer(
+            job_id,
+            path.relative_to(_upload_store.job_dir(job_id)),
+            kind="finding_replay",
+            media_type="image/gif",
+            url=f"/jobs/{job_id}/replays/{replay_id}",
+        )
+    _set_job_artifact(job, "finding_replays", replay_artifacts or None)
+
+    for risk in job.get("risks") or []:
+        replay = risk.get("replay")
+        if not isinstance(replay, dict):
+            continue
+        replay_id = str(replay.get("replay_id", ""))
+        if replay_id and replay_id in replay_artifacts:
+            replay["image_url"] = replay_artifacts[replay_id]["url"]
+            replay["media_type"] = replay_artifacts[replay_id]["media_type"]
+            replay["artifact"] = replay_artifacts[replay_id]
 
 
 for _job in _upload_jobs.values():
@@ -1928,6 +1953,7 @@ async def _process_upload(job_id: str) -> None:
 
         _update_job(job, stage="risk", progress=0.9)
 
+        risks = [dict(risk) for risk in result.risks]
         evidence_frames = [dict(frame) for frame in result.evidence_frames]
         evidence_artifacts: dict[str, dict[str, Any]] = {}
         for frame in evidence_frames:
@@ -1952,13 +1978,48 @@ async def _process_upload(job_id: str) -> None:
             frame["artifact"] = pointer
             evidence_artifacts[evidence_id] = pointer
 
+        replay_descriptors, replay_payloads = build_finding_replays(
+            risks,
+            result.evidence_artifacts,
+        )
+        finding_replays: dict[str, dict[str, Any]] = {}
+        finding_replays_by_key: dict[str, dict[str, Any]] = {}
+        for descriptor in replay_descriptors:
+            replay_id = str(descriptor.get("replay_id", ""))
+            replay_bytes = replay_payloads.get(replay_id)
+            if not replay_id or not replay_bytes:
+                continue
+            replay_path = _upload_store.save_replay_gif(job_id, replay_id, replay_bytes)
+            image_url = f"/jobs/{job_id}/replays/{replay_id}"
+            pointer = _upload_store.artifact_pointer(
+                job_id,
+                replay_path.relative_to(_upload_store.job_dir(job_id)),
+                kind="finding_replay",
+                media_type="image/gif",
+                url=image_url,
+            )
+            replay = dict(descriptor)
+            replay["image_url"] = image_url
+            replay["artifact"] = pointer
+            finding_replays[replay_id] = pointer
+            finding_key = (
+                f"{replay.get('object_id') or 'finding'}:"
+                f"{replay.get('hazard_code') or 'unknown'}"
+            )
+            finding_replays_by_key[finding_key] = replay
+
+        for risk in risks:
+            replay = finding_replays_by_key.get(_finding_key(risk))
+            if replay is not None:
+                risk["replay"] = replay
+
         _update_job(
             job,
             status="complete",
             stage="complete",
             progress=1.0,
             objects=result.objects,
-            risks=result.risks,
+            risks=risks,
             point_cloud=result.point_cloud,
             fix_first=result.fix_first,
             summary=result.summary,
@@ -1985,6 +2046,8 @@ async def _process_upload(job_id: str) -> None:
         )
         if evidence_artifacts:
             artifacts["evidence"] = evidence_artifacts
+        if finding_replays:
+            artifacts["finding_replays"] = finding_replays
 
         agent = _get_agent()
         for obj in result.objects:
@@ -2342,6 +2405,21 @@ def download_evidence(job_id: str, evidence_id: str, request: Request) -> Respon
     artifact = _upload_store.load_evidence_image(job_id, evidence_id)
     if artifact is None:
         raise HTTPException(status_code=404, detail="Evidence artifact not found.")
+
+    content, media_type = artifact
+    return Response(content=content, media_type=media_type)
+
+
+@app.get("/jobs/{job_id}/replays/{replay_id}")
+def download_finding_replay(job_id: str, replay_id: str, request: Request) -> Response:
+    """Download one persisted finding replay for a completed report."""
+    _require_private_access(request)
+    if job_id not in _upload_jobs:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+
+    artifact = _upload_store.load_replay_gif(job_id, replay_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Finding replay not found.")
 
     content, media_type = artifact
     return Response(content=content, media_type=media_type)

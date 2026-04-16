@@ -36,6 +36,8 @@ def test_evaluate_upload_hazards_returns_expected_codes() -> None:
     assert "edge_placement" in codes
     assert "liquid_spill" in codes
     assert all("evidence" in hazard for hazard in hazards)
+    assert any(hazard["reasoning"]["rule_hits"] for hazard in hazards)
+    assert all("object_snapshot" in hazard["reasoning"] for hazard in hazards)
 
 
 def test_build_recommendations_from_hazards_deduplicates() -> None:

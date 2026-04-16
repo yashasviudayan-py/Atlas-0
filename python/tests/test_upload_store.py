@@ -98,6 +98,18 @@ def test_upload_store_persists_and_removes_job_input(tmp_path: Path) -> None:
     assert store.load_job_input("job-007") is None
 
 
+def test_upload_store_persists_replay_gif(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path)
+    store.create_job({"job_id": "job-007b"})
+
+    store.save_replay_gif("job-007b", "finding-01", b"gif-bytes")
+    loaded = store.load_replay_gif("job-007b", "finding-01")
+
+    assert loaded is not None
+    assert loaded[0] == b"gif-bytes"
+    assert loaded[1] == "image/gif"
+
+
 def test_upload_store_storage_summary_counts_files(tmp_path: Path) -> None:
     store = UploadStore(tmp_path, save_original_uploads=True)
     store.create_job({"job_id": "job-008"})
@@ -105,6 +117,7 @@ def test_upload_store_storage_summary_counts_files(tmp_path: Path) -> None:
     store.save_original_upload("job-008", "scan.mov", b"original")
     store.save_report_pdf("job-008", b"pdf")
     store.save_evidence_image("job-008", "e-01", b"jpeg")
+    store.save_replay_gif("job-008", "finding-01", b"gif")
 
     summary = store.storage_summary()
 
@@ -114,7 +127,10 @@ def test_upload_store_storage_summary_counts_files(tmp_path: Path) -> None:
     assert summary["original_uploads"] == 1
     assert summary["reports"] == 1
     assert summary["evidence_files"] == 1
-    assert summary["bytes_used"] >= len(b"queue") + len(b"original") + len(b"pdf") + len(b"jpeg")
+    assert summary["replay_files"] == 1
+    assert summary["bytes_used"] >= (
+        len(b"queue") + len(b"original") + len(b"pdf") + len(b"jpeg") + len(b"gif")
+    )
 
 
 def test_upload_store_artifact_pointer_uses_storage_keys(tmp_path: Path) -> None:

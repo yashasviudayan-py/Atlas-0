@@ -110,6 +110,19 @@ def _format_signal(signal: str) -> str:
     return f"{key.replace('_', ' ')}: {value}" if value else key.replace("_", " ")
 
 
+def _signal_rule_hits(signals: list[str]) -> list[str]:
+    """Translate raw signal keys into a clearer reasoning trace."""
+    labels: list[str] = []
+    for signal in signals:
+        key, _sep, value = signal.partition("=")
+        cleaned = key.replace("_", " ")
+        if value:
+            labels.append(f"{cleaned} triggered at {value}")
+        else:
+            labels.append(f"{cleaned} triggered")
+    return labels
+
+
 def _build_hazard(
     obj: dict[str, Any],
     code: str,
@@ -161,6 +174,7 @@ def _build_hazard(
         },
         "reasoning": {
             "signals": [_format_signal(signal) for signal in signals],
+            "rule_hits": _signal_rule_hits(signals),
             "support_summary": (
                 f"{observation_count} supporting observation"
                 f"{'' if observation_count == 1 else 's'} across the scan"
@@ -168,6 +182,13 @@ def _build_hazard(
             "grounding_confidence": round(grounded_confidence, 2),
             "grounding_confidence_label": confidence_bucket(grounded_confidence),
             "evidence_ids": evidence_ids,
+            "object_snapshot": {
+                "material": obj.get("material", "unknown"),
+                "estimated_height_m": round(float(obj.get("estimated_height_m", 0.0)), 2),
+                "estimated_width_m": round(float(obj.get("estimated_width_m", 0.0)), 2),
+                "observation_count": observation_count,
+                "location_label": obj.get("location_label", "scan area"),
+            },
         },
         "feedback_summary": {
             "useful": 0,

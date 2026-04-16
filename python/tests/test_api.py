@@ -140,6 +140,24 @@ def test_upload_job_status_exposes_report_fields():
                     "support_summary": "3 supporting observations across the scan",
                     "signals": ["slenderness: 2.1"],
                     "grounding_confidence": 0.76,
+                    "rule_hits": ["slenderness triggered at 2.1"],
+                    "evidence_ids": ["f00-r01", "f01-r01"],
+                    "object_snapshot": {
+                        "material": "Metal",
+                        "estimated_height_m": 1.82,
+                        "estimated_width_m": 0.38,
+                        "observation_count": 3,
+                        "location_label": "front-right zone",
+                    },
+                },
+                "replay": {
+                    "replay_id": "finding-01",
+                    "hazard_code": "top_heavy_tipping",
+                    "object_id": "obj-1",
+                    "caption": "Floor lamp replay",
+                    "frame_count": 2,
+                    "media_type": "image/gif",
+                    "image_url": "/jobs/job12345/replays/finding-01",
                 },
                 "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
                 "latest_feedback": None,
@@ -262,6 +280,46 @@ def test_download_evidence_returns_file_backed_artifact(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/jpeg")
     assert response.content == b"jpeg-evidence"
+
+
+def test_download_replay_returns_file_backed_artifact(tmp_path: Path) -> None:
+    _upload_jobs["jobreplay1"] = {
+        "job_id": "jobreplay1",
+        "filename": "kitchen.mp4",
+        "status": "complete",
+        "stage": "complete",
+        "progress": 1.0,
+        "objects": [],
+        "risks": [
+            {
+                "object_id": "track-01",
+                "hazard_code": "edge_placement",
+                "hazard_title": "Object placed near an edge",
+                "replay": {
+                    "replay_id": "finding-01",
+                    "image_url": "/jobs/jobreplay1/replays/finding-01",
+                },
+            }
+        ],
+        "fix_first": [],
+        "summary": {"filename": "kitchen.mp4", "hazard_count": 1, "object_count": 1},
+        "recommendations": [],
+        "evidence_frames": [],
+        "scan_quality": {"status": "good", "score": 0.8, "usable": True, "warnings": []},
+        "trust_notes": [],
+        "scene_source": "estimated_multiview",
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": "/reports/jobreplay1.pdf",
+        "error": None,
+    }
+    _upload_store.save_replay_gif("jobreplay1", "finding-01", b"GIF89a-fixture")
+
+    response = client.get("/jobs/jobreplay1/replays/finding-01")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/gif")
+    assert response.content == b"GIF89a-fixture"
 
 
 def test_report_pdf_missing_job_returns_404():
@@ -653,3 +711,105 @@ async def test_process_upload_retries_then_completes(monkeypatch: pytest.MonkeyP
     assert _upload_jobs["jobproc1"]["status"] == "complete"
     assert _upload_jobs["jobproc1"]["attempt_count"] == 2
     assert _upload_store.has_job_input("jobproc1") is False
+
+
+async def test_process_upload_persists_finding_replays(monkeypatch: pytest.MonkeyPatch) -> None:
+    job = {
+        "job_id": "jobreplayproc",
+        "filename": "room.png",
+        "content_type": "image/png",
+        "status": "queued",
+        "stage": "upload",
+        "progress": 0.0,
+        "objects": None,
+        "risks": None,
+        "point_cloud": None,
+        "fix_first": None,
+        "summary": None,
+        "recommendations": None,
+        "evidence_frames": None,
+        "scan_quality": None,
+        "trust_notes": None,
+        "scene_source": None,
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": None,
+        "error": None,
+        "attempt_count": 0,
+    }
+    _upload_jobs["jobreplayproc"] = job
+    _upload_store.create_job(job)
+    _upload_store.save_job_input("jobreplayproc", "room.png", b"image")
+
+    replay_gif = b"GIF89a-generated"
+
+    async def fake_analyze(*_args, **_kwargs):
+        return SimpleNamespace(
+            objects=[],
+            risks=[
+                {
+                    "object_id": "track-01",
+                    "hazard_code": "edge_placement",
+                    "hazard_title": "Object placed near an edge",
+                    "risk_score": 0.77,
+                    "priority_score": 0.82,
+                    "location_label": "front shelf",
+                    "reasoning": {"evidence_ids": ["f00-r01"]},
+                }
+            ],
+            point_cloud=[],
+            fix_first=[],
+            summary={"filename": "room.png", "hazard_count": 1, "object_count": 1},
+            recommendations=[],
+            evidence_frames=[
+                {
+                    "evidence_id": "f00-r01",
+                    "caption": "Shelf crop",
+                    "confidence": 0.81,
+                    "image_url": None,
+                }
+            ],
+            evidence_artifacts={"f00-r01": b"jpeg-evidence"},
+            scan_quality={"status": "good", "score": 0.8, "usable": True, "warnings": []},
+            trust_notes=[],
+            scene_source="estimated_multiview",
+        )
+
+    async def fake_ingest(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(server_mod, "analyze_uploaded_image", fake_analyze)
+    monkeypatch.setattr(server_mod, "_build_pdf_report", lambda _job: b"%PDF-1.4\nfixture\n")
+    monkeypatch.setattr(
+        server_mod,
+        "build_finding_replays",
+        lambda *_args, **_kwargs: (
+            [
+                {
+                    "replay_id": "finding-01",
+                    "hazard_code": "edge_placement",
+                    "object_id": "track-01",
+                    "caption": "Edge placement replay",
+                    "frame_count": 1,
+                    "media_type": "image/gif",
+                    "image_url": None,
+                }
+            ],
+            {"finding-01": replay_gif},
+        ),
+    )
+    monkeypatch.setattr(
+        server_mod,
+        "_get_agent",
+        lambda: SimpleNamespace(ingest_from_upload=fake_ingest),
+    )
+
+    await server_mod._process_upload("jobreplayproc")
+
+    completed = _upload_jobs["jobreplayproc"]
+    assert completed["status"] == "complete"
+    assert completed["artifacts"]["finding_replays"]["finding-01"]["storage_key"] == (
+        "jobs/jobreplayproc/replays/finding-01.gif"
+    )
+    assert completed["risks"][0]["replay"]["image_url"] == "/jobs/jobreplayproc/replays/finding-01"
+    assert _upload_store.load_replay_gif("jobreplayproc", "finding-01") == (replay_gif, "image/gif")

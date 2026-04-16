@@ -58,9 +58,17 @@ class UploadStore:
         """Return the directory holding evidence crops for one job."""
         return self.job_dir(job_id) / "evidence"
 
+    def replay_dir(self, job_id: str) -> Path:
+        """Return the directory holding finding replays for one job."""
+        return self.job_dir(job_id) / "replays"
+
     def evidence_path(self, job_id: str, evidence_id: str, suffix: str = ".jpg") -> Path:
         """Return the persisted path for one evidence artifact."""
         return self.evidence_dir(job_id) / f"{evidence_id}{suffix}"
+
+    def replay_path(self, job_id: str, replay_id: str, suffix: str = ".gif") -> Path:
+        """Return the persisted path for one finding replay artifact."""
+        return self.replay_dir(job_id) / f"{replay_id}{suffix}"
 
     def create_job(self, job: dict[str, Any]) -> None:
         """Create the job directory and write its initial manifest."""
@@ -175,6 +183,20 @@ class UploadStore:
                 return (evidence_path.read_bytes(), media_type)
         return None
 
+    def save_replay_gif(self, job_id: str, replay_id: str, content: bytes) -> Path:
+        """Persist one replay GIF for a job."""
+        replay_path = self.replay_path(job_id, replay_id, suffix=".gif")
+        replay_path.parent.mkdir(parents=True, exist_ok=True)
+        replay_path.write_bytes(content)
+        return replay_path
+
+    def load_replay_gif(self, job_id: str, replay_id: str) -> tuple[bytes, str] | None:
+        """Load one persisted finding replay and its content type."""
+        replay_path = self.replay_path(job_id, replay_id, suffix=".gif")
+        if replay_path.exists():
+            return (replay_path.read_bytes(), "image/gif")
+        return None
+
     def delete_job(self, job_id: str) -> bool:
         """Delete all persisted artifacts for a job."""
         job_dir = self.job_dir(job_id)
@@ -213,6 +235,7 @@ class UploadStore:
         queued_inputs = 0
         reports = 0
         evidence_files = 0
+        replay_files = 0
         original_uploads = 0
 
         for job_dir in self.root_dir.iterdir():
@@ -232,6 +255,8 @@ class UploadStore:
                     reports += 1
                 elif path.parent.name == "evidence":
                     evidence_files += 1
+                elif path.parent.name == "replays":
+                    replay_files += 1
 
         usage_ratio = 0.0 if self._max_storage_bytes <= 0 else bytes_used / self._max_storage_bytes
         return {
@@ -243,6 +268,7 @@ class UploadStore:
             "original_uploads": original_uploads,
             "reports": reports,
             "evidence_files": evidence_files,
+            "replay_files": replay_files,
         }
 
     def _prune_old_jobs(self) -> None:
