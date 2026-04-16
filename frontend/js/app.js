@@ -329,6 +329,8 @@ function renderReport(job) {
           <ul class="signal-list">
             ${(risk.reasoning?.signals || []).slice(0, 3).map((signal) => `<li>${escapeHtml(signal)}</li>`).join('')}
           </ul>
+          ${renderReplayPreview(risk)}
+          ${renderReasoningPanel(risk)}
           <div class="report-card-meta">
             <span>${Math.round((risk.risk_score || 0) * 100)} risk score</span>
             <span>${escapeHtml(risk.location_label || 'Approximate location')}</span>
@@ -398,6 +400,84 @@ function renderHeroBadges(summary) {
     summary.rescan_recommended ? 'Rescan recommended' : 'Evidence-backed',
   ];
   return badges.map((badge) => `<span class="soft-badge">${escapeHtml(badge)}</span>`).join('');
+}
+
+function renderReplayPreview(risk) {
+  const replay = risk?.replay;
+  if (!replay?.image_url) {
+    return '';
+  }
+
+  return `
+    <div class="finding-replay">
+      <div class="finding-replay-copy">
+        <strong>Evidence replay</strong>
+        <span>${escapeHtml(replay.caption || 'Short replay from the strongest supporting crops.')}</span>
+      </div>
+      <img src="${api.withAccessToken(replay.image_url)}" alt="${escapeHtml(replay.caption || 'Finding replay')}" />
+      <div class="finding-replay-meta">
+        <span>${Number(replay.frame_count || 0)} supporting frame${Number(replay.frame_count || 0) === 1 ? '' : 's'}</span>
+        <span>${escapeHtml(risk.location_label || 'scan area')}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderReasoningPanel(risk) {
+  const reasoning = risk?.reasoning || {};
+  const objectSnapshot = reasoning.object_snapshot || {};
+  const ruleHits = Array.isArray(reasoning.rule_hits) ? reasoning.rule_hits : [];
+  const evidenceIds = Array.isArray(reasoning.evidence_ids) ? reasoning.evidence_ids : [];
+  const facts = [];
+
+  if (objectSnapshot.material) {
+    facts.push(`Material: ${objectSnapshot.material}`);
+  }
+  if (Number(objectSnapshot.estimated_height_m || 0) > 0) {
+    facts.push(`Estimated height ${Number(objectSnapshot.estimated_height_m).toFixed(2)} m`);
+  }
+  if (Number(objectSnapshot.estimated_width_m || 0) > 0) {
+    facts.push(`Estimated width ${Number(objectSnapshot.estimated_width_m).toFixed(2)} m`);
+  }
+  if (Number(objectSnapshot.observation_count || 0) > 0) {
+    facts.push(`${Number(objectSnapshot.observation_count)} supporting observation${Number(objectSnapshot.observation_count) === 1 ? '' : 's'}`);
+  }
+
+  if (!ruleHits.length && !facts.length && !evidenceIds.length) {
+    return '';
+  }
+
+  return `
+    <details class="reasoning-panel">
+      <summary>Why ATLAS-0 surfaced this finding</summary>
+      <div class="reasoning-grid">
+        ${ruleHits.length ? `
+          <div class="reasoning-block">
+            <strong>Triggered rules</strong>
+            <ul>
+              ${ruleHits.map((hit) => `<li>${escapeHtml(hit)}</li>`).join('')}
+            </ul>
+          </div>
+        ` : ''}
+        ${facts.length ? `
+          <div class="reasoning-block">
+            <strong>Object snapshot</strong>
+            <ul>
+              ${facts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join('')}
+            </ul>
+          </div>
+        ` : ''}
+        ${evidenceIds.length ? `
+          <div class="reasoning-block">
+            <strong>Evidence references</strong>
+            <div class="reasoning-chips">
+              ${evidenceIds.map((id) => `<span>${escapeHtml(id)}</span>`).join('')}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    </details>
+  `;
 }
 
 function renderProcessGuidance(job) {
