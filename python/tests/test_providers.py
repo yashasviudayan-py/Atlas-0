@@ -318,8 +318,13 @@ async def test_vlm_engine_returns_fallback_on_provider_generate_error() -> None:
 @pytest.mark.asyncio
 async def test_vlm_engine_provider_field_in_config() -> None:
     """VLMConfig.provider field is set and accessible."""
-    config = VLMConfig(provider="claude", claude_model="claude-sonnet-4-6")
+    config = VLMConfig(
+        provider="claude",
+        fallback_provider="openai",
+        claude_model="claude-sonnet-4-6",
+    )
     assert config.provider == "claude"
+    assert config.fallback_provider == "openai"
     assert config.claude_model == "claude-sonnet-4-6"
 
 
@@ -341,3 +346,22 @@ def test_vlm_config_has_cloud_model_fields() -> None:
     config = VLMConfig()
     assert config.claude_model == "claude-sonnet-4-6"
     assert config.openai_model == "gpt-4o"
+
+
+@pytest.mark.asyncio
+async def test_vlm_engine_uses_fallback_provider_when_primary_fails() -> None:
+    config = VLMConfig(provider="ollama", fallback_provider="openai")
+    engine = VLMEngine(config)
+
+    primary = AsyncMock(spec=VLMProviderProtocol)
+    primary.generate = AsyncMock(side_effect=Exception("primary down"))
+    fallback = AsyncMock(spec=VLMProviderProtocol)
+    fallback.generate = AsyncMock(return_value=_MUG_JSON)
+
+    with patch("atlas.vlm.inference.get_provider", side_effect=[primary, fallback]):
+        await engine.initialize()
+        label = await engine.label_region(b"fake_image")
+
+    assert label.label == "mug"
+    primary.generate.assert_awaited_once()
+    fallback.generate.assert_awaited_once()

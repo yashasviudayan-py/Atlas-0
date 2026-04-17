@@ -213,6 +213,11 @@ timeout_seconds = 30.0
         cfg = load_config()
         assert cfg.vlm.model_name == "bakllava"
 
+    def test_env_override_vlm_fallback_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ATLAS_VLM_FALLBACK_PROVIDER", "openai")
+        cfg = load_config()
+        assert cfg.vlm.fallback_provider == "openai"
+
     def test_env_override_slam_bool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ATLAS_SLAM_ENABLE_LOOP_CLOSURE", "false")
         cfg = load_config()
@@ -245,6 +250,10 @@ class TestValidation:
     def test_invalid_temperature(self) -> None:
         with pytest.raises(ValidationError):
             VlmConfig(temperature=3.0)
+
+    def test_invalid_fallback_provider(self) -> None:
+        with pytest.raises(ValidationError):
+            VlmConfig(fallback_provider="gemini")
 
     def test_invalid_risk_threshold(self) -> None:
         from atlas.utils.config import WorldModelConfig
@@ -307,6 +316,12 @@ class TestValidation:
 
         with pytest.raises(ValidationError):
             UploadsConfig(max_storage_bytes=0)
+
+    def test_invalid_text_density_threshold(self) -> None:
+        from atlas.utils.config import UploadsConfig
+
+        with pytest.raises(ValidationError):
+            UploadsConfig(text_density_threshold=1.5)
 
 
 # ── Default.toml round-trip ───────────────────────────────────────────────────

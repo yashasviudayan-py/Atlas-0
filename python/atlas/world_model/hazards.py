@@ -188,6 +188,9 @@ def _build_hazard(
                 "estimated_width_m": round(float(obj.get("estimated_width_m", 0.0)), 2),
                 "observation_count": observation_count,
                 "location_label": obj.get("location_label", "scan area"),
+                "text_redacted_observation_count": int(
+                    obj.get("text_redacted_observation_count", 0) or 0
+                ),
             },
         },
         "feedback_summary": {

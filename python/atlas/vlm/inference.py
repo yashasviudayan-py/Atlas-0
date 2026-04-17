@@ -48,6 +48,7 @@ class VLMConfig:
     """
 
     provider: str = "ollama"
+    fallback_provider: str | None = None
     model_name: str = "moondream"
     ollama_host: str = "http://localhost:11434"
     claude_model: str = "claude-sonnet-4-6"
@@ -171,7 +172,7 @@ class VLMEngine:
     def __init__(self, config: VLMConfig | None = None) -> None:
         self.config = config or VLMConfig()
         self._initialized = False
-        self._provider: VLMProvider | None = None
+        self._providers: list[tuple[str, VLMProvider]] = []
         logger.info(
             "vlm_engine_created",
             provider=self.config.provider,
@@ -187,31 +188,37 @@ class VLMEngine:
         Logs a warning and continues in degraded mode (fallback labels) when
         initialization fails, so the rest of the system keeps running.
         """
-        self._provider = get_provider(self.config)
+        self._providers = []
+        provider_names = [self.config.provider]
+        if self.config.fallback_provider and self.config.fallback_provider != self.config.provider:
+            provider_names.append(self.config.fallback_provider)
 
-        try:
-            await self._provider.initialize()
-        except (ImportError, RuntimeError) as exc:
-            logger.warning(
-                "vlm_provider_init_failed",
-                provider=self.config.provider,
-                error=str(exc),
-                note="Proceeding with fallback labels.",
-            )
-            # Keep _provider set so generate() attempts calls and handles errors.
+        for provider_name in provider_names:
+            provider = get_provider(self.config, provider_name=provider_name)
+            try:
+                await provider.initialize()
+            except (ImportError, RuntimeError) as exc:
+                logger.warning(
+                    "vlm_provider_init_failed",
+                    provider=provider_name,
+                    error=str(exc),
+                    note="Proceeding with degraded routing for this provider slot.",
+                )
+            self._providers.append((provider_name, provider))
 
         self._initialized = True
         logger.info(
             "vlm_engine_initialized",
             provider=self.config.provider,
             model=self.config.model_name,
+            fallback_provider=self.config.fallback_provider,
         )
 
     async def close(self) -> None:
         """Release resources held by the active provider."""
-        if self._provider is not None:
-            await self._provider.close()
-            self._provider = None
+        for _provider_name, provider in self._providers:
+            await provider.close()
+        self._providers = []
         self._initialized = False
 
     async def label_region(
@@ -237,36 +244,40 @@ class VLMEngine:
         if not self._initialized:
             raise RuntimeError("VLMEngine not initialized. Call initialize() first.")
 
-        if self._provider is None:
+        if not self._providers:
             logger.warning("vlm_provider_unavailable_using_fallback")
             return _fallback_label()
 
         prompt = LABEL_REGION_V1.build(region_hint=region_hint or "none")
 
-        try:
-            raw = await self._provider.generate(image_bytes, prompt)
-        except Exception as exc:
-            logger.warning(
-                "vlm_inference_failed",
-                provider=self.config.provider,
-                error=str(exc),
-            )
-            return _fallback_label()
+        for provider_name, provider in self._providers:
+            try:
+                raw = await provider.generate(image_bytes, prompt)
+            except Exception as exc:
+                logger.warning(
+                    "vlm_inference_failed",
+                    provider=provider_name,
+                    error=str(exc),
+                )
+                continue
 
-        label = _parse_label_response(raw)
-        if label is None:
-            logger.warning(
-                "vlm_response_parse_failed",
-                raw_preview=raw[:200],
-                provider=self.config.provider,
-            )
-            return _fallback_label()
+            label = _parse_label_response(raw)
+            if label is None:
+                logger.warning(
+                    "vlm_response_parse_failed",
+                    raw_preview=raw[:200],
+                    provider=provider_name,
+                )
+                continue
 
-        logger.debug(
-            "vlm_region_labeled",
-            label=label.label,
-            material=label.material,
-            confidence=label.confidence,
-            provider=self.config.provider,
-        )
-        return label
+            logger.debug(
+                "vlm_region_labeled",
+                label=label.label,
+                material=label.material,
+                confidence=label.confidence,
+                provider=provider_name,
+            )
+            return label
+
+        logger.warning("vlm_all_providers_failed_using_fallback")
+        return _fallback_label()

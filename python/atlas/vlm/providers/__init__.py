@@ -46,7 +46,7 @@ __all__ = ["VLMProvider", "get_provider"]
 _KNOWN_PROVIDERS = ("ollama", "claude", "openai")
 
 
-def get_provider(config: VLMConfig) -> VLMProvider:
+def get_provider(config: VLMConfig, *, provider_name: str | None = None) -> VLMProvider:
     """Create and return a :class:`VLMProvider` for the given config.
 
     The provider is *not* initialized here — callers must ``await
@@ -73,7 +73,7 @@ def get_provider(config: VLMConfig) -> VLMProvider:
         text = await provider.generate(image_bytes, prompt)
         await provider.close()
     """
-    provider_name = config.provider.lower().strip()
+    provider_name = (provider_name or config.provider).lower().strip()
 
     if provider_name == "ollama":
         from atlas.vlm.providers.ollama_provider import OllamaProvider

@@ -60,6 +60,9 @@ rest_threshold = 0.01
 # VLM backend: "ollama" (default, local, free) | "claude" | "openai"
 # Switch at runtime: ATLAS_VLM_PROVIDER=claude
 provider = "ollama"
+# Optional fallback provider used when the primary provider is unavailable
+# or returns unusable output. Leave empty to use only the primary provider.
+fallback_provider = ""
 
 # Ollama settings (used when provider = "ollama")
 model_name = "moondream"
@@ -129,3 +132,10 @@ max_job_attempts = 2
 job_timeout_seconds = 180.0
 # Best-effort storage budget across persisted upload artifacts.
 max_storage_bytes = 1500000000
+# Blur text-heavy crops before model analysis/evidence storage to reduce
+# sensitive-content leakage and prompt-injection-style scene text.
+redact_text_heavy_regions = true
+# Heuristic text-density threshold for redacting document/screen-like crops.
+text_density_threshold = 0.52
+# Maximum number of text-heavy regions redacted per sampled frame.
+max_redacted_regions_per_frame = 2

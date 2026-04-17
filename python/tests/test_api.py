@@ -112,6 +112,9 @@ def test_operator_settings_require_token_when_configured() -> None:
     assert authenticated.status_code == 200
     assert authenticated.json()["uploads"]["max_queue_depth"] == _upload_cfg.max_queue_depth
     assert authenticated.json()["uploads"]["max_storage_bytes"] == _upload_cfg.max_storage_bytes
+    assert authenticated.json()["providers"]["primary_provider"] in {"ollama", "claude", "openai"}
+    assert "upload_success_rate" in authenticated.json()["product"]
+    assert "reviewed_jobs" in authenticated.json()["evaluation"]
 
 
 def test_upload_job_status_exposes_report_fields():
@@ -494,6 +497,64 @@ def test_record_job_feedback_updates_job_and_finding() -> None:
     assert data["evaluation_summary"]["reviewed_findings"] == 1
     assert data["evaluation_summary"]["pending_findings"] == 0
     assert data["evaluation_summary"]["useful_events"] == 1
+
+
+def test_record_job_evaluation_updates_job_summary() -> None:
+    _upload_jobs["jobeval1"] = {
+        "job_id": "jobeval1",
+        "filename": "hallway.mp4",
+        "status": "complete",
+        "stage": "complete",
+        "progress": 1.0,
+        "objects": [],
+        "risks": [
+            {
+                "object_id": "track-01",
+                "hazard_code": "walkway_clutter",
+                "hazard_title": "Walkway clutter",
+                "object_label": "Box",
+                "risk_score": 0.58,
+                "severity": "moderate",
+                "location_label": "front-center",
+                "feedback_summary": {"useful": 1, "wrong": 0, "duplicate": 0},
+                "latest_feedback": "useful",
+            }
+        ],
+        "fix_first": [],
+        "summary": {"filename": "hallway.mp4", "hazard_count": 1, "object_count": 1},
+        "recommendations": [],
+        "evidence_frames": [],
+        "scan_quality": {"status": "fair", "score": 0.61, "usable": True, "warnings": []},
+        "trust_notes": [],
+        "scene_source": "estimated_multiview",
+        "finding_feedback": [
+            {
+                "hazard_code": "walkway_clutter",
+                "object_id": "track-01",
+                "verdict": "useful",
+                "finding_key": "track-01:walkway_clutter",
+            }
+        ],
+        "feedback_summary": {"useful": 1, "wrong": 0, "duplicate": 0},
+        "report_url": "/reports/jobeval1.pdf",
+        "error": None,
+    }
+
+    response = client.post(
+        "/jobs/jobeval1/evaluation",
+        json={
+            "status": "missed_hazard",
+            "missed_hazards": ["loose cable by doorway"],
+            "note": "Caught one missed trip hazard during review.",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["human_evaluation"]["status"] == "missed_hazard"
+    assert data["evaluation_summary"]["missed_hazard_count"] == 1
+    assert data["evaluation_summary"]["human_status"] == "missed_hazard"
+    assert data["evaluation_summary"]["needs_review"] is True
 
 
 def test_delete_upload_job_removes_persisted_artifacts() -> None:

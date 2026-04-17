@@ -15,6 +15,7 @@ import contextlib
 import hmac
 import io
 import ipaddress
+import json
 import pathlib
 import uuid
 from datetime import UTC, datetime
@@ -141,6 +142,7 @@ def _build_runtime_vlm_config() -> VLMConfig:
     vlm = load_config().vlm
     return VLMConfig(
         provider=vlm.provider,
+        fallback_provider=vlm.fallback_provider,
         model_name=vlm.model_name,
         ollama_host=vlm.ollama_host,
         claude_model=vlm.claude_model,
@@ -242,6 +244,9 @@ class OperatorSettingsResponse(BaseModel):
     uploads: dict[str, Any]
     queue: dict[str, Any]
     storage: dict[str, Any]
+    providers: dict[str, Any]
+    evaluation: dict[str, Any]
+    product: dict[str, Any]
 
 
 class OverlayRiskEntry(BaseModel):
@@ -520,6 +525,9 @@ def operator_settings(request: Request) -> OperatorSettingsResponse:
             "worker_count": _upload_cfg.max_concurrent_jobs,
         },
         storage=_upload_store.storage_summary(),
+        providers=_provider_runtime_summary(),
+        evaluation=_aggregate_evaluation_metrics(),
+        product=_aggregate_product_metrics(),
     )
 
 
@@ -865,10 +873,184 @@ def _feedback_counts(events: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+def _load_expected_benchmark(label: str) -> dict[str, Any] | None:
+    """Load a supported benchmark fixture definition for comparison."""
+    if label != "sample_walkthrough":
+        return None
+    fixture_root = pathlib.Path(__file__).parents[3] / "data" / "sample_walkthrough"
+    expected_path = fixture_root / "expected_report.json"
+    if not expected_path.exists():
+        return None
+    try:
+        return json.loads(expected_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _auto_benchmark_label(job: dict[str, Any]) -> str | None:
+    """Infer a benchmark label for known regression fixtures."""
+    expected = _load_expected_benchmark("sample_walkthrough")
+    filename = str((job.get("summary") or {}).get("filename") or job.get("filename") or "")
+    if expected and filename == str(expected.get("fixture_name", "")):
+        return "sample_walkthrough"
+    return None
+
+
+def _compare_job_to_benchmark(job: dict[str, Any], label: str) -> dict[str, Any] | None:
+    """Compare one completed job against a supported benchmark fixture."""
+    expected = _load_expected_benchmark(label)
+    if expected is None:
+        return None
+
+    risks = list(job.get("risks") or [])
+    summary = dict(job.get("summary") or {})
+    hazard_codes = [str(risk.get("hazard_code", "")) for risk in risks]
+    missing_codes = [
+        code for code in expected.get("required_hazard_codes", []) if code not in hazard_codes
+    ]
+    matched = (
+        str(job.get("scene_source", "")) == str(expected.get("scene_source", ""))
+        and int(summary.get("object_count", 0) or 0)
+        >= int(expected.get("min_object_count", 0) or 0)
+        and int(summary.get("hazard_count", 0) or 0)
+        >= int(expected.get("min_hazard_count", 0) or 0)
+        and (hazard_codes[0] if hazard_codes else None) == expected.get("top_hazard_code")
+        and not missing_codes
+    )
+    return {
+        "label": label,
+        "matched": matched,
+        "missing_hazard_codes": missing_codes,
+        "top_hazard_code": hazard_codes[0] if hazard_codes else None,
+        "expected_top_hazard_code": expected.get("top_hazard_code"),
+        "expected_min_object_count": expected.get("min_object_count"),
+        "expected_min_hazard_count": expected.get("min_hazard_count"),
+    }
+
+
+def _aggregate_evaluation_metrics() -> dict[str, Any]:
+    """Aggregate evaluation and benchmark signals across persisted jobs."""
+    complete_jobs = [job for job in _upload_jobs.values() if str(job.get("status")) == "complete"]
+    total_complete = len(complete_jobs)
+    reviewed_jobs = 0
+    benchmarked_jobs = 0
+    benchmark_matches = 0
+    jobs_with_missed_hazards = 0
+    jobs_needing_review = 0
+    disputed_jobs = 0
+    coverage_sum = 0.0
+
+    for job in complete_jobs:
+        summary = dict(job.get("evaluation_summary") or {})
+        human = dict(job.get("human_evaluation") or {})
+        if human:
+            reviewed_jobs += 1
+        if bool(summary.get("benchmark_label")):
+            benchmarked_jobs += 1
+        if bool(summary.get("benchmark_match")):
+            benchmark_matches += 1
+        if int(summary.get("missed_hazard_count", 0) or 0) > 0:
+            jobs_with_missed_hazards += 1
+        if bool(summary.get("needs_review")):
+            jobs_needing_review += 1
+        if int(summary.get("disputed_findings", 0) or 0) > 0:
+            disputed_jobs += 1
+        coverage_sum += float(summary.get("review_coverage", 0.0) or 0.0)
+
+    avg_review_coverage = round(coverage_sum / total_complete, 2) if total_complete else 0.0
+    benchmark_match_rate = (
+        round(benchmark_matches / benchmarked_jobs, 2) if benchmarked_jobs else 0.0
+    )
+    false_positive_job_rate = round(disputed_jobs / total_complete, 2) if total_complete else 0.0
+    missed_hazard_rate = (
+        round(jobs_with_missed_hazards / total_complete, 2) if total_complete else 0.0
+    )
+
+    return {
+        "completed_jobs": total_complete,
+        "reviewed_jobs": reviewed_jobs,
+        "benchmarked_jobs": benchmarked_jobs,
+        "benchmark_match_rate": benchmark_match_rate,
+        "jobs_with_missed_hazards": jobs_with_missed_hazards,
+        "missed_hazard_rate": missed_hazard_rate,
+        "jobs_needing_review": jobs_needing_review,
+        "false_positive_job_rate": false_positive_job_rate,
+        "avg_review_coverage": avg_review_coverage,
+    }
+
+
+def _aggregate_product_metrics() -> dict[str, Any]:
+    """Aggregate product-loop metrics used for beta operations."""
+    jobs = list(_upload_jobs.values())
+    terminal_jobs = [job for job in jobs if str(job.get("status")) in {"complete", "error"}]
+    completed_jobs = [job for job in jobs if str(job.get("status")) == "complete"]
+    success_rate = round(len(completed_jobs) / len(terminal_jobs), 2) if terminal_jobs else 0.0
+    rescan_recommended = sum(
+        1 for job in completed_jobs if bool((job.get("summary") or {}).get("rescan_recommended"))
+    )
+    useful_events = 0
+    total_feedback_events = 0
+    total_duration_seconds = 0.0
+    completed_with_duration = 0
+
+    for job in completed_jobs:
+        feedback = dict(job.get("feedback_summary") or {})
+        useful_events += int(feedback.get("useful", 0) or 0)
+        total_feedback_events += sum(int(feedback.get(key, 0) or 0) for key in feedback)
+        started_at = job.get("started_at")
+        completed_at = job.get("completed_at")
+        if started_at and completed_at:
+            try:
+                start_dt = datetime.fromisoformat(str(started_at))
+                done_dt = datetime.fromisoformat(str(completed_at))
+                total_duration_seconds += max(0.0, (done_dt - start_dt).total_seconds())
+                completed_with_duration += 1
+            except ValueError:
+                pass
+
+    usefulness_rate = (
+        round(useful_events / total_feedback_events, 2) if total_feedback_events else 0.0
+    )
+    avg_report_seconds = (
+        round(total_duration_seconds / completed_with_duration, 1)
+        if completed_with_duration
+        else 0.0
+    )
+
+    return {
+        "terminal_jobs": len(terminal_jobs),
+        "completed_jobs": len(completed_jobs),
+        "upload_success_rate": success_rate,
+        "rescan_recommended_rate": (
+            round(rescan_recommended / len(completed_jobs), 2) if completed_jobs else 0.0
+        ),
+        "report_usefulness_rate": usefulness_rate,
+        "avg_report_seconds": avg_report_seconds,
+    }
+
+
+def _provider_runtime_summary() -> dict[str, Any]:
+    """Summarize the active VLM routing strategy for operator diagnostics."""
+    vlm = load_config().vlm
+    chain = [vlm.provider]
+    if vlm.fallback_provider and vlm.fallback_provider != vlm.provider:
+        chain.append(vlm.fallback_provider)
+    return {
+        "primary_provider": vlm.provider,
+        "fallback_provider": vlm.fallback_provider,
+        "provider_chain": chain,
+        "routing_mode": "fallback" if len(chain) > 1 else "single",
+        "primary_model": vlm.model_name
+        if vlm.provider == "ollama"
+        else (vlm.claude_model if vlm.provider == "claude" else vlm.openai_model),
+    }
+
+
 def _build_evaluation_summary(job: dict[str, Any]) -> dict[str, Any]:
     """Summarize report review coverage and correction signals."""
     risks = list(job.get("risks") or [])
     events = list(job.get("finding_feedback") or [])
+    human_evaluation = dict(job.get("human_evaluation") or {})
     event_counts = _feedback_counts(events)
     total_findings = len(risks)
     reviewed_findings = 0
@@ -893,6 +1075,20 @@ def _build_evaluation_summary(job: dict[str, Any]) -> dict[str, Any]:
 
     pending_findings = max(0, total_findings - reviewed_findings)
     review_coverage = round(reviewed_findings / total_findings, 2) if total_findings else 0.0
+    missed_hazard_count = len(human_evaluation.get("missed_hazards") or [])
+    benchmark = dict(human_evaluation.get("benchmark") or {})
+    benchmark_label = benchmark.get("label") or human_evaluation.get("benchmark_label")
+    benchmark_match = benchmark.get("matched")
+    precision_proxy = (
+        round(event_counts["useful"] / max(1, sum(event_counts.values())), 2)
+        if sum(event_counts.values()) > 0
+        else 0.0
+    )
+    recall_proxy = (
+        round(total_findings / (total_findings + missed_hazard_count), 2)
+        if total_findings or missed_hazard_count
+        else 0.0
+    )
 
     if total_findings == 0:
         summary = "No findings to review yet."
@@ -908,6 +1104,18 @@ def _build_evaluation_summary(job: dict[str, Any]) -> dict[str, Any]:
             f" {disputed_findings} marked wrong or duplicate so far."
         )
 
+    human_status = str(human_evaluation.get("status", "")).strip() or None
+    if human_status == "missed_hazard":
+        summary += f" Human review flagged {missed_hazard_count} missed hazard(s)."
+    elif human_status == "needs_review":
+        summary += " Human review says the report still needs follow-up."
+    elif human_status == "confirmed":
+        summary += " Human review marked the current report as directionally sound."
+    if benchmark_label:
+        summary += (
+            f" Benchmark {benchmark_label} " f"{'matched' if benchmark_match else 'did not match'}."
+        )
+
     return {
         "total_findings": total_findings,
         "reviewed_findings": reviewed_findings,
@@ -919,7 +1127,16 @@ def _build_evaluation_summary(job: dict[str, Any]) -> dict[str, Any]:
         "helpful_findings": helpful_findings,
         "disputed_findings": disputed_findings,
         "high_priority_pending": high_priority_pending,
-        "needs_review": high_priority_pending > 0 or pending_findings > 0,
+        "needs_review": high_priority_pending > 0
+        or pending_findings > 0
+        or human_status in {"needs_review", "missed_hazard"},
+        "human_status": human_status,
+        "missed_hazard_count": missed_hazard_count,
+        "benchmark_label": benchmark_label,
+        "benchmark_match": benchmark_match,
+        "benchmark_summary": benchmark,
+        "precision_proxy": precision_proxy,
+        "recall_proxy": recall_proxy,
         "summary": summary,
     }
 
@@ -1181,6 +1398,7 @@ class UploadJobStatus(BaseModel):
     finding_feedback: list[dict[str, Any]] | None = None
     feedback_summary: dict[str, int] | None = None
     evaluation_summary: dict[str, Any] | None = None
+    human_evaluation: dict[str, Any] | None = None
     report_url: str | None = None
     error: str | None = None
     artifacts: dict[str, Any] | None = None
@@ -1196,6 +1414,15 @@ class FindingFeedbackRequest(BaseModel):
     hazard_code: str
     verdict: str
     object_id: str | None = None
+    note: str | None = None
+
+
+class JobEvaluationRequest(BaseModel):
+    """One human review verdict for a completed report."""
+
+    status: str
+    benchmark_label: str | None = None
+    missed_hazards: list[str] | None = None
     note: str | None = None
 
 
@@ -1654,6 +1881,14 @@ def _build_pdf_report(job: dict[str, Any]) -> bytes:
                 "",
                 "Review loop:",
                 f"- {evaluation_summary.get('summary', 'No review summary available.')}",
+                (
+                    f"- Precision proxy: "
+                    f"{int(float(evaluation_summary.get('precision_proxy', 0.0)) * 100)} / 100"
+                ),
+                (
+                    f"- Recall proxy: "
+                    f"{int(float(evaluation_summary.get('recall_proxy', 0.0)) * 100)} / 100"
+                ),
             ]
         )
 
@@ -2030,6 +2265,7 @@ async def _process_upload(job_id: str) -> None:
             scene_source=result.scene_source,
             finding_feedback=[],
             feedback_summary={"useful": 0, "wrong": 0, "duplicate": 0},
+            human_evaluation=None,
             report_url=f"/reports/{job['job_id']}.pdf",
             completed_at=_utc_now_iso(),
         )
@@ -2267,6 +2503,7 @@ async def upload_media(request: Request) -> UploadJobStatus:
         "scene_source": None,
         "finding_feedback": [],
         "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "human_evaluation": None,
         "report_url": None,
         "error": None,
         "artifacts": {},
@@ -2356,6 +2593,12 @@ def record_job_feedback(
             status_code=400,
             detail="Feedback verdict must be useful, wrong, or duplicate.",
         )
+    note = (payload.note or "").strip()
+    if len(note) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="Feedback note must be 500 characters or fewer.",
+        )
 
     risks = job.get("risks") or []
     target = next(
@@ -2374,7 +2617,7 @@ def record_job_feedback(
         "hazard_code": payload.hazard_code,
         "object_id": payload.object_id or target.get("object_id"),
         "verdict": verdict,
-        "note": (payload.note or "").strip() or None,
+        "note": note or None,
         "created_at": datetime.now(UTC).isoformat(),
         "finding_key": _finding_key(target),
     }
@@ -2391,6 +2634,58 @@ def record_job_feedback(
         risks=risks,
         finding_feedback=events,
         feedback_summary=_feedback_counts(events),
+    )
+    return UploadJobStatus(**job)
+
+
+@app.post("/jobs/{job_id}/evaluation", response_model=UploadJobStatus)
+def record_job_evaluation(
+    job_id: str,
+    payload: JobEvaluationRequest,
+    request: Request,
+) -> UploadJobStatus:
+    """Store one human review verdict for a completed report."""
+    _require_private_access(request)
+    job = _upload_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+    if job.get("status") != "complete":
+        raise HTTPException(
+            status_code=409,
+            detail="Evaluation is only accepted for completed jobs.",
+        )
+
+    status = payload.status.strip().lower()
+    if status not in {"confirmed", "needs_review", "missed_hazard"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Evaluation status must be confirmed, needs_review, or missed_hazard.",
+        )
+
+    note = (payload.note or "").strip()
+    if len(note) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="Evaluation note must be 500 characters or fewer.",
+        )
+
+    missed_hazards = [item.strip() for item in (payload.missed_hazards or []) if item.strip()]
+    if len(missed_hazards) > 8:
+        raise HTTPException(status_code=400, detail="At most 8 missed hazards may be submitted.")
+
+    benchmark_label = (payload.benchmark_label or "").strip() or _auto_benchmark_label(job)
+    benchmark = _compare_job_to_benchmark(job, benchmark_label) if benchmark_label else None
+
+    _update_job(
+        job,
+        human_evaluation={
+            "status": status,
+            "benchmark_label": benchmark_label,
+            "benchmark": benchmark,
+            "missed_hazards": missed_hazards,
+            "note": note or None,
+            "reviewed_at": datetime.now(UTC).isoformat(),
+        },
     )
     return UploadJobStatus(**job)
 

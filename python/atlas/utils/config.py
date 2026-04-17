@@ -159,6 +159,7 @@ class VlmConfig(BaseModel):
     """
 
     provider: str = "ollama"
+    fallback_provider: str | None = None
     model_name: str = "moondream"
     ollama_host: str = "http://localhost:11434"
     claude_model: str = "claude-sonnet-4-6"
@@ -174,6 +175,19 @@ class VlmConfig(BaseModel):
         if v.lower() not in allowed:
             raise ValueError(f"provider must be one of {allowed}, got {v!r}")
         return v.lower()
+
+    @field_validator("fallback_provider")
+    @classmethod
+    def _valid_fallback_provider(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        token = v.strip().lower()
+        if not token:
+            return None
+        allowed = {"ollama", "claude", "openai"}
+        if token not in allowed:
+            raise ValueError(f"fallback_provider must be one of {allowed}, got {v!r}")
+        return token
 
     @field_validator("temperature")
     @classmethod
@@ -251,6 +265,9 @@ class UploadsConfig(BaseModel):
     max_job_attempts: int = 2
     job_timeout_seconds: float = 180.0
     max_storage_bytes: int = 1_500_000_000
+    redact_text_heavy_regions: bool = True
+    text_density_threshold: float = 0.52
+    max_redacted_regions_per_frame: int = 2
 
     @field_validator(
         "max_persisted_jobs",
@@ -260,6 +277,7 @@ class UploadsConfig(BaseModel):
         "max_queue_depth",
         "max_job_attempts",
         "max_storage_bytes",
+        "max_redacted_regions_per_frame",
     )
     @classmethod
     def _positive_int(cls, v: int) -> int:
@@ -272,6 +290,13 @@ class UploadsConfig(BaseModel):
     def _positive_float(cls, v: float) -> float:
         if v <= 0.0:
             raise ValueError(f"must be positive, got {v}")
+        return v
+
+    @field_validator("text_density_threshold")
+    @classmethod
+    def _unit_interval(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"text_density_threshold must be in [0, 1], got {v}")
         return v
 
 
