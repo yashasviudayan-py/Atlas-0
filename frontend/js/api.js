@@ -72,6 +72,11 @@ export const submitFindingFeedback = (jobId, payload) => json(`/jobs/${jobId}/fe
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(payload),
 });
+export const submitJobEvaluation = (jobId, payload) => json(`/jobs/${jobId}/evaluation`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload),
+});
 
 export function postQuery(query, maxResults = 5) {
   return json('/query', {

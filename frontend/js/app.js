@@ -46,6 +46,8 @@ const accessBanner = document.getElementById('access-banner');
 const accessHelp = document.getElementById('access-help');
 const operatorPolicy = document.getElementById('operator-policy');
 const operatorQueue = document.getElementById('operator-queue');
+const operatorEval = document.getElementById('operator-eval');
+const operatorProduct = document.getElementById('operator-product');
 const accessTokenInput = /** @type {HTMLInputElement} */ (document.getElementById('access-token-input'));
 const accessTokenSave = /** @type {HTMLButtonElement} */ (document.getElementById('access-token-save'));
 const accessTokenClear = /** @type {HTMLButtonElement} */ (document.getElementById('access-token-clear'));
@@ -305,7 +307,7 @@ function renderReport(job) {
 
   scanQualityCard.innerHTML = renderScanQuality(scanQuality);
   reportPostureCard.innerHTML = renderReportPosture(summary, scanQuality);
-  reportEvalCard.innerHTML = renderEvaluationSummary(evaluation);
+  reportEvalCard.innerHTML = renderEvaluationSummary(evaluation, job);
 
   reportHazards.innerHTML = visibleHazards.length
     ? visibleHazards.map((risk) => `
@@ -391,6 +393,7 @@ function renderReport(job) {
   deleteJobBtn.classList.remove('disabled');
   deleteJobBtn.disabled = false;
   attachFeedbackHandlers(job.job_id);
+  attachEvaluationHandlers(job.job_id);
 }
 
 function renderHeroBadges(summary) {
@@ -428,6 +431,7 @@ function renderReasoningPanel(risk) {
   const objectSnapshot = reasoning.object_snapshot || {};
   const ruleHits = Array.isArray(reasoning.rule_hits) ? reasoning.rule_hits : [];
   const evidenceIds = Array.isArray(reasoning.evidence_ids) ? reasoning.evidence_ids : [];
+  const confidenceReasons = Array.isArray(reasoning.confidence_reasons) ? reasoning.confidence_reasons : [];
   const facts = [];
 
   if (objectSnapshot.material) {
@@ -443,7 +447,7 @@ function renderReasoningPanel(risk) {
     facts.push(`${Number(objectSnapshot.observation_count)} supporting observation${Number(objectSnapshot.observation_count) === 1 ? '' : 's'}`);
   }
 
-  if (!ruleHits.length && !facts.length && !evidenceIds.length) {
+  if (!ruleHits.length && !facts.length && !evidenceIds.length && !confidenceReasons.length) {
     return '';
   }
 
@@ -473,6 +477,14 @@ function renderReasoningPanel(risk) {
             <div class="reasoning-chips">
               ${evidenceIds.map((id) => `<span>${escapeHtml(id)}</span>`).join('')}
             </div>
+          </div>
+        ` : ''}
+        ${confidenceReasons.length ? `
+          <div class="reasoning-block">
+            <strong>Confidence calibration</strong>
+            <ul>
+              ${confidenceReasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}
+            </ul>
           </div>
         ` : ''}
       </div>
@@ -563,6 +575,8 @@ function renderAccessPanels(errorMessage = '') {
     accessHelp.textContent = 'The hosted access policy could not be loaded from the API.';
     operatorPolicy.innerHTML = emptyMarkup('Operator policy details are unavailable right now.');
     operatorQueue.innerHTML = emptyMarkup('Queue diagnostics are unavailable right now.');
+    operatorEval.innerHTML = emptyMarkup('Evaluation metrics are unavailable right now.');
+    operatorProduct.innerHTML = emptyMarkup('Product metrics are unavailable right now.');
     return;
   }
 
@@ -589,11 +603,15 @@ function renderAccessPanels(errorMessage = '') {
         : 'Operator settings are not available yet.',
     );
     operatorQueue.innerHTML = emptyMarkup('Queue diagnostics will appear here once operator access is available.');
+    operatorEval.innerHTML = emptyMarkup('Evaluation metrics will appear here once operator access is available.');
+    operatorProduct.innerHTML = emptyMarkup('Product metrics will appear here once operator access is available.');
     return;
   }
 
   operatorPolicy.innerHTML = renderPolicyItems([
     { label: 'Access mode', value: settings.access.mode === 'token' ? 'Token protected' : settings.access.mode === 'loopback' ? 'Loopback-friendly' : 'Restricted' },
+    { label: 'Primary provider', value: settings.providers.primary_provider || 'unknown' },
+    { label: 'Fallback provider', value: settings.providers.fallback_provider || 'None' },
     { label: 'Job listing', value: settings.access.enable_job_listing ? 'Enabled' : 'Direct job IDs only' },
     { label: 'Retention window', value: `${settings.uploads.retention_days} day(s)` },
     { label: 'Keep originals', value: settings.uploads.save_original_uploads ? 'Yes' : 'No' },
@@ -611,6 +629,30 @@ function renderAccessPanels(errorMessage = '') {
     { label: 'Disk used', value: formatBytes(settings.storage.bytes_used || 0) },
     { label: 'Budget used', value: `${settings.storage.usage_percent || 0}%` },
   ]);
+
+  operatorEval.innerHTML = `
+    <p class="subsection-label">Evaluation loop</p>
+    ${renderPolicyItems([
+      { label: 'Reviewed jobs', value: String(settings.evaluation.reviewed_jobs || 0) },
+      { label: 'Benchmarked jobs', value: String(settings.evaluation.benchmarked_jobs || 0) },
+      { label: 'Benchmark match rate', value: `${Math.round((settings.evaluation.benchmark_match_rate || 0) * 100)}%` },
+      { label: 'Missed-hazard jobs', value: String(settings.evaluation.jobs_with_missed_hazards || 0) },
+      { label: 'False-positive job rate', value: `${Math.round((settings.evaluation.false_positive_job_rate || 0) * 100)}%` },
+      { label: 'Average review coverage', value: `${Math.round((settings.evaluation.avg_review_coverage || 0) * 100)}%` },
+    ])}
+  `;
+
+  operatorProduct.innerHTML = `
+    <p class="subsection-label">Beta product loop</p>
+    ${renderPolicyItems([
+      { label: 'Upload success rate', value: `${Math.round((settings.product.upload_success_rate || 0) * 100)}%` },
+      { label: 'Rescan recommended rate', value: `${Math.round((settings.product.rescan_recommended_rate || 0) * 100)}%` },
+      { label: 'Report usefulness rate', value: `${Math.round((settings.product.report_usefulness_rate || 0) * 100)}%` },
+      { label: 'Average report time', value: `${settings.product.avg_report_seconds || 0}s` },
+      { label: 'Completed jobs', value: String(settings.product.completed_jobs || 0) },
+      { label: 'Terminal jobs', value: String(settings.product.terminal_jobs || 0) },
+    ])}
+  `;
 }
 
 async function pollHealth() {
@@ -776,6 +818,9 @@ function formatEvidenceMeta(frame) {
   if (frame.object_label) {
     parts.push(String(frame.object_label));
   }
+  if (frame.redacted) {
+    parts.push('Text-heavy crop blurred');
+  }
   return parts.join(' · ') || 'Stored evidence crop';
 }
 
@@ -797,6 +842,16 @@ function isLowConfidenceRisk(risk) {
 function renderFeedbackButton(verdict, activeVerdict) {
   const activeClass = verdict === activeVerdict ? 'active' : '';
   return `<button class="feedback-btn ${activeClass}" type="button" data-feedback="${verdict}">${capitalize(verdict)}</button>`;
+}
+
+function renderEvalButton(status, activeStatus) {
+  const activeClass = status === activeStatus ? 'active' : '';
+  const label = status === 'needs_review'
+    ? 'Needs Review'
+    : status === 'missed_hazard'
+      ? 'Missed Hazard'
+      : 'Confirmed';
+  return `<button class="feedback-btn ${activeClass}" type="button" data-eval-status="${status}">${label}</button>`;
 }
 
 function renderScanQuality(scanQuality) {
@@ -853,7 +908,7 @@ function renderReportPosture(summary, scanQuality) {
   `;
 }
 
-function renderEvaluationSummary(evaluation) {
+function renderEvaluationSummary(evaluation, job) {
   if (!evaluation || Object.keys(evaluation).length === 0) {
     return emptyMarkup('No review coverage has been recorded for this report yet.');
   }
@@ -880,10 +935,32 @@ function renderEvaluationSummary(evaluation) {
         <span>Wrong or duplicate</span>
         <strong>${escapeHtml(String((evaluation.wrong_events || 0) + (evaluation.duplicate_events || 0)))}</strong>
       </div>
+      <div class="meta-tile">
+        <span>Precision proxy</span>
+        <strong>${Math.round((evaluation.precision_proxy || 0) * 100)}%</strong>
+      </div>
+      <div class="meta-tile">
+        <span>Recall proxy</span>
+        <strong>${Math.round((evaluation.recall_proxy || 0) * 100)}%</strong>
+      </div>
     </div>
     <div class="report-card-meta">
       <span>${escapeHtml(String(evaluation.high_priority_pending ?? 0))} high-priority findings unreviewed</span>
+      <span>${escapeHtml(String(evaluation.missed_hazard_count ?? 0))} missed hazards logged</span>
+      <span>${escapeHtml(evaluation.benchmark_label ? `${evaluation.benchmark_label} benchmark` : 'No benchmark tag')}</span>
       <span>${evaluation.needs_review ? 'More review still needed' : 'Review loop covered current findings'}</span>
+    </div>
+    <div class="evaluation-status">
+      <span>Human verdict: ${escapeHtml(evaluation.human_status || 'not set')}</span>
+      <span>${escapeHtml(evaluation.benchmark_match === true ? 'Benchmark matched' : evaluation.benchmark_match === false ? 'Benchmark mismatch' : 'No benchmark comparison')}</span>
+    </div>
+    <div class="evaluation-controls" data-eval-controls data-job-id="${job.job_id}">
+      <div class="feedback-row">
+        ${renderEvalButton('confirmed', evaluation.human_status)}
+        ${renderEvalButton('needs_review', evaluation.human_status)}
+        ${renderEvalButton('missed_hazard', evaluation.human_status)}
+      </div>
+      <p class="meta-copy">Use these controls to build the eval set, log missed hazards, and keep the beta report loop honest.</p>
     </div>
   `;
 }
@@ -917,6 +994,48 @@ function attachFeedbackHandlers(jobId) {
           showToast('Feedback saved.');
         } catch (error) {
           showToast(error instanceof Error ? error.message : 'Could not save feedback.', 3600);
+        }
+      });
+    });
+  });
+}
+
+function attachEvaluationHandlers(jobId) {
+  reportEvalCard.querySelectorAll('[data-eval-controls]').forEach((container) => {
+    container.querySelectorAll('[data-eval-status]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const status = button.dataset.evalStatus;
+        if (!status) {
+          return;
+        }
+
+        let missedHazards = [];
+        let note = '';
+        if (status === 'missed_hazard') {
+          const answer = window.prompt(
+            'List any missed hazards as a comma-separated note. Leave blank if you just want to flag a miss.',
+            '',
+          );
+          if (answer === null) {
+            return;
+          }
+          note = answer.trim();
+          missedHazards = note
+            ? note.split(',').map((item) => item.trim()).filter(Boolean)
+            : [];
+        }
+
+        try {
+          const updated = await api.submitJobEvaluation(jobId, {
+            status,
+            missed_hazards: missedHazards,
+            note: note || null,
+          });
+          upsertJob(updated);
+          await refreshOperatorState();
+          showToast('Evaluation saved.');
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : 'Could not save evaluation.', 3600);
         }
       });
     });

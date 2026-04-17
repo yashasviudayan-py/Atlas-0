@@ -566,6 +566,15 @@
       letter-spacing: -0.02em;
     }
 
+    .subsection-label {
+      margin: 4px 0 0;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+    }
+
     .section-head {
       display: flex;
       align-items: flex-start;
@@ -1153,6 +1162,21 @@
     }
 
     .finding-toggle-note {
+      color: var(--ink-soft);
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+
+    .evaluation-controls {
+      display: grid;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .evaluation-status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
       color: var(--ink-soft);
       font-size: 0.9rem;
       line-height: 1.5;
@@ -1764,6 +1788,12 @@
             </div>
             <div id="operator-queue" class="policy-list" style="margin-top: 12px;">
               <div class="empty-card">Queue diagnostics will appear after access is available.</div>
+            </div>
+            <div id="operator-eval" class="policy-list" style="margin-top: 12px;">
+              <div class="empty-card">Evaluation coverage metrics will appear after access is available.</div>
+            </div>
+            <div id="operator-product" class="policy-list" style="margin-top: 12px;">
+              <div class="empty-card">Beta product loop metrics will appear after access is available.</div>
             </div>
           </section>
         </section>
