@@ -18,6 +18,7 @@ const state = {
   jobs: new Map(),
   showLowConfidence: false,
   accessPolicy: null,
+  privacyPolicy: null,
   operatorSettings: null,
 };
 
@@ -39,11 +40,13 @@ const processCopy = document.getElementById('process-copy');
 const processBar = document.getElementById('process-bar');
 const processMeta = document.getElementById('process-meta');
 const processGuidance = document.getElementById('process-guidance');
+const roomLabelInput = /** @type {HTMLInputElement} */ (document.getElementById('room-label-input'));
 
 const recentList = document.getElementById('upload-list');
 const recentEmpty = document.getElementById('upload-empty');
 const accessBanner = document.getElementById('access-banner');
 const accessHelp = document.getElementById('access-help');
+const privacyPolicy = document.getElementById('privacy-policy');
 const operatorPolicy = document.getElementById('operator-policy');
 const operatorQueue = document.getElementById('operator-queue');
 const operatorEval = document.getElementById('operator-eval');
@@ -164,6 +167,8 @@ function renderUploads() {
   recentList.innerHTML = jobs.map((job) => {
     const summary = job.summary || {};
     const hazardLabel = summary.top_hazard_label || 'No hazards yet';
+    const roomLabel = job.room_label || summary.room_label || '';
+    const roomScore = typeof summary.room_score === 'number' ? `${summary.room_score}/100 room score` : '';
     const activeClass = job.job_id === state.activeJobId ? 'active' : '';
     return `
       <button class="scan-card ${activeClass}" data-job-id="${job.job_id}">
@@ -174,7 +179,8 @@ function renderUploads() {
         <div class="scan-card-meta">
           <span>${Math.round((job.progress || 0) * 100)}%</span>
           <span>${escapeHtml(job.stage || 'queued')}</span>
-          <span>${escapeHtml(hazardLabel)}</span>
+          <span>${escapeHtml(roomLabel || hazardLabel)}</span>
+          ${roomScore ? `<span>${escapeHtml(roomScore)}</span>` : ''}
         </div>
       </button>
     `;
@@ -214,7 +220,7 @@ function renderProcessing(job) {
     processCopy.textContent = 'ATLAS-0 is analyzing the upload, grounding the findings, and assembling the report.';
   }
 
-  processMeta.textContent = `${escapeHtml(job.filename)} · ${escapeHtml(job.status)}`;
+  processMeta.textContent = `${escapeHtml(job.filename)} · ${escapeHtml(job.room_label || 'Unlabeled room')} · ${escapeHtml(job.status)}`;
   processGuidance.innerHTML = renderProcessGuidance(job);
   uploadStatus.textContent = job.status === 'complete' ? 'Latest scan complete' : 'Scan in progress';
   reportStatus.textContent = job.status === 'complete' ? 'Report ready' : 'Waiting for report';
@@ -263,12 +269,14 @@ function renderReport(job) {
   const scanQuality = job.scan_quality || {};
   const notes = job.trust_notes || [];
   const evaluation = job.evaluation_summary || {};
+  const comparison = job.room_comparison || null;
+  const roomLabel = job.room_label || summary.room_label || '';
 
   reportHeadline.textContent = summary.headline || (summary.top_hazard_label
     ? `Top concern: ${summary.top_hazard_label}`
     : 'Hazard report');
-  reportSubhead.textContent = summary.overview || `${job.filename} · ${summary.confidence_label || 'Approximate grounding'}`;
-  reportHeroMeta.innerHTML = renderHeroBadges(summary);
+  reportSubhead.textContent = summary.overview || `${roomLabel || job.filename} · ${summary.confidence_label || 'Approximate grounding'}`;
+  reportHeroMeta.innerHTML = renderHeroBadges(summary, roomLabel, comparison);
 
   summaryObjects.textContent = String(summary.object_count || 0);
   summaryHazards.textContent = String(summary.hazard_count || 0);
@@ -306,7 +314,7 @@ function renderReport(job) {
     : emptyMarkup('No high-priority actions were generated for this scan.');
 
   scanQualityCard.innerHTML = renderScanQuality(scanQuality);
-  reportPostureCard.innerHTML = renderReportPosture(summary, scanQuality);
+  reportPostureCard.innerHTML = renderReportPosture(summary, scanQuality, job);
   reportEvalCard.innerHTML = renderEvaluationSummary(evaluation, job);
 
   reportHazards.innerHTML = visibleHazards.length
@@ -348,7 +356,9 @@ function renderReport(job) {
         </article>
       `).join('')
     : emptyMarkup(
-        hazards.length
+        summary.analysis_outcome === 'rejected'
+          ? 'ATLAS-0 rejected this scan as a normal room report. Follow the retry guidance and rescan before trusting any “all clear” takeaway.'
+          : hazards.length
           ? 'Only lower-confidence findings remain. Toggle them on if you want the full raw report.'
           : summary.rescan_recommended
             ? 'No high-confidence hazards were detected, but this scan had limited coverage. Rescan before treating the room as low risk.'
@@ -396,12 +406,22 @@ function renderReport(job) {
   attachEvaluationHandlers(job.job_id);
 }
 
-function renderHeroBadges(summary) {
+function renderHeroBadges(summary, roomLabel, comparison) {
   const badges = [
     summary.report_posture || 'screening',
     summary.coverage_label ? `${summary.coverage_label} coverage` : 'Coverage pending',
     summary.rescan_recommended ? 'Rescan recommended' : 'Evidence-backed',
   ];
+  if (roomLabel) {
+    badges.unshift(roomLabel);
+  }
+  if (typeof summary.room_score === 'number') {
+    badges.push(`${summary.room_score}/100 room score`);
+  }
+  if (comparison?.score_delta) {
+    const delta = Number(comparison.score_delta || 0);
+    badges.push(`${delta > 0 ? '+' : ''}${delta} vs last scan`);
+  }
   return badges.map((badge) => `<span class="soft-badge">${escapeHtml(badge)}</span>`).join('');
 }
 
@@ -562,12 +582,43 @@ function renderPolicyItems(items) {
   `).join('');
 }
 
+function renderReleaseGates(releaseGates) {
+  if (!releaseGates || !Array.isArray(releaseGates.gates)) {
+    return '';
+  }
+
+  return `
+    <p class="subsection-label">Release gates</p>
+    ${renderPolicyItems(releaseGates.gates.map((gate) => ({
+      label: gate.label || gate.id || 'Gate',
+      value: `${gate.passed ? 'Pass' : 'Open'} · ${formatGateValue(gate.actual)} / ${formatGateValue(gate.target)}`,
+    })))}
+    <p class="meta-copy">${escapeHtml(releaseGates.summary || '')}</p>
+  `;
+}
+
 function renderAccessPanels(errorMessage = '') {
   const access = state.accessPolicy;
+  const privacy = state.privacyPolicy;
   const settings = state.operatorSettings;
   const tokenStored = Boolean(api.getAccessToken());
 
   accessTokenClear.disabled = !tokenStored;
+
+  if (!privacy) {
+    privacyPolicy.innerHTML = emptyMarkup('Privacy defaults are unavailable right now.');
+  } else {
+    privacyPolicy.innerHTML = `
+      <p class="subsection-label">User-visible privacy</p>
+      ${renderPolicyItems([
+        { label: 'Retention window', value: `${privacy.retention_days} day(s)` },
+        { label: 'Keep originals', value: privacy.save_original_uploads ? 'Yes' : 'No by default' },
+        { label: 'Text redaction', value: privacy.text_redaction_enabled ? 'Enabled' : 'Disabled' },
+        { label: 'Delete support', value: privacy.delete_supported ? 'Available in report view' : 'Unavailable' },
+      ])}
+      <p class="meta-copy">${escapeHtml(privacy.summary || '')}</p>
+    `;
+  }
 
   if (!access) {
     accessBanner.className = 'status-banner';
@@ -639,7 +690,9 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Missed-hazard jobs', value: String(settings.evaluation.jobs_with_missed_hazards || 0) },
       { label: 'False-positive job rate', value: `${Math.round((settings.evaluation.false_positive_job_rate || 0) * 100)}%` },
       { label: 'Average review coverage', value: `${Math.round((settings.evaluation.avg_review_coverage || 0) * 100)}%` },
+      { label: 'Seed eval fixtures', value: `${settings.evaluation.seed_fixture_count || 0} / ${settings.evaluation.target_corpus_size || 0}` },
     ])}
+    ${renderReleaseGates(settings.evaluation.release_gates)}
   `;
 
   operatorProduct.innerHTML = `
@@ -651,6 +704,8 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Average report time', value: `${settings.product.avg_report_seconds || 0}s` },
       { label: 'Completed jobs', value: String(settings.product.completed_jobs || 0) },
       { label: 'Terminal jobs', value: String(settings.product.terminal_jobs || 0) },
+      { label: 'Labeled rooms', value: String(settings.product.labeled_rooms || 0) },
+      { label: 'Repeat-scan rooms', value: String(settings.product.repeat_scan_rooms || 0) },
     ])}
   `;
 }
@@ -710,6 +765,11 @@ async function bootstrapApp() {
   } catch {
     state.accessPolicy = null;
   }
+  try {
+    state.privacyPolicy = await api.fetchPrivacyPolicy();
+  } catch {
+    state.privacyPolicy = null;
+  }
   await refreshOperatorState();
   await bootstrapJobs();
 }
@@ -730,6 +790,7 @@ document.getElementById('scene-refresh-btn')?.addEventListener('click', () => {
 const uploadView = new UploadView({
   dropZone: document.getElementById('drop-zone'),
   fileInput: /** @type {HTMLInputElement} */ (document.getElementById('file-input')),
+  roomLabelInput,
   onJobCreated: async (job) => {
     upsertJob(job);
     await refreshOperatorState();
@@ -835,6 +896,17 @@ function formatBytes(value) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatGateValue(value) {
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) {
+    return String(value ?? '—');
+  }
+  if (numeric >= 0 && numeric <= 1 && !Number.isInteger(numeric)) {
+    return `${Math.round(numeric * 100)}%`;
+  }
+  return String(Math.round(numeric * 100) / 100);
+}
+
 function isLowConfidenceRisk(risk) {
   return Number(risk?.confidence || 0) < 0.6 || Number(risk?.reasoning?.grounding_confidence || 0) < 0.55;
 }
@@ -873,18 +945,25 @@ function renderScanQuality(scanQuality) {
       <span>${escapeHtml(scanQuality.capture_summary || (scanQuality.usable ? 'This scan is usable, but better lighting, steadier motion, and fuller coverage can still strengthen the report.' : 'This scan is likely to produce weaker findings and should ideally be rescanned before trusting smaller details.'))}</span>
     </div>
     <div class="report-card-meta">
+      <span>${escapeHtml(capitalize(scanQuality.reportability || 'accepted'))} reportability</span>
+      <span>${scanQuality.hard_reject ? 'Normal report refused' : scanQuality.rescan_recommended ? 'Report downgraded' : 'Normal report allowed'}</span>
+    </div>
+    <div class="report-card-meta">
       <span>${escapeHtml(`${metrics.frame_count || 0} sampled frame(s)`)}</span>
       <span>${escapeHtml(`${Math.round((metrics.motion_coverage || 0) * 100)}% motion coverage`)}</span>
       <span>${escapeHtml(`${Math.round((metrics.saliency_coverage || 0) * 100)}% object coverage`)}</span>
     </div>
     ${warnings.length ? `<ul class="quality-warning-list">${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>` : '<div class="empty-card">No major scan-quality warnings were detected.</div>'}
+    ${scanQuality.rejection_reasons?.length ? `<ul class="quality-warning-list">${scanQuality.rejection_reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>` : ''}
     ${guidance.length ? `<div class="quality-copy"><strong>Retry guidance</strong><span>${escapeHtml(guidance.slice(0, 2).join(' '))}</span></div>` : ''}
   `;
 }
 
-function renderReportPosture(summary, scanQuality) {
+function renderReportPosture(summary, scanQuality, job) {
   const posture = summary.report_posture || 'screening';
   const guidance = scanQuality.retry_guidance || [];
+  const comparison = job.room_comparison || null;
+  const history = Array.isArray(job.room_history) ? job.room_history : [];
 
   return `
     <div class="report-copy-block">
@@ -899,11 +978,24 @@ function renderReportPosture(summary, scanQuality) {
       <strong>What it does not claim</strong>
       <span>${escapeHtml(summary.screening_statement || 'This report flags likely hazards from the uploaded scan. It does not certify that the room is safe.')}</span>
     </div>
+    ${typeof summary.room_score === 'number' ? `
+      <div class="report-copy-block">
+        <strong>Room safety score foundation</strong>
+        <span>${escapeHtml(`${summary.room_score}/100 · ${summary.room_score_band || 'screening score'}. ${summary.room_score_summary || ''}`)}</span>
+      </div>
+    ` : ''}
+    ${comparison ? `
+      <div class="report-copy-block">
+        <strong>Before / after comparison</strong>
+        <span>${escapeHtml(`${comparison.summary} Score change: ${comparison.score_delta > 0 ? '+' : ''}${comparison.score_delta}. Hazard delta: ${comparison.hazard_delta > 0 ? '+' : ''}${comparison.hazard_delta}.`)}</span>
+      </div>
+    ` : ''}
     <div class="report-card-meta">
       <span>${escapeHtml(posture)}</span>
       <span>${escapeHtml(summary.coverage_label || 'Unknown')} coverage</span>
       <span>${summary.rescan_recommended ? 'Rescan recommended' : 'No rescan required for first-pass review'}</span>
     </div>
+    ${history.length ? `<div class="report-card-meta">${history.slice(0, 3).map((entry) => `<span>${escapeHtml(`${entry.filename} · ${entry.room_score ?? '—'}/100`)}</span>`).join('')}</div>` : ''}
     ${guidance.length ? `<ul class="quality-warning-list">${guidance.slice(0, 2).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
   `;
 }

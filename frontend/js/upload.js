@@ -11,6 +11,7 @@ export class UploadView {
    * @param {{
    *   dropZone: HTMLElement,
    *   fileInput: HTMLInputElement,
+   *   roomLabelInput?: HTMLInputElement | null,
    *   onJobCreated?: (job: any) => void,
    *   onJobUpdate?: (job: any) => void,
    *   onJobError?: (error: Error) => void,
@@ -19,6 +20,7 @@ export class UploadView {
   constructor(opts) {
     this._dropZone = opts.dropZone;
     this._fileInput = opts.fileInput;
+    this._roomLabelInput = opts.roomLabelInput || null;
     this._onJobCreated = opts.onJobCreated || (() => {});
     this._onJobUpdate = opts.onJobUpdate || (() => {});
     this._onJobError = opts.onJobError || (() => {});
@@ -67,7 +69,8 @@ export class UploadView {
       if (!(file.type.startsWith('video/') || file.type.startsWith('image/'))) {
         throw new Error('Choose an image or a walkthrough video such as MP4, MOV, or WEBM.');
       }
-      const job = await api.uploadFile(file);
+      const roomLabel = this._roomLabelInput?.value?.trim() || '';
+      const job = await api.uploadFile(file, { roomLabel });
       await this._onJobCreated(job);
       await this._onJobUpdate(job);
       this._poll(job.job_id);

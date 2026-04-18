@@ -66,6 +66,7 @@ export const fetchJob     = (id)       => json(`/jobs/${id}`);
 export const fetchJobs    = ()         => json('/jobs');
 export const fetchAccessPolicy = ()    => json('/operator/access');
 export const fetchOperatorSettings = () => json('/operator/settings');
+export const fetchPrivacyPolicy = ()   => json('/product/privacy');
 export const reportPdfUrl = (id)      => withAccessToken(`/reports/${id}.pdf`);
 export const submitFindingFeedback = (jobId, payload) => json(`/jobs/${jobId}/feedback`, {
   method: 'POST',
@@ -86,13 +87,14 @@ export function postQuery(query, maxResults = 5) {
   });
 }
 
-export async function uploadFile(file) {
+export async function uploadFile(file, options = {}) {
   const form = new FormData();
   form.append('file', file);
+  const roomLabel = String(options.roomLabel || '').trim();
   const res = await fetch('/upload', {
     method: 'POST',
     body: form,
-    headers: authHeaders(),
+    headers: authHeaders(roomLabel ? { 'X-Room-Label': roomLabel } : {}),
   });
   if (!res.ok) {
     throw new Error(await errorMessage(res, `Upload failed ${res.status}`));

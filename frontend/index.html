@@ -1682,6 +1682,12 @@
               </div>
             </div>
 
+            <div class="field-stack" style="margin-bottom: 14px;">
+              <label class="field-label" for="room-label-input">Room label for before / after rescans</label>
+              <input id="room-label-input" class="text-input" type="text" maxlength="80" placeholder="Example: Nursery, Kitchen, Hallway" />
+              <p class="meta-copy">Optional. Reuse the same room label later and ATLAS-0 will compare the new scan against the last saved one.</p>
+            </div>
+
             <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Upload a room scan">
               <input id="file-input" type="file" accept="video/mp4,video/quicktime,video/webm,image/*" />
               <div class="drop-grid">
@@ -1700,6 +1706,7 @@
               <div class="story-pill"><strong>Top hazards</strong><span>Ranked so the first screen feels actionable.</span></div>
               <div class="story-pill"><strong>Evidence frames</strong><span>So the report can point to what it saw.</span></div>
               <div class="story-pill"><strong>Trust notes</strong><span>So uncertainty is visible, not hidden.</span></div>
+              <div class="story-pill"><strong>Delete anytime</strong><span>Scans can be removed from the report view when you are done.</span></div>
             </div>
 
             <div class="checklist-grid" aria-label="Capture checklist">
@@ -1778,10 +1785,13 @@
           <section class="panel">
             <div class="section-head">
               <div>
-                <h3>Queue and retention</h3>
-                <p>Operator visibility for upload pressure, storage policy, and what will stay on disk.</p>
+                <h3>Privacy, queue, and retention</h3>
+                <p>User-visible privacy defaults plus operator diagnostics for upload pressure and storage policy.</p>
               </div>
               <span class="pill">Diagnostics</span>
+            </div>
+            <div id="privacy-policy" class="policy-list">
+              <div class="empty-card">Privacy controls and retention defaults will appear here after the app loads.</div>
             </div>
             <div id="operator-policy" class="policy-list">
               <div class="empty-card">Operator policy details will appear after access is available.</div>
