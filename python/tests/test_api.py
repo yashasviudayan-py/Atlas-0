@@ -88,6 +88,15 @@ def test_operator_access_is_public() -> None:
     assert response.json()["mode"] in {"loopback", "token"}
 
 
+def test_product_privacy_is_public() -> None:
+    response = client.get("/product/privacy")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["delete_supported"] is True
+    assert "retention" in data["summary"].lower()
+
+
 def test_job_listing_requires_token_when_configured() -> None:
     _api_cfg.enable_job_listing = True
     _api_cfg.access_token = "secret-token"
@@ -115,6 +124,7 @@ def test_operator_settings_require_token_when_configured() -> None:
     assert authenticated.json()["providers"]["primary_provider"] in {"ollama", "claude", "openai"}
     assert "upload_success_rate" in authenticated.json()["product"]
     assert "reviewed_jobs" in authenticated.json()["evaluation"]
+    assert "release_gates" in authenticated.json()["evaluation"]
 
 
 def test_upload_job_status_exposes_report_fields():
@@ -669,6 +679,85 @@ def test_upload_persists_job_input_and_enqueues_work(monkeypatch: pytest.MonkeyP
     assert queued == [job_id]
     assert _upload_store.has_job_input(job_id) is True
     assert data["artifacts"]["queued_input"]["storage_key"] == f"jobs/{job_id}/queued-input.bin"
+
+
+def test_upload_accepts_room_label_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    queued: list[str] = []
+
+    async def fake_enqueue(job_id: str) -> None:
+        queued.append(job_id)
+
+    monkeypatch.setattr(server_mod, "_enqueue_upload_job", fake_enqueue)
+
+    response = client.post(
+        "/upload",
+        headers={
+            "content-type": "application/octet-stream",
+            "x-filename": "room.bin",
+            "x-room-label": "Nursery",
+        },
+        content=b"1234",
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["room_label"] == "Nursery"
+    assert queued == [data["job_id"]]
+
+
+def test_completed_job_exposes_room_score_and_comparison() -> None:
+    _upload_jobs["oldroom1"] = {
+        "job_id": "oldroom1",
+        "filename": "nursery-before.mp4",
+        "room_label": "Nursery",
+        "status": "complete",
+        "stage": "complete",
+        "progress": 1.0,
+        "objects": [],
+        "risks": [{"hazard_code": "edge_placement", "risk_score": 0.82, "priority_score": 0.84}],
+        "fix_first": [],
+        "summary": {"filename": "nursery-before.mp4", "hazard_count": 1, "object_count": 2},
+        "recommendations": [],
+        "evidence_frames": [],
+        "scan_quality": {"status": "fair", "score": 0.59, "usable": True, "warnings": []},
+        "trust_notes": [],
+        "scene_source": "estimated_multiview",
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": "/reports/oldroom1.pdf",
+        "completed_at": "2026-04-17T10:00:00+00:00",
+        "error": None,
+    }
+    _upload_jobs["newroom1"] = {
+        "job_id": "newroom1",
+        "filename": "nursery-after.mp4",
+        "room_label": "Nursery",
+        "status": "complete",
+        "stage": "complete",
+        "progress": 1.0,
+        "objects": [],
+        "risks": [],
+        "fix_first": [],
+        "summary": {"filename": "nursery-after.mp4", "hazard_count": 0, "object_count": 2},
+        "recommendations": [],
+        "evidence_frames": [],
+        "scan_quality": {"status": "good", "score": 0.81, "usable": True, "warnings": []},
+        "trust_notes": [],
+        "scene_source": "estimated_multiview",
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": "/reports/newroom1.pdf",
+        "completed_at": "2026-04-18T10:00:00+00:00",
+        "error": None,
+    }
+
+    response = client.get("/jobs/newroom1")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["summary"]["room_score"] >= 0
+    assert data["room_comparison"]["previous_job_id"] == "oldroom1"
+    assert data["room_history"][0]["job_id"] == "oldroom1"
 
 
 async def test_resume_pending_upload_jobs_requeues_processing_jobs() -> None:

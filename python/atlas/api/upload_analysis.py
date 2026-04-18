@@ -415,7 +415,7 @@ async def analyze_uploaded_image(
     return await analyze_frame_samples(
         [frame],
         filename=filename,
-        source_content_type=content_type or "image/jpeg",
+        scan_kind="image",
         labeler=labeler,
     )
 
@@ -437,7 +437,7 @@ async def analyze_uploaded_video(
     return await analyze_frame_samples(
         frame_samples,
         filename=filename,
-        source_content_type="image/jpeg",
+        scan_kind="video",
         labeler=labeler,
     )
 
@@ -446,20 +446,27 @@ async def analyze_frame_samples(
     frame_samples: list[ExtractedFrame],
     *,
     filename: str,
-    source_content_type: str,
+    scan_kind: str | None = None,
+    source_content_type: str | None = None,
     labeler: Labeler,
 ) -> UploadAnalysisResult:
     """Analyze pre-sampled walkthrough frames into a localized hazard report."""
     if not frame_samples:
         raise ValueError("At least one frame sample is required.")
-
-    _ = source_content_type
+    if scan_kind is None:
+        inferred_type = str(source_content_type or "").lower()
+        scan_kind = "image" if inferred_type.startswith("image/") else "video"
     upload_cfg = load_config().uploads
 
     decoded_frames = [_decode_rgb(sample.image_bytes) for sample in frame_samples]
     camera_positions = _estimate_camera_path(decoded_frames)
     regions_per_frame = [_extract_salient_regions(frame_arr) for frame_arr in decoded_frames]
-    scan_quality = _assess_scan_quality(decoded_frames, camera_positions, regions_per_frame)
+    scan_quality = _assess_scan_quality(
+        decoded_frames,
+        camera_positions,
+        regions_per_frame,
+        scan_kind=scan_kind,
+    )
 
     observations: list[Observation] = []
     evidence_frames: list[dict[str, Any]] = []
@@ -545,6 +552,13 @@ async def analyze_frame_samples(
     _calibrate_risks_for_scan(risks, objects, scan_quality)
     fix_first = build_fix_first_actions(risks)
     recommendations = build_recommendations_from_hazards(risks)
+    risks, fix_first, recommendations = _apply_scan_acceptance_policy(
+        scan_quality,
+        scan_kind=scan_kind,
+        risks=risks,
+        fix_first=fix_first,
+        recommendations=recommendations,
+    )
     summary = _build_summary(filename, objects, risks, scene_source, scan_quality)
     point_cloud = _build_scene_point_cloud(tracks)
 
@@ -980,6 +994,8 @@ def _assess_scan_quality(
     decoded_frames: list[np.ndarray],
     camera_positions: list[tuple[float, float]],
     regions_per_frame: list[list[RegionCandidate]],
+    *,
+    scan_kind: str,
 ) -> dict[str, Any]:
     """Estimate whether the upload is visually usable for hazard reporting."""
     if not decoded_frames:
@@ -1080,6 +1096,10 @@ def _assess_scan_quality(
         "status": status,
         "score": round(score, 2),
         "usable": score >= 0.48,
+        "reportability": "accepted",
+        "hard_reject": False,
+        "rejection_reasons": [],
+        "scan_kind": scan_kind,
         "capture_summary": capture_summary,
         "rescan_recommended": rescan_recommended,
         "warnings": warnings[:4],
@@ -1094,6 +1114,88 @@ def _assess_scan_quality(
             "saliency_coverage": round(mean_saliency, 2),
         },
     }
+
+
+def _apply_scan_acceptance_policy(
+    scan_quality: dict[str, Any],
+    *,
+    scan_kind: str,
+    risks: list[dict[str, Any]],
+    fix_first: list[dict[str, Any]],
+    recommendations: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Convert scan-quality diagnostics into accepted/downgraded/rejected output."""
+    upload_cfg = load_config().uploads
+    metrics = scan_quality.get("metrics") or {}
+    frame_count = int(metrics.get("frame_count", 0) or 0)
+    motion_coverage = float(metrics.get("motion_coverage", 0.0) or 0.0)
+    saliency_coverage = float(metrics.get("saliency_coverage", 0.0) or 0.0)
+    score = float(scan_quality.get("score", 0.0) or 0.0)
+
+    rejection_reasons: list[str] = []
+    if scan_kind == "video":
+        if frame_count < upload_cfg.min_frames_for_room_report:
+            rejection_reasons.append(
+                "The walkthrough was too short to cover the room from enough viewpoints."
+            )
+        if score < upload_cfg.min_scan_quality_score:
+            rejection_reasons.append(
+                "Overall scan quality stayed below the minimum threshold for a room report."
+            )
+        if motion_coverage < upload_cfg.min_motion_coverage:
+            rejection_reasons.append(
+                "Camera motion was too limited to ground objects across the room reliably."
+            )
+        if saliency_coverage < upload_cfg.min_saliency_coverage:
+            rejection_reasons.append(
+                "The upload did not keep enough clear room surfaces and objects in frame."
+            )
+    elif (
+        score < max(0.28, upload_cfg.min_scan_quality_score - 0.12)
+        and saliency_coverage < upload_cfg.min_saliency_coverage
+    ):
+        rejection_reasons.append(
+            "This image did not contain enough clear room evidence for a trustworthy screen."
+        )
+
+    if rejection_reasons:
+        warnings = list(scan_quality.get("warnings") or [])
+        guidance = list(scan_quality.get("retry_guidance") or [])
+        warnings.insert(
+            0,
+            (
+                "ATLAS-0 refused to generate a normal room report because the"
+                " scan evidence was too weak."
+            ),
+        )
+        guidance.insert(
+            0,
+            (
+                "Rescan one room slowly, keep the camera moving, and hold"
+                " shelves or tables in frame briefly."
+            ),
+        )
+        scan_quality.update(
+            {
+                "usable": False,
+                "reportability": "rejected",
+                "hard_reject": True,
+                "rejection_reasons": rejection_reasons[:4],
+                "capture_summary": (
+                    "This upload was not strong enough for a trustworthy room safety report."
+                ),
+                "rescan_recommended": True,
+                "warnings": warnings[:4],
+                "retry_guidance": guidance[:4],
+            }
+        )
+        return [], [], []
+
+    downgraded = bool(scan_quality.get("rescan_recommended")) or scan_kind == "image"
+    scan_quality["reportability"] = "downgraded" if downgraded else "accepted"
+    scan_quality["hard_reject"] = False
+    scan_quality["rejection_reasons"] = []
+    return risks, fix_first, recommendations
 
 
 def _merge_scan_safety(scan_quality: dict[str, Any], safety_counts: dict[str, int]) -> None:
@@ -1271,6 +1373,7 @@ def _build_summary(
         and float(risk.get("reasoning", {}).get("grounding_confidence", 0.0)) >= 0.55
     )
     coverage_label_value = _coverage_label(objects, scan_quality)
+    reportability = str(scan_quality.get("reportability", "accepted")).lower()
     if coverage_label_value == "broad" and high_confidence_count >= 2:
         confidence_label = "Calibrated multi-view screening"
     elif coverage_label_value == "partial":
@@ -1284,7 +1387,18 @@ def _build_summary(
         "This report flags likely hazards from the uploaded scan."
         " It does not certify that the room is safe."
     )
-    if top_risk:
+    if reportability == "rejected":
+        headline = "Rescan before ATLAS-0 can trust this room report"
+        overview = (
+            "This upload did not capture enough usable room evidence for a trustworthy"
+            " hazard report, so ATLAS-0 refused to present normal findings."
+        )
+        report_posture = "scan rejected"
+        screening_statement = (
+            "ATLAS-0 rejected this upload as a room report because coverage and grounding"
+            " were too weak. This is not a clean result."
+        )
+    elif top_risk:
         headline = f"Start with {top_risk.get('hazard_title', 'the top hazard')}"
         overview = (
             f"ATLAS-0 flagged {len(risks)} likely hazard"
@@ -1311,6 +1425,7 @@ def _build_summary(
         "filename": filename,
         "object_count": len(objects),
         "hazard_count": len(risks),
+        "analysis_outcome": reportability,
         "top_severity": top_risk.get("severity", "none") if top_risk else "none",
         "top_hazard_label": top_risk.get("hazard_title") if top_risk else None,
         "scene_source": scene_source,
@@ -1334,6 +1449,7 @@ def _build_summary(
         ),
         "report_posture": report_posture,
         "rescan_recommended": rescan_recommended,
+        "rejection_reasons": list(scan_quality.get("rejection_reasons") or []),
         "headline": headline,
         "overview": overview,
         "screening_statement": screening_statement,

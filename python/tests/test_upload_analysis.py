@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 
 from atlas.api.upload_analysis import (
+    _apply_scan_acceptance_policy,
     _calibrate_risks_for_scan,
     _sanitize_region_crop,
     build_finding_replays,
@@ -98,3 +99,62 @@ def test_calibrate_risks_for_scan_downgrades_weak_support() -> None:
     assert risks[0]["confidence"] < 0.74
     assert risks[0]["confidence_label"] in {"approximate", "weak"}
     assert risks[0]["reasoning"]["confidence_reasons"]
+
+
+def test_apply_scan_acceptance_policy_rejects_weak_walkthrough() -> None:
+    scan_quality = {
+        "status": "poor",
+        "score": 0.31,
+        "usable": True,
+        "rescan_recommended": True,
+        "warnings": [],
+        "retry_guidance": [],
+        "metrics": {
+            "frame_count": 2,
+            "motion_coverage": 0.08,
+            "saliency_coverage": 0.12,
+        },
+    }
+
+    risks, fix_first, recommendations = _apply_scan_acceptance_policy(
+        scan_quality,
+        scan_kind="video",
+        risks=[{"hazard_code": "edge_placement"}],
+        fix_first=[{"title": "Fix"}],
+        recommendations=[{"title": "Rec"}],
+    )
+
+    assert risks == []
+    assert fix_first == []
+    assert recommendations == []
+    assert scan_quality["reportability"] == "rejected"
+    assert scan_quality["hard_reject"] is True
+    assert scan_quality["rejection_reasons"]
+
+
+def test_apply_scan_acceptance_policy_downgrades_single_image() -> None:
+    scan_quality = {
+        "status": "good",
+        "score": 0.78,
+        "usable": True,
+        "rescan_recommended": False,
+        "warnings": [],
+        "retry_guidance": [],
+        "metrics": {
+            "frame_count": 1,
+            "motion_coverage": 1.0,
+            "saliency_coverage": 0.66,
+        },
+    }
+
+    risks, _, _ = _apply_scan_acceptance_policy(
+        scan_quality,
+        scan_kind="image",
+        risks=[{"hazard_code": "edge_placement"}],
+        fix_first=[],
+        recommendations=[],
+    )
+
+    assert risks == [{"hazard_code": "edge_placement"}]
+    assert scan_quality["reportability"] == "downgraded"
+    assert scan_quality["hard_reject"] is False

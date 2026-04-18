@@ -102,6 +102,7 @@ _query_parser = QueryParser()
 _runtime_cfg = load_config()
 _api_cfg = _runtime_cfg.api
 _upload_cfg = _runtime_cfg.uploads
+_evaluation_cfg = _runtime_cfg.evaluation
 _upload_store = UploadStore(
     pathlib.Path(_upload_cfg.storage_dir),
     save_original_uploads=_upload_cfg.save_original_uploads,
@@ -247,6 +248,17 @@ class OperatorSettingsResponse(BaseModel):
     providers: dict[str, Any]
     evaluation: dict[str, Any]
     product: dict[str, Any]
+
+
+class PrivacyPolicyResponse(BaseModel):
+    """Public privacy posture exposed to the hosted frontend."""
+
+    retention_days: int
+    save_original_uploads: bool
+    delete_supported: bool
+    text_redaction_enabled: bool
+    summary: str
+    details: list[str]
 
 
 class OverlayRiskEntry(BaseModel):
@@ -499,6 +511,12 @@ def operator_access() -> OperatorAccessResponse:
     return OperatorAccessResponse(**_operator_access_descriptor())
 
 
+@app.get("/product/privacy", response_model=PrivacyPolicyResponse)
+def product_privacy() -> PrivacyPolicyResponse:
+    """Expose user-visible privacy and deletion controls."""
+    return PrivacyPolicyResponse(**_public_privacy_descriptor())
+
+
 @app.get("/operator/settings", response_model=OperatorSettingsResponse)
 def operator_settings(request: Request) -> OperatorSettingsResponse:
     """Return protected operator diagnostics and upload-policy visibility."""
@@ -735,8 +753,7 @@ def _save_job(job: dict[str, Any]) -> None:
 def _update_job(job: dict[str, Any], **fields: Any) -> None:
     """Update a job dict and persist the new state."""
     job.update(fields)
-    if job.get("risks") is not None:
-        job["evaluation_summary"] = _build_evaluation_summary(job)
+    _ensure_job_derived_fields(job)
     _save_job(job)
 
 
@@ -873,26 +890,42 @@ def _feedback_counts(events: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+def _eval_corpus_dir() -> pathlib.Path:
+    """Return the directory holding seeded evaluation fixtures."""
+    return pathlib.Path(__file__).parents[3] / "data" / "eval_corpus"
+
+
+def _load_eval_corpus_entries() -> list[dict[str, Any]]:
+    """Load all seeded evaluation corpus entries from disk."""
+    entries: list[dict[str, Any]] = []
+    corpus_dir = _eval_corpus_dir()
+    if not corpus_dir.exists():
+        return entries
+
+    for path in sorted(corpus_dir.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict) and payload.get("label"):
+            entries.append(payload)
+    return entries
+
+
 def _load_expected_benchmark(label: str) -> dict[str, Any] | None:
     """Load a supported benchmark fixture definition for comparison."""
-    if label != "sample_walkthrough":
-        return None
-    fixture_root = pathlib.Path(__file__).parents[3] / "data" / "sample_walkthrough"
-    expected_path = fixture_root / "expected_report.json"
-    if not expected_path.exists():
-        return None
-    try:
-        return json.loads(expected_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+    for entry in _load_eval_corpus_entries():
+        if str(entry.get("label")) == label:
+            return entry
+    return None
 
 
 def _auto_benchmark_label(job: dict[str, Any]) -> str | None:
     """Infer a benchmark label for known regression fixtures."""
-    expected = _load_expected_benchmark("sample_walkthrough")
     filename = str((job.get("summary") or {}).get("filename") or job.get("filename") or "")
-    if expected and filename == str(expected.get("fixture_name", "")):
-        return "sample_walkthrough"
+    for entry in _load_eval_corpus_entries():
+        if filename and filename == str(entry.get("fixture_name", "")):
+            return str(entry.get("label"))
     return None
 
 
@@ -965,6 +998,16 @@ def _aggregate_evaluation_metrics() -> dict[str, Any]:
     missed_hazard_rate = (
         round(jobs_with_missed_hazards / total_complete, 2) if total_complete else 0.0
     )
+    corpus_entries = _load_eval_corpus_entries()
+    release_gates = _evaluation_release_gates(
+        reviewed_jobs=reviewed_jobs,
+        benchmarked_jobs=benchmarked_jobs,
+        benchmark_match_rate=benchmark_match_rate,
+        false_positive_job_rate=false_positive_job_rate,
+        missed_hazard_rate=missed_hazard_rate,
+        avg_review_coverage=avg_review_coverage,
+        seed_fixture_count=len(corpus_entries),
+    )
 
     return {
         "completed_jobs": total_complete,
@@ -976,6 +1019,77 @@ def _aggregate_evaluation_metrics() -> dict[str, Any]:
         "jobs_needing_review": jobs_needing_review,
         "false_positive_job_rate": false_positive_job_rate,
         "avg_review_coverage": avg_review_coverage,
+        "seed_fixture_count": len(corpus_entries),
+        "target_corpus_size": _evaluation_cfg.target_corpus_size,
+        "release_gates": release_gates,
+    }
+
+
+def _evaluation_release_gates(
+    *,
+    reviewed_jobs: int,
+    benchmarked_jobs: int,
+    benchmark_match_rate: float,
+    false_positive_job_rate: float,
+    missed_hazard_rate: float,
+    avg_review_coverage: float,
+    seed_fixture_count: int,
+) -> dict[str, Any]:
+    """Build a release-gate summary for operator review."""
+    gates = [
+        {
+            "id": "reviewed_jobs",
+            "label": "Reviewed jobs",
+            "actual": reviewed_jobs,
+            "target": _evaluation_cfg.min_reviewed_jobs,
+            "passed": reviewed_jobs >= _evaluation_cfg.min_reviewed_jobs,
+        },
+        {
+            "id": "benchmark_match_rate",
+            "label": "Benchmark match rate",
+            "actual": benchmark_match_rate,
+            "target": _evaluation_cfg.min_benchmark_match_rate,
+            "passed": benchmarked_jobs > 0
+            and benchmark_match_rate >= _evaluation_cfg.min_benchmark_match_rate,
+        },
+        {
+            "id": "false_positive_job_rate",
+            "label": "False-positive job rate",
+            "actual": false_positive_job_rate,
+            "target": _evaluation_cfg.max_false_positive_job_rate,
+            "passed": false_positive_job_rate <= _evaluation_cfg.max_false_positive_job_rate,
+        },
+        {
+            "id": "missed_hazard_rate",
+            "label": "Missed-hazard job rate",
+            "actual": missed_hazard_rate,
+            "target": _evaluation_cfg.max_missed_hazard_rate,
+            "passed": missed_hazard_rate <= _evaluation_cfg.max_missed_hazard_rate,
+        },
+        {
+            "id": "avg_review_coverage",
+            "label": "Average review coverage",
+            "actual": avg_review_coverage,
+            "target": _evaluation_cfg.min_avg_review_coverage,
+            "passed": avg_review_coverage >= _evaluation_cfg.min_avg_review_coverage,
+        },
+        {
+            "id": "seed_corpus_progress",
+            "label": "Seed eval corpus",
+            "actual": seed_fixture_count,
+            "target": _evaluation_cfg.target_corpus_size,
+            "passed": seed_fixture_count >= _evaluation_cfg.target_corpus_size,
+        },
+    ]
+    ready_for_beta = all(bool(gate["passed"]) for gate in gates[:5])
+    return {
+        "ready_for_beta": ready_for_beta,
+        "summary": (
+            "Release gates passed for broader beta."
+            if ready_for_beta
+            else "Release gates are still open. Keep growing the eval corpus and review coverage."
+        ),
+        "gates": gates,
     }
 
 
@@ -992,11 +1106,17 @@ def _aggregate_product_metrics() -> dict[str, Any]:
     total_feedback_events = 0
     total_duration_seconds = 0.0
     completed_with_duration = 0
+    room_label_counts: dict[str, int] = {}
 
     for job in completed_jobs:
         feedback = dict(job.get("feedback_summary") or {})
         useful_events += int(feedback.get("useful", 0) or 0)
         total_feedback_events += sum(int(feedback.get(key, 0) or 0) for key in feedback)
+        room_label = _normalize_room_label(
+            job.get("room_label") or (job.get("summary") or {}).get("room_label")
+        )
+        if room_label:
+            room_label_counts[room_label] = room_label_counts.get(room_label, 0) + 1
         started_at = job.get("started_at")
         completed_at = job.get("completed_at")
         if started_at and completed_at:
@@ -1020,6 +1140,8 @@ def _aggregate_product_metrics() -> dict[str, Any]:
     return {
         "terminal_jobs": len(terminal_jobs),
         "completed_jobs": len(completed_jobs),
+        "repeat_scan_rooms": sum(1 for count in room_label_counts.values() if count > 1),
+        "labeled_rooms": len(room_label_counts),
         "upload_success_rate": success_rate,
         "rescan_recommended_rate": (
             round(rescan_recommended / len(completed_jobs), 2) if completed_jobs else 0.0
@@ -1141,10 +1263,167 @@ def _build_evaluation_summary(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _iso_sort_key(job: dict[str, Any]) -> str:
+    """Return a stable descending sort key for job recency."""
+    return str(job.get("completed_at") or job.get("queued_at") or job.get("job_id") or "")
+
+
+def _normalize_room_label(value: str | None) -> str | None:
+    """Normalize a user-facing room label for storage and comparison."""
+    label = " ".join(str(value or "").strip().split())
+    if not label:
+        return None
+    return label
+
+
+def _room_score_payload(job: dict[str, Any]) -> dict[str, Any] | None:
+    """Compute a lightweight room safety score for repeat-use comparisons."""
+    if str(job.get("status")) != "complete":
+        return None
+
+    summary = dict(job.get("summary") or {})
+    scan_quality = dict(job.get("scan_quality") or {})
+    risks = list(job.get("risks") or [])
+    weights = [30, 18, 10, 6, 4]
+    hazard_penalty = 0.0
+    for index, risk in enumerate(
+        sorted(
+            risks,
+            key=lambda item: float(item.get("priority_score", item.get("risk_score", 0.0))),
+            reverse=True,
+        )[: len(weights)]
+    ):
+        hazard_penalty += weights[index] * float(
+            risk.get("priority_score", risk.get("risk_score", 0.0)) or 0.0
+        )
+
+    quality_penalty = 0.0
+    status = str(scan_quality.get("status", "unknown")).lower()
+    if status == "fair":
+        quality_penalty += 6.0
+    elif status == "poor":
+        quality_penalty += 14.0
+    if bool(scan_quality.get("rescan_recommended")):
+        quality_penalty += 8.0
+    if str(summary.get("analysis_outcome", "accepted")).lower() == "rejected":
+        quality_penalty += 20.0
+
+    score = max(0, min(100, int(round(100.0 - min(78.0, hazard_penalty) - quality_penalty))))
+    if score >= 82:
+        band = "safer now"
+        summary_text = (
+            "Lower apparent risk in the current scan, though this is still a screening result."
+        )
+    elif score >= 65:
+        band = "needs fixes"
+        summary_text = (
+            "A few concentrated risks still deserve follow-up before calling the room calm."
+        )
+    else:
+        band = "high attention"
+        summary_text = (
+            "ATLAS-0 sees enough concentrated risk here that a follow-up pass"
+            " should start with the top actions."
+        )
+
+    return {
+        "room_score": score,
+        "room_score_band": band,
+        "room_score_summary": summary_text,
+    }
+
+
+def _room_history(job: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return recent completed scans for the same labeled room."""
+    room_label = _normalize_room_label(
+        job.get("room_label") or (job.get("summary") or {}).get("room_label")
+    )
+    if room_label is None:
+        return []
+
+    siblings = [
+        candidate
+        for candidate in _upload_jobs.values()
+        if str(candidate.get("status")) == "complete"
+        and candidate.get("job_id") != job.get("job_id")
+        and _normalize_room_label(
+            candidate.get("room_label") or (candidate.get("summary") or {}).get("room_label")
+        )
+        == room_label
+    ]
+    siblings.sort(key=_iso_sort_key, reverse=True)
+    history: list[dict[str, Any]] = []
+    for candidate in siblings[:4]:
+        candidate_summary = dict(candidate.get("summary") or {})
+        score_payload = _room_score_payload(candidate)
+        if score_payload:
+            candidate_summary.update(score_payload)
+        history.append(
+            {
+                "job_id": candidate.get("job_id"),
+                "filename": candidate.get("filename"),
+                "completed_at": candidate.get("completed_at"),
+                "room_score": candidate_summary.get("room_score"),
+                "hazard_count": candidate_summary.get("hazard_count"),
+                "top_severity": candidate_summary.get("top_severity"),
+            }
+        )
+    return history
+
+
+def _room_comparison(job: dict[str, Any]) -> dict[str, Any] | None:
+    """Compare the current room scan to the most recent previous scan."""
+    history = _room_history(job)
+    if not history:
+        return None
+
+    current_summary = dict(job.get("summary") or {})
+    previous = history[0]
+    current_score = current_summary.get("room_score")
+    previous_score = previous.get("room_score")
+    if current_score is None or previous_score is None:
+        return None
+
+    delta = int(current_score) - int(previous_score)
+    hazard_delta = int(current_summary.get("hazard_count", 0) or 0) - int(
+        previous.get("hazard_count", 0) or 0
+    )
+    trend = "improved" if delta > 0 else "worse" if delta < 0 else "flat"
+    return {
+        "previous_job_id": previous.get("job_id"),
+        "previous_filename": previous.get("filename"),
+        "previous_completed_at": previous.get("completed_at"),
+        "previous_room_score": previous_score,
+        "current_room_score": current_score,
+        "score_delta": delta,
+        "hazard_delta": hazard_delta,
+        "trend": trend,
+        "summary": (
+            "This room looks safer than the last saved scan."
+            if trend == "improved"
+            else "This room looks riskier than the last saved scan."
+            if trend == "worse"
+            else "This room looks broadly similar to the last saved scan."
+        ),
+    }
+
+
 def _ensure_job_derived_fields(job: dict[str, Any]) -> dict[str, Any]:
     """Populate lightweight derived fields for older or manually inserted jobs."""
     if job.get("risks") is not None and not isinstance(job.get("evaluation_summary"), dict):
         job["evaluation_summary"] = _build_evaluation_summary(job)
+    summary = dict(job.get("summary") or {})
+    room_label = _normalize_room_label(job.get("room_label") or summary.get("room_label"))
+    if room_label:
+        job["room_label"] = room_label
+        summary["room_label"] = room_label
+    if summary:
+        score_payload = _room_score_payload(job)
+        if score_payload:
+            summary.update(score_payload)
+        job["summary"] = summary
+        job["room_history"] = _room_history(job)
+        job["room_comparison"] = _room_comparison(job)
     return job
 
 
@@ -1266,6 +1545,33 @@ def _operator_access_descriptor() -> dict[str, Any]:
     }
 
 
+def _public_privacy_descriptor() -> dict[str, Any]:
+    """Return user-visible privacy defaults for upload/report flows."""
+    details = [
+        f"Uploads and artifacts are retained for up to {_upload_cfg.retention_days} day(s).",
+        (
+            "Original uploads are kept."
+            if _upload_cfg.save_original_uploads
+            else "Original uploads are not persisted by default after processing."
+        ),
+        "Text-heavy crops are blurred before model analysis."
+        if _upload_cfg.redact_text_heavy_regions
+        else "Text-heavy crop redaction is disabled in this environment.",
+        "You can delete a scan and its artifacts from the report view at any time.",
+    ]
+    return {
+        "retention_days": _upload_cfg.retention_days,
+        "save_original_uploads": _upload_cfg.save_original_uploads,
+        "delete_supported": True,
+        "text_redaction_enabled": _upload_cfg.redact_text_heavy_regions,
+        "summary": (
+            "ATLAS-0 keeps upload artifacts on a time-limited retention window for reports,"
+            " review, and debugging, and it exposes delete controls in the product."
+        ),
+        "details": details,
+    }
+
+
 async def _start_upload_workers() -> None:
     """Start the persistent upload queue and worker tasks once."""
     if _upload_queue() is not None:
@@ -1383,6 +1689,7 @@ class UploadJobStatus(BaseModel):
 
     job_id: str
     filename: str
+    room_label: str | None = None
     status: str  # queued | processing | complete | error
     stage: str  # upload | ingest | vlm | risk | complete
     progress: float
@@ -1399,6 +1706,8 @@ class UploadJobStatus(BaseModel):
     feedback_summary: dict[str, int] | None = None
     evaluation_summary: dict[str, Any] | None = None
     human_evaluation: dict[str, Any] | None = None
+    room_history: list[dict[str, Any]] | None = None
+    room_comparison: dict[str, Any] | None = None
     report_url: str | None = None
     error: str | None = None
     artifacts: dict[str, Any] | None = None
@@ -2406,6 +2715,14 @@ async def _read_upload_request(request: Request) -> tuple[str, str, bytes]:
     return filename, fallback_type, body
 
 
+def _request_room_label(request: Request) -> str | None:
+    """Extract an optional room label supplied by the frontend."""
+    label = _normalize_room_label(request.headers.get("x-room-label"))
+    if label and len(label) > 80:
+        raise HTTPException(status_code=400, detail="Room label must be 80 characters or fewer.")
+    return label
+
+
 async def _read_request_body_limited(request: Request, max_bytes: int) -> bytes:
     """Read one request body while enforcing a maximum byte size."""
     content_length = request.headers.get("content-length")
@@ -2480,6 +2797,7 @@ async def upload_media(request: Request) -> UploadJobStatus:
         )
 
     filename, content_type, content = await _read_upload_request(request)
+    room_label = _request_room_label(request)
     _validate_upload_constraints(content_type, content)
 
     job_id = uuid.uuid4().hex[:8]
@@ -2488,6 +2806,7 @@ async def upload_media(request: Request) -> UploadJobStatus:
     job: dict[str, Any] = {
         "job_id": job_id,
         "filename": filename,
+        "room_label": room_label,
         "content_type": content_type,
         "status": "queued",
         "stage": "upload",
