@@ -397,6 +397,14 @@ Turn labels into actionable hazard judgments with explicit evidence.
 
 Make ATLAS-0 easy to try, easy to share, and easy to talk about.
 
+### Status
+
+Partially complete. The product now has a more trustworthy report path,
+feedback capture, replay artifacts, hosted token access, durable queued job
+execution, storage lifecycle controls, and clearer beta-facing trust language.
+The remaining work is to make that foundation production ready and worth coming
+back to.
+
 ### Deliverables
 
 1. Hosted beta path
@@ -425,10 +433,40 @@ Make ATLAS-0 easy to try, easy to share, and easy to talk about.
    - real screenshots
    - one short product video
 
+6. Retention and repeat usage
+   - saved scan history by room
+   - rescan flow for before/after comparison
+   - room safety score with trend over time
+
+7. Audience-specific modes
+   - toddler mode
+   - pet mode
+   - move-in / move-out renter mode
+   - reorder findings and recommendations based on context
+
 ### Exit Criteria
 
 - A stranger can understand the product in under 30 seconds.
 - A beta user can go from landing page to report without help.
+- A returning user has a clear reason to rescan the same room after making
+  changes.
+
+### Completed in repo
+
+- Browser upload, report generation, replay artifacts, PDF export, and hosted
+  token access now exist in one coherent flow.
+- Users can submit feedback on findings, and operators can inspect evaluation
+  summaries plus runtime/storage diagnostics.
+- The product now uses safer low-confidence language instead of implying that
+  "no strong hazard found" means "safe."
+
+### Still missing
+
+- landing page / sample scan funnel for strangers
+- share-link flow for reports
+- room history and before/after rescan comparisons
+- audience-specific modes such as toddler / pet / renter
+- product analytics for acquisition, drop-off, and repeat usage
 
 ---
 
@@ -635,36 +673,167 @@ Prevent non-obvious failures that would block real-world use.
 This is the preferred order of attack after the work already completed in the
 current repo.
 
-1. Worker queue and job execution split
-   - highest leverage for reliability and throughput
-
-2. Manifest shrinking and artifact externalization
-   - required for scale, privacy, and cleaner APIs
-
-3. Scan quality gate + "Fix First" summary
-   - highest leverage UX improvements
-
-4. Evidence replay for top findings
-   - strongest differentiator / "wow" factor
-
-5. Confidence calibration and safer low-risk language
-   - required for trust and legal/product safety
-
-6. Evaluation corpus expansion and provider comparison
+1. Evaluation corpus expansion and release gating
    - required before broader beta or more model complexity
+   - converts correctness work from intuition into measurable quality bars
 
-7. Retention, deletion, and redaction controls
-   - required before real external users
+2. Scan acceptance and refusal flow
+   - reject or downgrade low-quality scans before they create misleading reports
+   - protects trust and reduces support burden
 
-### Tomorrow Start Point
+3. Privacy-first beta controls
+   - visible delete-my-scan controls, retention messaging, and stronger
+     redaction for sensitive imagery
+   - required before meaningful external beta growth
 
-If we continue from this plan tomorrow, the first concrete build slice should
+4. Shareable growth loop
+   - before/after rescans, room safety score, and improved share output
+   - highest leverage feature set for word of mouth and repeat usage
+
+5. Audience-specific modes
+   - toddler mode, pet mode, and renter move-in mode
+   - strongest path to "this feels made for me" retention and referrals
+
+6. Proper deployment infrastructure
+   - move from app-local durable queue + disk storage toward dedicated workers,
+     object storage, and production observability
+   - required for a serious hosted beta
+
+7. Provider routing maturity
+   - benchmark local vs hosted providers on the eval set
+   - use routing only where it measurably improves accuracy or latency
+
+### Starting Today
+
+If we continue from this plan today, the first concrete build slice should
 be:
 
-1. introduce a real queued worker boundary for upload jobs
-2. externalize evidence blobs and shrink persisted manifests
-3. add scan quality scoring plus retry guidance in the upload flow
-4. add a "Fix First" report section above the full finding list
+1. build the first real labeled evaluation set and define release gates
+2. implement hard scan refusal / downgrade logic for low-quality uploads
+3. add user-visible privacy controls and delete-my-scan UX
+4. add before/after rescans plus a room safety score foundation
+
+### Production Readiness Track
+
+This is the most important path if the goal is to make ATLAS-0 safe to expose
+to outside beta users.
+
+1. Close the truth gap
+   - build a 50-100 scan labeled evaluation set across clean rooms, cluttered
+     rooms, difficult lighting, and intentionally adversarial cases
+   - track false positives, false negatives, missed dangerous hazards, and
+     confidence calibration quality
+   - require report-path changes to beat or match the current benchmark before
+     release
+
+2. Make report quality predictable
+   - score uploads for coverage, blur, darkness, shakiness, occlusion, and
+     weak motion diversity
+   - refuse analysis when the scan is clearly below minimum quality
+   - downgrade claims more aggressively when evidence quality is weak
+
+3. Harden privacy and trust
+   - add automatic face, screen, document, and family-photo redaction
+   - show clear retention policy and deletion controls in the actual product
+   - keep "delete my scan and artifacts now" available to end users, not only
+     operators
+
+4. Prepare real deployment infrastructure
+   - promote the current in-process durable queue toward dedicated workers
+   - add object-storage-ready artifact backends
+   - add observability for queue depth, latency, failure rate, timeout rate,
+     storage growth, and provider failures
+
+5. Tighten the hosted beta UX
+   - simplify first run to upload -> wait -> read top risks
+   - provide a guided sample scan and a capture-quality checklist
+   - make the report feel printable, shareable, and immediately actionable
+
+### Beta User Acquisition Track
+
+This is the path that makes the product easier to recommend, easier to share,
+and more likely to get repeat use.
+
+1. Keep the wedge narrow
+   - continue positioning ATLAS-0 as a room safety scan, not a general 3D
+     world-model platform
+   - speak to real jobs such as toddler safety, pet hazards, clutter risk, and
+     move-in safety checks
+
+2. Make the report share-worthy
+   - improve report visuals and export quality for landlord / partner /
+     contractor sharing
+   - generate a cleaner summary link with top hazards, confidence posture, and
+     top actions
+   - add a "weekend fix list" output so the report turns into a punch list
+
+3. Build one repeat-use loop
+   - let users rescan a room after changes and compare before/after risk
+   - show progress over time instead of isolated single-scan output
+   - reward improvement with clear deltas, not gamified noise
+
+4. Add personalized modes
+   - toddler mode prioritizes reachable, topple, choke, and climb hazards
+   - pet mode prioritizes chew, spill, trip, ingestible, and unstable-object
+     hazards
+   - renter mode prioritizes move-in / move-out issues, blocked exits, broken
+     furniture, and liability-relevant evidence
+
+5. Add one light social / daily-use layer
+   - room safety score
+   - before / after comparison
+   - "3 things to fix this weekend"
+   - optional "room wins" section so the product can feel useful and uplifting,
+     not only critical
+
+### Feature Ideas That Can Create Word of Mouth
+
+These are not random extras. They are the most promising features for making
+people come back and tell others.
+
+1. Room Safety Score
+   - one score per room
+   - explain the drivers of the score
+   - make improvement visible after a cleanup or fix session
+
+2. Before / After Improvement Mode
+   - compare two scans of the same room
+   - call out what got safer, what stayed risky, and what worsened
+
+3. Weekend Fix List
+   - convert findings into a short, action-first checklist
+   - sort by effort and impact so users can actually finish it
+
+4. Toddler / Pet / Renter Modes
+   - re-rank hazards for the user context
+   - make the product feel specifically built for the person using it
+
+5. Room Wins
+   - add a lightweight "you already did these things right" section
+   - makes the report more shareable and less emotionally punishing
+
+### Beta Audiences To Target
+
+The likely early users who can both benefit from the product and talk about it
+to others are:
+
+- parents of toddlers
+- pet owners
+- renters moving in or moving out
+- people decluttering or reorganizing rooms
+- elder-care households
+- organizers, cleaners, or handymen who can use the report with clients
+
+### Release Gates For Public Beta
+
+Before trying to scale acquisition, ATLAS-0 should meet these bars:
+
+1. correctness is benchmarked on a labeled eval set and tracked in CI or
+   release checks
+2. weak scans are refused or clearly downgraded before report generation
+3. privacy controls and delete-my-scan flows are exposed in the product
+4. report sharing works without exposing unrelated artifacts or internal state
+5. hosted beta observability is sufficient to debug failures quickly
 
 ---
 
