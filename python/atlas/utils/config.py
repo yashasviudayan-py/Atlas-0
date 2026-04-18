@@ -265,6 +265,10 @@ class UploadsConfig(BaseModel):
     max_job_attempts: int = 2
     job_timeout_seconds: float = 180.0
     max_storage_bytes: int = 1_500_000_000
+    min_scan_quality_score: float = 0.42
+    min_motion_coverage: float = 0.2
+    min_saliency_coverage: float = 0.22
+    min_frames_for_room_report: int = 3
     redact_text_heavy_regions: bool = True
     text_density_threshold: float = 0.52
     max_redacted_regions_per_frame: int = 2
@@ -278,6 +282,7 @@ class UploadsConfig(BaseModel):
         "max_job_attempts",
         "max_storage_bytes",
         "max_redacted_regions_per_frame",
+        "min_frames_for_room_report",
     )
     @classmethod
     def _positive_int(cls, v: int) -> int:
@@ -285,18 +290,59 @@ class UploadsConfig(BaseModel):
             raise ValueError(f"must be positive, got {v}")
         return v
 
-    @field_validator("max_video_duration_seconds", "job_timeout_seconds")
+    @field_validator(
+        "max_video_duration_seconds",
+        "job_timeout_seconds",
+        "min_scan_quality_score",
+        "min_motion_coverage",
+        "min_saliency_coverage",
+    )
     @classmethod
     def _positive_float(cls, v: float) -> float:
         if v <= 0.0:
             raise ValueError(f"must be positive, got {v}")
         return v
 
-    @field_validator("text_density_threshold")
+    @field_validator(
+        "text_density_threshold",
+        "min_scan_quality_score",
+        "min_motion_coverage",
+        "min_saliency_coverage",
+    )
     @classmethod
     def _unit_interval(cls, v: float) -> float:
         if not 0.0 <= v <= 1.0:
-            raise ValueError(f"text_density_threshold must be in [0, 1], got {v}")
+            raise ValueError(f"must be in [0, 1], got {v}")
+        return v
+
+
+class EvaluationConfig(BaseModel):
+    """Evaluation corpus and release-gate targets."""
+
+    target_corpus_size: int = 50
+    min_reviewed_jobs: int = 8
+    min_benchmark_match_rate: float = 0.75
+    max_false_positive_job_rate: float = 0.35
+    max_missed_hazard_rate: float = 0.2
+    min_avg_review_coverage: float = 0.65
+
+    @field_validator("target_corpus_size", "min_reviewed_jobs")
+    @classmethod
+    def _positive_int(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError(f"must be positive, got {v}")
+        return v
+
+    @field_validator(
+        "min_benchmark_match_rate",
+        "max_false_positive_job_rate",
+        "max_missed_hazard_rate",
+        "min_avg_review_coverage",
+    )
+    @classmethod
+    def _unit_interval(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"must be in [0, 1], got {v}")
         return v
 
 
@@ -323,6 +369,7 @@ class AtlasConfig(BaseModel):
     api: ApiConfig = Field(default_factory=ApiConfig)
     ipc: IpcConfig = Field(default_factory=IpcConfig)
     uploads: UploadsConfig = Field(default_factory=UploadsConfig)
+    evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
 
 
 # ── Loader ────────────────────────────────────────────────────────────────────

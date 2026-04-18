@@ -18,6 +18,7 @@ import pytest
 from atlas.utils.config import (
     ApiConfig,
     AtlasConfig,
+    EvaluationConfig,
     IpcConfig,
     SlamConfig,
     VlmConfig,
@@ -160,6 +161,12 @@ class TestLoadConfig:
         assert cfg.uploads.max_job_attempts == 2
         assert cfg.uploads.job_timeout_seconds == 180.0
         assert cfg.uploads.max_storage_bytes == 1_500_000_000
+        assert cfg.uploads.min_scan_quality_score == pytest.approx(0.42)
+        assert cfg.uploads.min_motion_coverage == pytest.approx(0.2)
+        assert cfg.uploads.min_saliency_coverage == pytest.approx(0.22)
+        assert cfg.uploads.min_frames_for_room_report == 3
+        assert cfg.evaluation.target_corpus_size == 50
+        assert cfg.evaluation.min_reviewed_jobs == 8
         assert cfg.api.enable_job_listing is False
 
     def test_env_atlas_config_selects_runtime_file(
@@ -217,6 +224,11 @@ timeout_seconds = 30.0
         monkeypatch.setenv("ATLAS_VLM_FALLBACK_PROVIDER", "openai")
         cfg = load_config()
         assert cfg.vlm.fallback_provider == "openai"
+
+
+def test_evaluation_config_rejects_out_of_range_thresholds() -> None:
+    with pytest.raises(ValidationError):
+        EvaluationConfig(min_benchmark_match_rate=1.2)
 
     def test_env_override_slam_bool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ATLAS_SLAM_ENABLE_LOOP_CLOSURE", "false")

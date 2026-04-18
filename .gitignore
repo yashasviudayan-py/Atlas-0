@@ -35,6 +35,8 @@ Thumbs.db
 data/*
 !data/sample_walkthrough/
 !data/sample_walkthrough/**
+!data/eval_corpus/
+!data/eval_corpus/**
 .atlas/
 models/
 *.onnx
