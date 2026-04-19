@@ -58,6 +58,12 @@ from atlas.utils.config import load_config
 from atlas.utils.video import probe_video_metadata
 from atlas.vlm.inference import SemanticLabel, VLMConfig, VLMEngine
 from atlas.world_model.agent import RiskEntry, WorldModelAgent
+from atlas.world_model.hazards import (
+    audience_mode_label,
+    build_room_wins,
+    build_weekend_fix_list,
+    normalize_audience_mode,
+)
 from atlas.world_model.query_parser import QueryParser, QueryType
 from atlas.world_model.relationships import RelationType, SemanticObject
 from atlas.world_model.risk_aggregator import RiskAggregator
@@ -1276,6 +1282,25 @@ def _normalize_room_label(value: str | None) -> str | None:
     return label
 
 
+def _share_path_for_job(job_id: str) -> str:
+    """Return the frontend deep link for one upload report."""
+    return f"/app?view=report&job={job_id}"
+
+
+def _share_summary(job: dict[str, Any]) -> str:
+    """Create a short share-safe summary for one completed report."""
+    summary = dict(job.get("summary") or {})
+    audience_label = str(
+        summary.get("audience_label") or audience_mode_label(job.get("audience_mode"))
+    )
+    room_label = _normalize_room_label(job.get("room_label") or summary.get("room_label"))
+    headline = str(summary.get("headline") or "ATLAS-0 room scan")
+    room_score = summary.get("room_score")
+    score_text = f" · {room_score}/100 room score" if isinstance(room_score, int | float) else ""
+    room_text = f"{room_label} · " if room_label else ""
+    return f"{room_text}{audience_label} · {headline}{score_text}"
+
+
 def _room_score_payload(job: dict[str, Any]) -> dict[str, Any] | None:
     """Compute a lightweight room safety score for repeat-use comparisons."""
     if str(job.get("status")) != "complete":
@@ -1340,12 +1365,14 @@ def _room_history(job: dict[str, Any]) -> list[dict[str, Any]]:
     )
     if room_label is None:
         return []
+    audience_mode = normalize_audience_mode(job.get("audience_mode"))
 
     siblings = [
         candidate
         for candidate in _upload_jobs.values()
         if str(candidate.get("status")) == "complete"
         and candidate.get("job_id") != job.get("job_id")
+        and normalize_audience_mode(candidate.get("audience_mode")) == audience_mode
         and _normalize_room_label(
             candidate.get("room_label") or (candidate.get("summary") or {}).get("room_label")
         )
@@ -1366,6 +1393,7 @@ def _room_history(job: dict[str, Any]) -> list[dict[str, Any]]:
                 "room_score": candidate_summary.get("room_score"),
                 "hazard_count": candidate_summary.get("hazard_count"),
                 "top_severity": candidate_summary.get("top_severity"),
+                "audience_mode": normalize_audience_mode(candidate.get("audience_mode")),
             }
         )
     return history
@@ -1413,6 +1441,11 @@ def _ensure_job_derived_fields(job: dict[str, Any]) -> dict[str, Any]:
     if job.get("risks") is not None and not isinstance(job.get("evaluation_summary"), dict):
         job["evaluation_summary"] = _build_evaluation_summary(job)
     summary = dict(job.get("summary") or {})
+    audience_mode = normalize_audience_mode(job.get("audience_mode"))
+    job["audience_mode"] = audience_mode
+    job["share_url"] = _share_path_for_job(str(job.get("job_id", "")))
+    summary["audience_mode"] = audience_mode
+    summary["audience_label"] = audience_mode_label(audience_mode)
     room_label = _normalize_room_label(job.get("room_label") or summary.get("room_label"))
     if room_label:
         job["room_label"] = room_label
@@ -1424,6 +1457,17 @@ def _ensure_job_derived_fields(job: dict[str, Any]) -> dict[str, Any]:
         job["summary"] = summary
         job["room_history"] = _room_history(job)
         job["room_comparison"] = _room_comparison(job)
+        job["weekend_fix_list"] = build_weekend_fix_list(
+            list(job.get("risks") or []),
+            audience_mode=audience_mode,
+        )
+        job["room_wins"] = build_room_wins(
+            list(job.get("risks") or []),
+            dict(job.get("scan_quality") or {}),
+            comparison_summary=job.get("room_comparison"),
+            audience_mode=audience_mode,
+        )
+        summary["share_summary"] = _share_summary(job)
     return job
 
 
@@ -1690,12 +1734,14 @@ class UploadJobStatus(BaseModel):
     job_id: str
     filename: str
     room_label: str | None = None
+    audience_mode: str | None = None
     status: str  # queued | processing | complete | error
     stage: str  # upload | ingest | vlm | risk | complete
     progress: float
     objects: list[dict[str, Any]] | None = None
     risks: list[dict[str, Any]] | None = None
     fix_first: list[dict[str, Any]] | None = None
+    weekend_fix_list: list[dict[str, Any]] | None = None
     summary: dict[str, Any] | None = None
     recommendations: list[dict[str, Any]] | None = None
     evidence_frames: list[dict[str, Any]] | None = None
@@ -1708,7 +1754,9 @@ class UploadJobStatus(BaseModel):
     human_evaluation: dict[str, Any] | None = None
     room_history: list[dict[str, Any]] | None = None
     room_comparison: dict[str, Any] | None = None
+    room_wins: list[dict[str, Any]] | None = None
     report_url: str | None = None
+    share_url: str | None = None
     error: str | None = None
     artifacts: dict[str, Any] | None = None
     attempt_count: int = 0
@@ -2112,14 +2160,20 @@ def _build_pdf_report(job: dict[str, Any]) -> bytes:
     summary = job.get("summary") or {}
     risks = job.get("risks") or []
     fix_first = job.get("fix_first") or []
+    weekend_fix_list = job.get("weekend_fix_list") or []
     recommendations = job.get("recommendations") or []
     scan_quality = job.get("scan_quality") or {}
     trust_notes = job.get("trust_notes") or []
     evaluation_summary = job.get("evaluation_summary") or {}
+    room_wins = job.get("room_wins") or []
 
     lines = [
         "ATLAS-0 Room Safety Report",
         f"Scan file: {summary.get('filename', 'unknown')}",
+        (
+            "Audience mode: "
+            f"{summary.get('audience_label', audience_mode_label(job.get('audience_mode')))}"
+        ),
         f"Hazards found: {summary.get('hazard_count', 0)}",
         f"Objects detected: {summary.get('object_count', 0)}",
         f"Scene source: {summary.get('scene_source', 'unknown')}",
@@ -2146,6 +2200,16 @@ def _build_pdf_report(job: dict[str, Any]) -> bytes:
             lines.append(f"- {action.get('title', 'Action')}: {action.get('action', '')}")
     else:
         lines.append("- No high-priority actions were generated.")
+
+    lines.extend(["", "Weekend fix list:"])
+    if weekend_fix_list:
+        for item in weekend_fix_list[:3]:
+            lines.append(
+                f"- {item.get('title', 'Weekend fix')} ({item.get('effort', '20-30 minutes')}): "
+                f"{item.get('task', '')}"
+            )
+    else:
+        lines.append("- No weekend fix list was generated.")
 
     lines.extend(
         [
@@ -2183,6 +2247,11 @@ def _build_pdf_report(job: dict[str, Any]) -> bytes:
         lines.extend(["", "Trust notes:"])
         for note in trust_notes[:3]:
             lines.append(f"- {note}")
+
+    if room_wins:
+        lines.extend(["", "Positive signs in this scan:"])
+        for win in room_wins[:3]:
+            lines.append(f"- {win.get('title', 'Positive sign')}: {win.get('detail', '')}")
 
     if evaluation_summary:
         lines.extend(
@@ -2480,6 +2549,7 @@ async def _process_upload(job_id: str) -> None:
                     filename=job["filename"],
                     content_type=content_type,
                     labeler=_label_upload_region,
+                    audience_mode=str(job.get("audience_mode") or "general"),
                 )
             elif is_video:
                 _update_job(job, stage="vlm", progress=0.35)
@@ -2487,6 +2557,7 @@ async def _process_upload(job_id: str) -> None:
                     content,
                     filename=job["filename"],
                     labeler=_label_upload_region,
+                    audience_mode=str(job.get("audience_mode") or "general"),
                 )
             else:
                 msg = f"Unsupported file type: {content_type!r}"
@@ -2723,6 +2794,20 @@ def _request_room_label(request: Request) -> str | None:
     return label
 
 
+def _request_audience_mode(request: Request) -> str:
+    """Extract the upload audience mode from request headers."""
+    raw_mode = request.headers.get("x-audience-mode")
+    mode = normalize_audience_mode(raw_mode)
+    if raw_mode and normalize_audience_mode(raw_mode) == "general":
+        cleaned = str(raw_mode).strip().lower().replace("-", "_").replace(" ", "_")
+        if cleaned and cleaned != "general":
+            raise HTTPException(
+                status_code=400,
+                detail="Audience mode must be general, toddler, pet, or renter.",
+            )
+    return mode
+
+
 async def _read_request_body_limited(request: Request, max_bytes: int) -> bytes:
     """Read one request body while enforcing a maximum byte size."""
     content_length = request.headers.get("content-length")
@@ -2798,6 +2883,7 @@ async def upload_media(request: Request) -> UploadJobStatus:
 
     filename, content_type, content = await _read_upload_request(request)
     room_label = _request_room_label(request)
+    audience_mode = _request_audience_mode(request)
     _validate_upload_constraints(content_type, content)
 
     job_id = uuid.uuid4().hex[:8]
@@ -2807,6 +2893,7 @@ async def upload_media(request: Request) -> UploadJobStatus:
         "job_id": job_id,
         "filename": filename,
         "room_label": room_label,
+        "audience_mode": audience_mode,
         "content_type": content_type,
         "status": "queued",
         "stage": "upload",
@@ -2814,6 +2901,7 @@ async def upload_media(request: Request) -> UploadJobStatus:
         "objects": None,
         "risks": None,
         "fix_first": None,
+        "weekend_fix_list": None,
         "summary": None,
         "recommendations": None,
         "evidence_frames": None,
@@ -2823,7 +2911,9 @@ async def upload_media(request: Request) -> UploadJobStatus:
         "finding_feedback": [],
         "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
         "human_evaluation": None,
+        "room_wins": None,
         "report_url": None,
+        "share_url": _share_path_for_job(job_id),
         "error": None,
         "artifacts": {},
         "attempt_count": 0,

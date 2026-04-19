@@ -253,10 +253,14 @@ def test_upload_job_status_exposes_report_fields():
     assert data["scan_quality"]["status"] == "fair"
     assert data["evidence_frames"][0]["caption"] == "Lamp near walkway"
     assert data["report_url"] == "/reports/job12345.pdf"
+    assert data["share_url"] == "/app?view=report&job=job12345"
+    assert data["audience_mode"] == "general"
     assert data["artifacts"]["report_pdf"]["storage_key"] == "jobs/job12345/report.pdf"
     assert data["scene_source"] == "heuristic_estimate"
     assert data["evaluation_summary"]["total_findings"] == 1
     assert data["evaluation_summary"]["pending_findings"] == 1
+    assert isinstance(data["weekend_fix_list"], list)
+    assert isinstance(data["room_wins"], list)
 
 
 def test_download_evidence_returns_file_backed_artifact(tmp_path: Path) -> None:
@@ -705,6 +709,45 @@ def test_upload_accepts_room_label_header(monkeypatch: pytest.MonkeyPatch) -> No
     assert queued == [data["job_id"]]
 
 
+def test_upload_accepts_audience_mode_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    queued: list[str] = []
+
+    async def fake_enqueue(job_id: str) -> None:
+        queued.append(job_id)
+
+    monkeypatch.setattr(server_mod, "_enqueue_upload_job", fake_enqueue)
+
+    response = client.post(
+        "/upload",
+        headers={
+            "content-type": "application/octet-stream",
+            "x-filename": "room.bin",
+            "x-audience-mode": "pet",
+        },
+        content=b"1234",
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["audience_mode"] == "pet"
+    assert queued == [data["job_id"]]
+
+
+def test_upload_rejects_unknown_audience_mode() -> None:
+    response = client.post(
+        "/upload",
+        headers={
+            "content-type": "application/octet-stream",
+            "x-filename": "room.bin",
+            "x-audience-mode": "grandma-mode",
+        },
+        content=b"1234",
+    )
+
+    assert response.status_code == 400
+    assert "Audience mode" in response.json()["detail"]
+
+
 def test_completed_job_exposes_room_score_and_comparison() -> None:
     _upload_jobs["oldroom1"] = {
         "job_id": "oldroom1",
@@ -760,6 +803,85 @@ def test_completed_job_exposes_room_score_and_comparison() -> None:
     assert data["room_history"][0]["job_id"] == "oldroom1"
 
 
+def test_room_history_filters_to_same_audience_mode() -> None:
+    _upload_jobs["old-general"] = {
+        "job_id": "old-general",
+        "filename": "nursery-general.mp4",
+        "room_label": "Nursery",
+        "audience_mode": "general",
+        "status": "complete",
+        "stage": "complete",
+        "progress": 1.0,
+        "objects": [],
+        "risks": [],
+        "fix_first": [],
+        "summary": {"filename": "nursery-general.mp4", "hazard_count": 0, "object_count": 2},
+        "recommendations": [],
+        "evidence_frames": [],
+        "scan_quality": {"status": "good", "score": 0.73, "usable": True, "warnings": []},
+        "trust_notes": [],
+        "scene_source": "estimated_multiview",
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": "/reports/old-general.pdf",
+        "completed_at": "2026-04-17T10:00:00+00:00",
+        "error": None,
+    }
+    _upload_jobs["old-toddler"] = {
+        "job_id": "old-toddler",
+        "filename": "nursery-toddler-before.mp4",
+        "room_label": "Nursery",
+        "audience_mode": "toddler",
+        "status": "complete",
+        "stage": "complete",
+        "progress": 1.0,
+        "objects": [],
+        "risks": [],
+        "fix_first": [],
+        "summary": {"filename": "nursery-toddler-before.mp4", "hazard_count": 0, "object_count": 2},
+        "recommendations": [],
+        "evidence_frames": [],
+        "scan_quality": {"status": "fair", "score": 0.61, "usable": True, "warnings": []},
+        "trust_notes": [],
+        "scene_source": "estimated_multiview",
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": "/reports/old-toddler.pdf",
+        "completed_at": "2026-04-18T10:00:00+00:00",
+        "error": None,
+    }
+    _upload_jobs["new-toddler"] = {
+        "job_id": "new-toddler",
+        "filename": "nursery-toddler-after.mp4",
+        "room_label": "Nursery",
+        "audience_mode": "toddler",
+        "status": "complete",
+        "stage": "complete",
+        "progress": 1.0,
+        "objects": [],
+        "risks": [],
+        "fix_first": [],
+        "summary": {"filename": "nursery-toddler-after.mp4", "hazard_count": 0, "object_count": 2},
+        "recommendations": [],
+        "evidence_frames": [],
+        "scan_quality": {"status": "good", "score": 0.82, "usable": True, "warnings": []},
+        "trust_notes": [],
+        "scene_source": "estimated_multiview",
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": "/reports/new-toddler.pdf",
+        "completed_at": "2026-04-19T10:00:00+00:00",
+        "error": None,
+    }
+
+    response = client.get("/jobs/new-toddler")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["room_history"][0]["job_id"] == "old-toddler"
+    assert all(entry["job_id"] != "old-general" for entry in data["room_history"])
+
+
 async def test_resume_pending_upload_jobs_requeues_processing_jobs() -> None:
     _upload_jobs["jobresume"] = {
         "job_id": "jobresume",
@@ -797,6 +919,7 @@ async def test_process_upload_retries_then_completes(monkeypatch: pytest.MonkeyP
         "job_id": "jobproc1",
         "filename": "room.png",
         "content_type": "image/png",
+        "audience_mode": "pet",
         "status": "queued",
         "stage": "upload",
         "progress": 0.1,
@@ -826,6 +949,7 @@ async def test_process_upload_retries_then_completes(monkeypatch: pytest.MonkeyP
         calls["count"] += 1
         if calls["count"] == 1:
             raise RuntimeError("temporary failure")
+        assert _kwargs["audience_mode"] == "pet"
         return SimpleNamespace(
             objects=[],
             risks=[],
