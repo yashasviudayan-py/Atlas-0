@@ -1688,6 +1688,17 @@
               <p class="meta-copy">Optional. Reuse the same room label later and ATLAS-0 will compare the new scan against the last saved one.</p>
             </div>
 
+            <div class="field-stack" style="margin-bottom: 18px;">
+              <label class="field-label" for="audience-mode-input">Report mode</label>
+              <select id="audience-mode-input" class="text-input">
+                <option value="general">General home safety</option>
+                <option value="toddler">Toddler mode</option>
+                <option value="pet">Pet mode</option>
+                <option value="renter">Move-in / renter mode</option>
+              </select>
+              <p class="meta-copy">This changes how ATLAS-0 prioritizes the same room. Use toddler or pet mode when you want the report to weight reachable, floor-level, or bump-prone hazards more heavily.</p>
+            </div>
+
             <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Upload a room scan">
               <input id="file-input" type="file" accept="video/mp4,video/quicktime,video/webm,image/*" />
               <div class="drop-grid">
@@ -1909,14 +1920,44 @@
           </section>
         </section>
 
+        <section class="insight-grid">
+          <section class="panel">
+            <div class="section-head">
+              <div>
+                <h3>Weekend fix list</h3>
+                <p>A shorter, friendlier to-do list for the kind of quick changes someone might actually make this weekend.</p>
+              </div>
+              <span class="pill">Repeat use</span>
+            </div>
+            <div id="weekend-fix-list" class="stack">
+              <div class="empty-card">Weekend-friendly fixes will appear after a completed scan.</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <div>
+                <h3>Room wins</h3>
+                <p>Calm signals from the current scan so the report is not only a list of problems.</p>
+              </div>
+              <span class="pill">Positive</span>
+            </div>
+            <div id="room-wins-list" class="stack">
+              <div class="empty-card">Positive scan signals will appear after a completed scan.</div>
+            </div>
+          </section>
+        </section>
+
         <section class="actions report-tools">
           <a id="export-pdf-btn" class="button-link disabled" href="#">Download PDF report</a>
+          <button id="copy-share-btn" class="button-link ghost" type="button">Copy report link</button>
           <button id="delete-job-btn" class="button-link ghost danger" type="button">Delete this report</button>
           <label class="toggle-pill" for="low-confidence-toggle">
             <input id="low-confidence-toggle" type="checkbox" />
             <span>Show lower-confidence findings</span>
           </label>
           <span id="finding-toggle-note" class="finding-toggle-note">Low-confidence findings stay hidden until a report is ready.</span>
+          <span id="share-link-note" class="finding-toggle-note">Share links open the exact report view. Hosted environments still respect token protection.</span>
         </section>
 
         <section class="report-columns">

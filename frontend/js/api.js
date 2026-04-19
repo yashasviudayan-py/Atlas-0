@@ -91,10 +91,18 @@ export async function uploadFile(file, options = {}) {
   const form = new FormData();
   form.append('file', file);
   const roomLabel = String(options.roomLabel || '').trim();
+  const audienceMode = String(options.audienceMode || '').trim();
+  const headers = {};
+  if (roomLabel) {
+    headers['X-Room-Label'] = roomLabel;
+  }
+  if (audienceMode) {
+    headers['X-Audience-Mode'] = audienceMode;
+  }
   const res = await fetch('/upload', {
     method: 'POST',
     body: form,
-    headers: authHeaders(roomLabel ? { 'X-Room-Label': roomLabel } : {}),
+    headers: authHeaders(headers),
   });
   if (!res.ok) {
     throw new Error(await errorMessage(res, `Upload failed ${res.status}`));

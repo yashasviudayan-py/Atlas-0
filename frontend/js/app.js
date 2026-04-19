@@ -41,6 +41,7 @@ const processBar = document.getElementById('process-bar');
 const processMeta = document.getElementById('process-meta');
 const processGuidance = document.getElementById('process-guidance');
 const roomLabelInput = /** @type {HTMLInputElement} */ (document.getElementById('room-label-input'));
+const audienceModeInput = /** @type {HTMLSelectElement} */ (document.getElementById('audience-mode-input'));
 
 const recentList = document.getElementById('upload-list');
 const recentEmpty = document.getElementById('upload-empty');
@@ -67,8 +68,11 @@ const fixFirstList = document.getElementById('fix-first-list');
 const scanQualityCard = document.getElementById('scan-quality-card');
 const reportPostureCard = document.getElementById('report-posture-card');
 const reportEvalCard = document.getElementById('report-eval-card');
+const weekendFixList = document.getElementById('weekend-fix-list');
+const roomWinsList = document.getElementById('room-wins-list');
 const lowConfidenceToggle = /** @type {HTMLInputElement} */ (document.getElementById('low-confidence-toggle'));
 const findingToggleNote = document.getElementById('finding-toggle-note');
+const shareLinkNote = document.getElementById('share-link-note');
 const reportHeadline = document.getElementById('report-headline');
 const reportSubhead = document.getElementById('report-subhead');
 const reportHazards = document.getElementById('risk-report-list');
@@ -76,6 +80,7 @@ const reportRecommendations = document.getElementById('rec-list');
 const reportEvidence = document.getElementById('evidence-grid');
 const trustNotes = document.getElementById('trust-notes');
 const exportPdfBtn = /** @type {HTMLAnchorElement} */ (document.getElementById('export-pdf-btn'));
+const copyShareBtn = /** @type {HTMLButtonElement} */ (document.getElementById('copy-share-btn'));
 const deleteJobBtn = /** @type {HTMLButtonElement} */ (document.getElementById('delete-job-btn'));
 
 const sceneCanvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene-canvas'));
@@ -94,6 +99,62 @@ function showToast(message, timeout = 2600) {
   toastTimer = setTimeout(() => toast.classList.remove('show'), timeout);
 }
 
+function requestedJobId() {
+  return new URLSearchParams(window.location.search).get('job');
+}
+
+function requestedView() {
+  const value = new URLSearchParams(window.location.search).get('view');
+  return value && VIEW_LABELS[value] ? value : null;
+}
+
+function reportDeepLink(job) {
+  if (!job?.job_id) {
+    return '';
+  }
+  const relative = job.share_url || `/app?view=report&job=${encodeURIComponent(job.job_id)}`;
+  return new URL(relative, window.location.origin).toString();
+}
+
+function syncUrlState() {
+  const url = new URL(window.location.href);
+  if (state.activeJobId) {
+    url.searchParams.set('job', state.activeJobId);
+  } else {
+    url.searchParams.delete('job');
+  }
+
+  const view = state.activeView || 'scan';
+  if (view === 'scan' && !state.activeJobId) {
+    url.searchParams.delete('view');
+  } else {
+    url.searchParams.set('view', view);
+  }
+
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next !== current) {
+    window.history.replaceState({}, '', next);
+  }
+}
+
+async function copyText(value) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  const ghost = document.createElement('textarea');
+  ghost.value = value;
+  ghost.setAttribute('readonly', 'true');
+  ghost.style.position = 'absolute';
+  ghost.style.left = '-9999px';
+  document.body.appendChild(ghost);
+  ghost.select();
+  document.execCommand('copy');
+  document.body.removeChild(ghost);
+}
+
 function switchView(id) {
   state.activeView = id;
   navButtons.forEach((button) => {
@@ -108,6 +169,7 @@ function switchView(id) {
     ensureScene();
     sceneViewer.refresh();
   }
+  syncUrlState();
 }
 
 function ensureScene() {
@@ -126,6 +188,7 @@ function setActiveJob(jobId) {
   renderUploads();
   renderProcessing(activeJob());
   renderReport(activeJob());
+  syncUrlState();
 }
 
 function upsertJob(job) {
@@ -169,6 +232,7 @@ function renderUploads() {
     const hazardLabel = summary.top_hazard_label || 'No hazards yet';
     const roomLabel = job.room_label || summary.room_label || '';
     const roomScore = typeof summary.room_score === 'number' ? `${summary.room_score}/100 room score` : '';
+    const audienceLabel = summary.audience_label || '';
     const activeClass = job.job_id === state.activeJobId ? 'active' : '';
     return `
       <button class="scan-card ${activeClass}" data-job-id="${job.job_id}">
@@ -180,6 +244,7 @@ function renderUploads() {
           <span>${Math.round((job.progress || 0) * 100)}%</span>
           <span>${escapeHtml(job.stage || 'queued')}</span>
           <span>${escapeHtml(roomLabel || hazardLabel)}</span>
+          ${audienceLabel ? `<span>${escapeHtml(audienceLabel)}</span>` : ''}
           ${roomScore ? `<span>${escapeHtml(roomScore)}</span>` : ''}
         </div>
       </button>
@@ -220,7 +285,7 @@ function renderProcessing(job) {
     processCopy.textContent = 'ATLAS-0 is analyzing the upload, grounding the findings, and assembling the report.';
   }
 
-  processMeta.textContent = `${escapeHtml(job.filename)} · ${escapeHtml(job.room_label || 'Unlabeled room')} · ${escapeHtml(job.status)}`;
+  processMeta.textContent = `${escapeHtml(job.filename)} · ${escapeHtml(job.room_label || 'Unlabeled room')} · ${escapeHtml(job.summary?.audience_label || 'General home safety')} · ${escapeHtml(job.status)}`;
   processGuidance.innerHTML = renderProcessGuidance(job);
   uploadStatus.textContent = job.status === 'complete' ? 'Latest scan complete' : 'Scan in progress';
   reportStatus.textContent = job.status === 'complete' ? 'Report ready' : 'Waiting for report';
@@ -246,13 +311,18 @@ function renderReport(job) {
     scanQualityCard.innerHTML = emptyMarkup('Scan quality diagnostics will appear here after the upload is processed.');
     reportPostureCard.innerHTML = emptyMarkup('Report posture details will appear here after a completed scan.');
     reportEvalCard.innerHTML = emptyMarkup('Feedback and review coverage will appear here after a completed scan.');
+    weekendFixList.innerHTML = emptyMarkup('Weekend-friendly fixes will appear here after a completed scan.');
+    roomWinsList.innerHTML = emptyMarkup('Positive scan signals will appear here after a completed scan.');
     reportHazards.innerHTML = emptyMarkup('Hazards will appear here once ATLAS-0 has something evidence-backed to show.');
     reportRecommendations.innerHTML = emptyMarkup('Recommendations will appear here after a completed scan.');
     reportEvidence.innerHTML = emptyMarkup('Evidence frames will appear here after a completed scan.');
     trustNotes.innerHTML = emptyMarkup('Trust notes will appear here after a completed scan.');
     findingToggleNote.textContent = 'Low-confidence findings stay hidden until a report is ready.';
+    shareLinkNote.textContent = 'Share links open the exact report view. Hosted environments still respect token protection.';
     exportPdfBtn.removeAttribute('href');
     exportPdfBtn.classList.add('disabled');
+    copyShareBtn.classList.add('disabled');
+    copyShareBtn.disabled = true;
     deleteJobBtn.classList.add('disabled');
     deleteJobBtn.disabled = true;
     return;
@@ -271,11 +341,14 @@ function renderReport(job) {
   const evaluation = job.evaluation_summary || {};
   const comparison = job.room_comparison || null;
   const roomLabel = job.room_label || summary.room_label || '';
+  const audienceLabel = summary.audience_label || 'General home safety';
+  const weekendFixes = job.weekend_fix_list || [];
+  const roomWins = job.room_wins || [];
 
   reportHeadline.textContent = summary.headline || (summary.top_hazard_label
     ? `Top concern: ${summary.top_hazard_label}`
     : 'Hazard report');
-  reportSubhead.textContent = summary.overview || `${roomLabel || job.filename} · ${summary.confidence_label || 'Approximate grounding'}`;
+  reportSubhead.textContent = summary.overview || `${roomLabel || job.filename} · ${audienceLabel} · ${summary.confidence_label || 'Approximate grounding'}`;
   reportHeroMeta.innerHTML = renderHeroBadges(summary, roomLabel, comparison);
 
   summaryObjects.textContent = String(summary.object_count || 0);
@@ -316,6 +389,39 @@ function renderReport(job) {
   scanQualityCard.innerHTML = renderScanQuality(scanQuality);
   reportPostureCard.innerHTML = renderReportPosture(summary, scanQuality, job);
   reportEvalCard.innerHTML = renderEvaluationSummary(evaluation, job);
+  weekendFixList.innerHTML = weekendFixes.length
+    ? weekendFixes.map((item, index) => `
+        <article class="report-card recommendation">
+          <div class="report-card-top">
+            <h3>${index + 1}. ${escapeHtml(item.title || 'Weekend fix')}</h3>
+            <span class="severity-pill medium">${escapeHtml(item.effort || '20-30 minutes')}</span>
+          </div>
+          <div class="report-copy-block">
+            <strong>Quick task</strong>
+            <span>${escapeHtml(item.task || '')}</span>
+          </div>
+          <div class="report-copy-block">
+            <strong>Why it helps</strong>
+            <span>${escapeHtml(item.benefit || '')}</span>
+          </div>
+          <div class="report-card-meta">
+            <span>${escapeHtml(item.location || 'scan area')}</span>
+            <span>${escapeHtml(item.audience_label || audienceLabel)}</span>
+          </div>
+        </article>
+      `).join('')
+    : emptyMarkup('No weekend-friendly fixes were generated for this scan.');
+  roomWinsList.innerHTML = roomWins.length
+    ? roomWins.map((win) => `
+        <article class="report-card recommendation">
+          <div class="report-card-top">
+            <h3>${escapeHtml(win.title || 'Positive sign')}</h3>
+            <span class="severity-pill low">Calm signal</span>
+          </div>
+          <p>${escapeHtml(win.detail || '')}</p>
+        </article>
+      `).join('')
+    : emptyMarkup('No positive scan signals were generated for this report.');
 
   reportHazards.innerHTML = visibleHazards.length
     ? visibleHazards.map((risk) => `
@@ -400,14 +506,18 @@ function renderReport(job) {
 
   exportPdfBtn.href = api.reportPdfUrl(job.job_id);
   exportPdfBtn.classList.remove('disabled');
+  copyShareBtn.classList.remove('disabled');
+  copyShareBtn.disabled = false;
   deleteJobBtn.classList.remove('disabled');
   deleteJobBtn.disabled = false;
+  shareLinkNote.textContent = summary.share_summary || 'Share link opens this exact report view.';
   attachFeedbackHandlers(job.job_id);
   attachEvaluationHandlers(job.job_id);
 }
 
 function renderHeroBadges(summary, roomLabel, comparison) {
   const badges = [
+    summary.audience_label || 'General home safety',
     summary.report_posture || 'screening',
     summary.coverage_label ? `${summary.coverage_label} coverage` : 'Coverage pending',
     summary.rescan_recommended ? 'Rescan recommended' : 'Evidence-backed',
@@ -772,6 +882,16 @@ async function bootstrapApp() {
   }
   await refreshOperatorState();
   await bootstrapJobs();
+  const jobId = requestedJobId();
+  if (jobId) {
+    try {
+      upsertJob(await api.fetchJob(jobId));
+      setActiveJob(jobId);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not open the shared report link.', 3600);
+    }
+  }
+  switchView(requestedView() || (activeJob()?.status === 'complete' ? 'report' : 'scan'));
 }
 
 navButtons.forEach((button) => {
@@ -791,6 +911,7 @@ const uploadView = new UploadView({
   dropZone: document.getElementById('drop-zone'),
   fileInput: /** @type {HTMLInputElement} */ (document.getElementById('file-input')),
   roomLabelInput,
+  audienceModeInput,
   onJobCreated: async (job) => {
     upsertJob(job);
     await refreshOperatorState();
@@ -804,7 +925,6 @@ uploadView.init();
 bootstrapApp();
 pollHealth();
 setInterval(pollHealth, 6000);
-switchView('scan');
 
 lowConfidenceToggle?.addEventListener('change', (event) => {
   state.showLowConfidence = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
@@ -822,6 +942,11 @@ accessTokenSave?.addEventListener('click', async () => {
   accessTokenInput.value = '';
   await refreshOperatorState('The stored token did not unlock operator access.');
   await bootstrapJobs();
+  if (requestedJobId()) {
+    try {
+      upsertJob(await api.fetchJob(requestedJobId()));
+    } catch {}
+  }
   showToast(state.operatorSettings ? 'Access token saved.' : 'Token saved, but access is still blocked.', 3200);
 });
 
@@ -852,6 +977,21 @@ deleteJobBtn?.addEventListener('click', async () => {
     switchView('scan');
   } catch (error) {
     showToast(error instanceof Error ? error.message : 'Could not delete report.', 3600);
+  }
+});
+
+copyShareBtn?.addEventListener('click', async () => {
+  const job = activeJob();
+  if (!job || job.status !== 'complete') {
+    return;
+  }
+
+  try {
+    const link = reportDeepLink(job);
+    await copyText(link);
+    showToast('Report link copied.');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not copy report link.', 3600);
   }
 });
 
