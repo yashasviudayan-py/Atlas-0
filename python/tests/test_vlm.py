@@ -171,7 +171,7 @@ def test_vlm_engine_raises_if_not_initialized() -> None:
     with pytest.raises(RuntimeError, match="not initialized"):
         import asyncio
 
-        asyncio.get_event_loop().run_until_complete(engine.label_region(b"fake"))
+        asyncio.run(engine.label_region(b"fake"))
 
 
 @pytest.mark.asyncio
