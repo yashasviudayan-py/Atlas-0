@@ -6,6 +6,108 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+AUDIENCE_MODE_LABELS: dict[str, str] = {
+    "general": "General home safety",
+    "toddler": "Toddler mode",
+    "pet": "Pet mode",
+    "renter": "Move-in / renter mode",
+}
+
+_AUDIENCE_PRIORITY_BOOSTS: dict[str, dict[str, float]] = {
+    "general": {},
+    "toddler": {
+        "fragile_breakable": 0.12,
+        "top_heavy_tipping": 0.14,
+        "heavy_elevated": 0.1,
+        "edge_placement": 0.14,
+        "walkway_clutter": 0.08,
+        "liquid_spill": 0.04,
+        "unsupported_tall_item": 0.12,
+    },
+    "pet": {
+        "fragile_breakable": 0.1,
+        "edge_placement": 0.08,
+        "walkway_clutter": 0.16,
+        "unstable_stack": 0.08,
+        "liquid_spill": 0.14,
+    },
+    "renter": {
+        "top_heavy_tipping": 0.08,
+        "heavy_elevated": 0.1,
+        "edge_placement": 0.06,
+        "walkway_clutter": 0.1,
+        "unstable_stack": 0.12,
+        "unsupported_tall_item": 0.1,
+    },
+}
+
+_AUDIENCE_FOCUS_COPY: dict[str, dict[str, str]] = {
+    "toddler": {
+        "fragile_breakable": (
+            "Raised in toddler mode because reachable breakables matter more around "
+            "young children."
+        ),
+        "top_heavy_tipping": (
+            "Raised in toddler mode because pull-down and bump risk matter more "
+            "around young children."
+        ),
+        "heavy_elevated": (
+            "Raised in toddler mode because heavier overhead items matter more in "
+            "child-focused rooms."
+        ),
+        "edge_placement": (
+            "Raised in toddler mode because reachable edges matter more around " "young children."
+        ),
+        "walkway_clutter": (
+            "Raised in toddler mode because floor-level trip hazards matter more "
+            "during child movement."
+        ),
+        "unsupported_tall_item": (
+            "Raised in toddler mode because tall unstable items deserve extra "
+            "caution in child spaces."
+        ),
+    },
+    "pet": {
+        "fragile_breakable": (
+            "Raised in pet mode because tail-height and curious-pet bump risks " "matter more here."
+        ),
+        "edge_placement": (
+            "Raised in pet mode because objects near edges are easier for pets to " "bump down."
+        ),
+        "walkway_clutter": (
+            "Raised in pet mode because floor-level clutter matters more in pet " "traffic paths."
+        ),
+        "liquid_spill": (
+            "Raised in pet mode because open containers and spill sources matter "
+            "more around pets."
+        ),
+        "unstable_stack": (
+            "Raised in pet mode because unstable stacks can be disturbed more " "easily by pets."
+        ),
+    },
+    "renter": {
+        "top_heavy_tipping": (
+            "Raised in renter mode because quick, non-invasive stabilizations are "
+            "a strong move-in priority."
+        ),
+        "heavy_elevated": (
+            "Raised in renter mode because shelves and elevated storage are "
+            "common move-in follow-ups."
+        ),
+        "walkway_clutter": (
+            "Raised in renter mode because circulation issues make a space feel "
+            "less settled and usable."
+        ),
+        "unstable_stack": (
+            "Raised in renter mode because temporary move-in stacks deserve early " "cleanup."
+        ),
+        "unsupported_tall_item": (
+            "Raised in renter mode because tall freestanding items often need "
+            "early stabilization."
+        ),
+    },
+}
+
 
 def risk_severity(score: float) -> str:
     """Convert a numeric hazard score into a user-facing severity bucket."""
@@ -35,6 +137,17 @@ def severity_rank(label: str) -> int:
         "moderate": 2,
         "low": 1,
     }.get(str(label).lower(), 0)
+
+
+def normalize_audience_mode(value: str | None) -> str:
+    """Return one supported audience mode, defaulting to general."""
+    mode = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return mode if mode in AUDIENCE_MODE_LABELS else "general"
+
+
+def audience_mode_label(mode: str | None) -> str:
+    """Return the user-facing label for one audience mode."""
+    return AUDIENCE_MODE_LABELS[normalize_audience_mode(mode)]
 
 
 @dataclass(frozen=True)
@@ -130,17 +243,21 @@ def _build_hazard(
     *,
     why: str,
     signals: list[str],
+    audience_mode: str = "general",
     recommendation: str | None = None,
 ) -> dict[str, Any]:
     """Construct a normalized hazard finding payload."""
     definition = _ONTOLOGY_BY_CODE[code]
+    mode = normalize_audience_mode(audience_mode)
     grounded_confidence = float(obj.get("grounding_confidence", obj.get("confidence", 0.4)))
     report_confidence = _clamp((float(obj.get("confidence", 0.4)) + grounded_confidence) / 2.0)
     observation_count = int(obj.get("observation_count", 1))
     evidence_ids = list(obj.get("evidence_ids", []))[:3]
-    priority_score = _clamp(score * 0.58 + report_confidence * 0.27 + 0.15)
+    mode_priority_bonus = float(_AUDIENCE_PRIORITY_BOOSTS.get(mode, {}).get(code, 0.0))
+    priority_score = _clamp(score * 0.58 + report_confidence * 0.27 + 0.15 + mode_priority_bonus)
     recommendation_text = recommendation or definition.default_action
     evidence_label = confidence_bucket(report_confidence)
+    mode_focus = _AUDIENCE_FOCUS_COPY.get(mode, {}).get(code)
 
     return {
         "hazard_code": definition.code,
@@ -166,6 +283,9 @@ def _build_hazard(
         "confidence": round(report_confidence, 2),
         "confidence_label": evidence_label,
         "priority_score": round(priority_score, 3),
+        "audience_mode": mode,
+        "audience_label": audience_mode_label(mode),
+        "mode_priority_bonus": round(mode_priority_bonus, 3),
         "evidence": {
             "observation_count": observation_count,
             "grounding_confidence": round(grounded_confidence, 2),
@@ -182,6 +302,9 @@ def _build_hazard(
             "grounding_confidence": round(grounded_confidence, 2),
             "grounding_confidence_label": confidence_bucket(grounded_confidence),
             "evidence_ids": evidence_ids,
+            "audience_mode": mode,
+            "audience_label": audience_mode_label(mode),
+            "mode_focus": mode_focus,
             "object_snapshot": {
                 "material": obj.get("material", "unknown"),
                 "estimated_height_m": round(float(obj.get("estimated_height_m", 0.0)), 2),
@@ -202,8 +325,13 @@ def _build_hazard(
     }
 
 
-def evaluate_upload_hazards(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def evaluate_upload_hazards(
+    objects: list[dict[str, Any]],
+    *,
+    audience_mode: str = "general",
+) -> list[dict[str, Any]]:
     """Evaluate the upload hazard ontology against localized objects."""
+    mode = normalize_audience_mode(audience_mode)
     findings: list[dict[str, Any]] = []
 
     for obj in objects:
@@ -231,6 +359,7 @@ def evaluate_upload_hazards(objects: list[dict[str, Any]]) -> list[dict[str, Any
                         f"{obj.get('label', 'This item')} appears fragile and likely to break if it"
                         " tips, slips, or is bumped."
                     ),
+                    audience_mode=mode,
                     signals=[
                         f"fragility={fragility:.2f}",
                         f"material={material or 'unknown'}",
@@ -250,6 +379,7 @@ def evaluate_upload_hazards(objects: list[dict[str, Any]]) -> list[dict[str, Any
                         f"{obj.get('label', 'This item')} looks tall relative to its base, which"
                         " increases tipping risk."
                     ),
+                    audience_mode=mode,
                     signals=[
                         f"slenderness={slenderness:.2f}",
                         f"mass_kg={mass_kg:.1f}",
@@ -269,6 +399,7 @@ def evaluate_upload_hazards(objects: list[dict[str, Any]]) -> list[dict[str, Any
                         "A heavier object above floor level creates more impact risk if it shifts"
                         " or falls."
                     ),
+                    audience_mode=mode,
                     signals=[
                         f"mass_kg={mass_kg:.1f}",
                         f"height_m={height_m:.2f}",
@@ -287,6 +418,7 @@ def evaluate_upload_hazards(objects: list[dict[str, Any]]) -> list[dict[str, Any
                         "The object repeatedly appears close to the visible"
                         " edge of its support area."
                     ),
+                    audience_mode=mode,
                     signals=[
                         f"edge_proximity={edge_proximity:.2f}",
                         f"observations={observation_count}",
@@ -305,6 +437,7 @@ def evaluate_upload_hazards(objects: list[dict[str, Any]]) -> list[dict[str, Any
                         "The object appears in a front/traffic zone and may"
                         " interrupt the walking path."
                     ),
+                    audience_mode=mode,
                     signals=[
                         f"path_clutter_score={path_clutter:.2f}",
                         f"width_m={width_m:.2f}",
@@ -323,6 +456,7 @@ def evaluate_upload_hazards(objects: list[dict[str, Any]]) -> list[dict[str, Any
                         "Stacked or leaning items are more likely to slide or"
                         " topple when disturbed."
                     ),
+                    audience_mode=mode,
                     signals=[
                         f"position_variance={variance:.2f}",
                         f"slenderness={slenderness:.2f}",
@@ -341,6 +475,7 @@ def evaluate_upload_hazards(objects: list[dict[str, Any]]) -> list[dict[str, Any
                         "Containers and vessels create spill risk when they"
                         " sit near edges or active areas."
                     ),
+                    audience_mode=mode,
                     signals=[
                         f"fragility={fragility:.2f}",
                         f"edge_proximity={edge_proximity:.2f}",
@@ -359,6 +494,7 @@ def evaluate_upload_hazards(objects: list[dict[str, Any]]) -> list[dict[str, Any
                         "A tall item observed from multiple viewpoints with"
                         " unstable placement deserves follow-up."
                     ),
+                    audience_mode=mode,
                     signals=[
                         f"height_m={height_m:.2f}",
                         f"observations={observation_count}",
@@ -371,8 +507,14 @@ def evaluate_upload_hazards(objects: list[dict[str, Any]]) -> list[dict[str, Any
     return findings[:10]
 
 
-def build_fix_first_actions(hazards: list[dict[str, Any]], limit: int = 3) -> list[dict[str, Any]]:
+def build_fix_first_actions(
+    hazards: list[dict[str, Any]],
+    limit: int = 3,
+    *,
+    audience_mode: str = "general",
+) -> list[dict[str, Any]]:
     """Return the top actions a user should take first."""
+    mode = normalize_audience_mode(audience_mode)
     best_by_object: dict[str, dict[str, Any]] = {}
 
     for hazard in hazards:
@@ -413,6 +555,8 @@ def build_fix_first_actions(hazards: list[dict[str, Any]], limit: int = 3) -> li
                     float(hazard.get("priority_score", hazard.get("risk_score", 0.0))),
                     3,
                 ),
+                "audience_mode": mode,
+                "audience_label": audience_mode_label(mode),
                 "generated_at": generated_at,
             }
         )
@@ -420,8 +564,13 @@ def build_fix_first_actions(hazards: list[dict[str, Any]], limit: int = 3) -> li
     return actions
 
 
-def build_recommendations_from_hazards(hazards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_recommendations_from_hazards(
+    hazards: list[dict[str, Any]],
+    *,
+    audience_mode: str = "general",
+) -> list[dict[str, Any]]:
     """Convert hazard findings into action cards for the report UI."""
+    mode = normalize_audience_mode(audience_mode)
     recommendations: list[dict[str, Any]] = []
     best_by_object: dict[str, dict[str, Any]] = {}
 
@@ -459,7 +608,160 @@ def build_recommendations_from_hazards(hazards: list[dict[str, Any]]) -> list[di
                     float(hazard.get("priority_score", hazard.get("risk_score", 0.0))),
                     3,
                 ),
+                "audience_mode": mode,
+                "audience_label": audience_mode_label(mode),
             }
         )
 
     return recommendations[:6]
+
+
+def build_weekend_fix_list(
+    hazards: list[dict[str, Any]],
+    *,
+    audience_mode: str = "general",
+    limit: int = 4,
+) -> list[dict[str, Any]]:
+    """Turn prioritized findings into a short, approachable weekend fix list."""
+    mode = normalize_audience_mode(audience_mode)
+    effort_by_code = {
+        "fragile_breakable": "10 minutes",
+        "edge_placement": "10 minutes",
+        "walkway_clutter": "15 minutes",
+        "liquid_spill": "10 minutes",
+        "unstable_stack": "20 minutes",
+        "top_heavy_tipping": "30-45 minutes",
+        "heavy_elevated": "30-45 minutes",
+        "unsupported_tall_item": "30-45 minutes",
+    }
+    best_by_object: dict[str, dict[str, Any]] = {}
+
+    for hazard in hazards:
+        object_key = str(
+            hazard.get("object_id") or hazard.get("object_label") or hazard.get("hazard_code")
+        )
+        existing = best_by_object.get(object_key)
+        current_score = float(hazard.get("priority_score", hazard.get("risk_score", 0.0)))
+        if existing is None or current_score > float(
+            existing.get("priority_score", existing.get("risk_score", 0.0))
+        ):
+            best_by_object[object_key] = hazard
+
+    ranked = sorted(
+        best_by_object.values(),
+        key=lambda hazard: float(hazard.get("priority_score", hazard.get("risk_score", 0.0))),
+        reverse=True,
+    )
+
+    return [
+        {
+            "title": str(hazard.get("hazard_title", "Weekend fix")),
+            "task": str(hazard.get("what_to_do_next", hazard.get("recommendation", ""))),
+            "benefit": str(hazard.get("why_it_matters", hazard.get("why", ""))),
+            "location": str(hazard.get("location_label", "scan area")),
+            "effort": effort_by_code.get(str(hazard.get("hazard_code", "")), "20-30 minutes"),
+            "priority_score": round(
+                float(hazard.get("priority_score", hazard.get("risk_score", 0.0))),
+                3,
+            ),
+            "audience_mode": mode,
+            "audience_label": audience_mode_label(mode),
+        }
+        for hazard in ranked[:limit]
+    ]
+
+
+def build_room_wins(
+    hazards: list[dict[str, Any]],
+    scan_quality: dict[str, Any],
+    *,
+    comparison_summary: dict[str, Any] | None = None,
+    audience_mode: str = "general",
+    limit: int = 4,
+) -> list[dict[str, Any]]:
+    """Highlight calm signals without overstating certainty."""
+    mode = normalize_audience_mode(audience_mode)
+    codes = {str(hazard.get("hazard_code", "")) for hazard in hazards}
+    wins: list[dict[str, str]] = []
+
+    if comparison_summary and comparison_summary.get("trend") == "improved":
+        wins.append(
+            {
+                "title": "Safer than the last saved scan",
+                "detail": str(comparison_summary.get("summary", "")),
+            }
+        )
+
+    if float(scan_quality.get("score", 0.0) or 0.0) >= 0.72:
+        wins.append(
+            {
+                "title": "Broad scan coverage",
+                "detail": (
+                    "This upload gave ATLAS-0 enough view coverage to ground the "
+                    "strongest findings more cleanly."
+                ),
+            }
+        )
+
+    if "walkway_clutter" not in codes:
+        wins.append(
+            {
+                "title": (
+                    "Floor-level path looked calmer for pets."
+                    if mode == "pet"
+                    else "Walking path looked mostly open"
+                ),
+                "detail": (
+                    "ATLAS-0 did not surface a strong front-path clutter signal " "in this scan."
+                ),
+            }
+        )
+
+    if {"top_heavy_tipping", "unsupported_tall_item"}.isdisjoint(codes):
+        wins.append(
+            {
+                "title": (
+                    "No obvious pull-down hotspot surfaced"
+                    if mode == "toddler"
+                    else "No obvious tall-item tipping hotspot surfaced"
+                ),
+                "detail": "No strong tipping or tall unsupported item dominated this scan.",
+            }
+        )
+
+    if "heavy_elevated" not in codes:
+        wins.append(
+            {
+                "title": (
+                    "Shelves looked calmer for a move-in check"
+                    if mode == "renter"
+                    else "Heavier items mostly stayed low"
+                ),
+                "detail": "ATLAS-0 did not flag a strong heavy-overhead risk in the current view.",
+            }
+        )
+
+    if {"edge_placement", "fragile_breakable"}.isdisjoint(codes):
+        wins.append(
+            {
+                "title": (
+                    "Reachable surfaces looked calmer for young kids."
+                    if mode == "toddler"
+                    else "Visible surfaces looked calmer around edges"
+                ),
+                "detail": (
+                    "This scan did not surface a strong edge-placement or "
+                    "breakable-at-edge pattern."
+                ),
+            }
+        )
+
+    deduped: list[dict[str, str]] = []
+    seen_titles: set[str] = set()
+    for win in wins:
+        title = str(win.get("title", ""))
+        if title and title not in seen_titles:
+            seen_titles.add(title)
+            deduped.append(win)
+
+    return deduped[:limit]

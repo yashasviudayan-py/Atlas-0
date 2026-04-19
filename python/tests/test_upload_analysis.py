@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 
 from atlas.api.upload_analysis import (
     _apply_scan_acceptance_policy,
     _calibrate_risks_for_scan,
     _sanitize_region_crop,
+    analyze_frame_samples,
     build_finding_replays,
 )
 from atlas.utils.config import UploadsConfig
+from atlas.utils.video import ExtractedFrame
+from atlas.vlm.inference import SemanticLabel
 from PIL import Image, ImageDraw
 
 
@@ -158,3 +162,35 @@ def test_apply_scan_acceptance_policy_downgrades_single_image() -> None:
     assert risks == [{"hazard_code": "edge_placement"}]
     assert scan_quality["reportability"] == "downgraded"
     assert scan_quality["hard_reject"] is False
+
+
+def test_analyze_frame_samples_carries_audience_mode_into_summary() -> None:
+    buf = io.BytesIO()
+    image = Image.new("RGB", (220, 180), color="#f6efe6")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((24, 28, 130, 148), outline="black", width=6)
+    draw.rectangle((142, 18, 196, 164), fill="#70503d")
+    image.save(buf, format="JPEG")
+
+    async def fake_labeler(_content: bytes, _hint: str) -> SemanticLabel:
+        return SemanticLabel(
+            label="Shelf",
+            material="Wood",
+            mass_kg=4.5,
+            fragility=0.26,
+            friction=0.64,
+            confidence=0.81,
+        )
+
+    result = asyncio.run(
+        analyze_frame_samples(
+            [ExtractedFrame(index=0, timestamp_s=0.0, image_bytes=buf.getvalue())],
+            filename="nursery.jpg",
+            scan_kind="image",
+            labeler=fake_labeler,
+            audience_mode="toddler",
+        )
+    )
+
+    assert result.summary["audience_mode"] == "toddler"
+    assert result.summary["audience_label"] == "Toddler mode"

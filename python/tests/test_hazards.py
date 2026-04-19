@@ -5,6 +5,8 @@ from __future__ import annotations
 from atlas.world_model.hazards import (
     build_fix_first_actions,
     build_recommendations_from_hazards,
+    build_room_wins,
+    build_weekend_fix_list,
     evaluate_upload_hazards,
 )
 
@@ -119,3 +121,72 @@ def test_build_fix_first_actions_prefers_highest_priority_per_object() -> None:
     assert len(actions) == 2
     assert actions[0]["hazard_code"] == "fragile_breakable"
     assert actions[1]["hazard_code"] == "walkway_clutter"
+
+
+def test_toddler_mode_boosts_edge_and_tipping_priority() -> None:
+    obj = {
+        "object_id": "track-02",
+        "label": "Floor Lamp",
+        "material": "Metal",
+        "mass_kg": 5.2,
+        "fragility": 0.32,
+        "confidence": 0.78,
+        "grounding_confidence": 0.71,
+        "position": [1.1, 1.2, 1.0],
+        "location_label": "front-right",
+        "observation_count": 3,
+        "position_variance": 0.14,
+        "estimated_height_m": 1.78,
+        "estimated_width_m": 0.32,
+        "edge_proximity": 0.74,
+        "path_clutter_score": 0.24,
+        "evidence_ids": ["e1", "e2"],
+    }
+
+    general = {
+        hazard["hazard_code"]: hazard
+        for hazard in evaluate_upload_hazards([obj], audience_mode="general")
+    }
+    toddler = {
+        hazard["hazard_code"]: hazard
+        for hazard in evaluate_upload_hazards([obj], audience_mode="toddler")
+    }
+
+    assert (
+        toddler["top_heavy_tipping"]["priority_score"]
+        > general["top_heavy_tipping"]["priority_score"]
+    )
+    assert toddler["edge_placement"]["priority_score"] > general["edge_placement"]["priority_score"]
+    assert toddler["top_heavy_tipping"]["reasoning"]["mode_focus"]
+    assert toddler["top_heavy_tipping"]["audience_mode"] == "toddler"
+
+
+def test_weekend_fix_list_and_room_wins_generate_repeat_use_sections() -> None:
+    hazards = [
+        {
+            "object_id": "track-01",
+            "hazard_code": "edge_placement",
+            "hazard_title": "Object placed near an edge",
+            "severity": "high",
+            "location_label": "front-right",
+            "what_to_do_next": "Pull it farther back from the shelf edge.",
+            "why_it_matters": "It may fall if bumped.",
+            "priority_score": 0.78,
+        }
+    ]
+
+    weekend = build_weekend_fix_list(hazards, audience_mode="pet")
+    wins = build_room_wins(
+        hazards,
+        {"status": "good", "score": 0.8},
+        comparison_summary={
+            "trend": "improved",
+            "summary": "This room looks safer than the last saved scan.",
+        },
+        audience_mode="pet",
+    )
+
+    assert weekend[0]["audience_mode"] == "pet"
+    assert weekend[0]["effort"]
+    assert any("safer than the last saved scan" in win["title"].lower() for win in wins)
+    assert any("broad scan coverage" in win["title"].lower() for win in wins)

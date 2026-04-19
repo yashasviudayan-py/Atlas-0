@@ -16,10 +16,12 @@ from atlas.utils.config import load_config
 from atlas.utils.video import ExtractedFrame, extract_frame_samples
 from atlas.vlm.inference import SemanticLabel
 from atlas.world_model.hazards import (
+    audience_mode_label,
     build_fix_first_actions,
     build_recommendations_from_hazards,
     confidence_bucket,
     evaluate_upload_hazards,
+    normalize_audience_mode,
 )
 
 Labeler = Callable[[bytes, str], Awaitable[SemanticLabel]]
@@ -409,6 +411,7 @@ async def analyze_uploaded_image(
     filename: str,
     content_type: str,
     labeler: Labeler,
+    audience_mode: str = "general",
 ) -> UploadAnalysisResult:
     """Analyze a single uploaded image via the shared frame pipeline."""
     frame = ExtractedFrame(index=0, timestamp_s=0.0, image_bytes=content)
@@ -417,6 +420,7 @@ async def analyze_uploaded_image(
         filename=filename,
         scan_kind="image",
         labeler=labeler,
+        audience_mode=audience_mode,
     )
 
 
@@ -425,6 +429,7 @@ async def analyze_uploaded_video(
     *,
     filename: str,
     labeler: Labeler,
+    audience_mode: str = "general",
     max_frames: int = 6,
 ) -> UploadAnalysisResult:
     """Analyze a video upload by sampling frames and localizing tracked regions."""
@@ -439,6 +444,7 @@ async def analyze_uploaded_video(
         filename=filename,
         scan_kind="video",
         labeler=labeler,
+        audience_mode=audience_mode,
     )
 
 
@@ -449,6 +455,7 @@ async def analyze_frame_samples(
     scan_kind: str | None = None,
     source_content_type: str | None = None,
     labeler: Labeler,
+    audience_mode: str = "general",
 ) -> UploadAnalysisResult:
     """Analyze pre-sampled walkthrough frames into a localized hazard report."""
     if not frame_samples:
@@ -456,6 +463,7 @@ async def analyze_frame_samples(
     if scan_kind is None:
         inferred_type = str(source_content_type or "").lower()
         scan_kind = "image" if inferred_type.startswith("image/") else "video"
+    audience_mode = normalize_audience_mode(audience_mode)
     upload_cfg = load_config().uploads
 
     decoded_frames = [_decode_rgb(sample.image_bytes) for sample in frame_samples]
@@ -548,10 +556,13 @@ async def analyze_frame_samples(
     objects = _build_objects_from_tracks(tracks)
     _merge_scan_safety(scan_quality, safety_counts)
     scene_source = "estimated_multiview" if len(frame_samples) > 1 else "single_view_estimate"
-    risks = evaluate_upload_hazards(objects)
+    risks = evaluate_upload_hazards(objects, audience_mode=audience_mode)
     _calibrate_risks_for_scan(risks, objects, scan_quality)
-    fix_first = build_fix_first_actions(risks)
-    recommendations = build_recommendations_from_hazards(risks)
+    fix_first = build_fix_first_actions(risks, audience_mode=audience_mode)
+    recommendations = build_recommendations_from_hazards(
+        risks,
+        audience_mode=audience_mode,
+    )
     risks, fix_first, recommendations = _apply_scan_acceptance_policy(
         scan_quality,
         scan_kind=scan_kind,
@@ -560,6 +571,8 @@ async def analyze_frame_samples(
         recommendations=recommendations,
     )
     summary = _build_summary(filename, objects, risks, scene_source, scan_quality)
+    summary["audience_mode"] = audience_mode
+    summary["audience_label"] = audience_mode_label(audience_mode)
     point_cloud = _build_scene_point_cloud(tracks)
 
     return UploadAnalysisResult(
