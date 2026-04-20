@@ -64,16 +64,43 @@ export const fetchObjects = ()         => json('/objects');
 export const fetchScene   = ()         => json('/scene');
 export const fetchJob     = (id)       => json(`/jobs/${id}`);
 export const fetchJobs    = ()         => json('/jobs');
+export const fetchSampleReport = ()    => json('/sample-report');
 export const fetchAccessPolicy = ()    => json('/operator/access');
 export const fetchOperatorSettings = () => json('/operator/settings');
 export const fetchPrivacyPolicy = ()   => json('/product/privacy');
+export const submitWaitlist = (payload) => json('/product/waitlist', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload),
+});
 export const reportPdfUrl = (id)      => withAccessToken(`/reports/${id}.pdf`);
+export const sampleReportPdfUrl = ()  => '/sample-report/report.pdf';
+export async function logProductEvent(payload) {
+  const res = await fetch('/product/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, `Product event failed ${res.status}`));
+  }
+}
 export const submitFindingFeedback = (jobId, payload) => json(`/jobs/${jobId}/feedback`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(payload),
 });
+export const submitFindingFollowUp = (jobId, payload) => json(`/jobs/${jobId}/follow-up`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload),
+});
 export const submitJobEvaluation = (jobId, payload) => json(`/jobs/${jobId}/evaluation`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload),
+});
+export const exportEvalCandidate = (jobId, payload) => json(`/jobs/${jobId}/eval-candidate`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(payload),

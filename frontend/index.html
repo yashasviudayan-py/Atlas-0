@@ -1614,6 +1614,7 @@
           <p>ATLAS-0 is moving away from “impressive-looking demos” and toward a calmer, more honest experience: upload one room, review what looks risky, and leave with a PDF a real person can act on.</p>
           <div class="hero-actions">
             <button class="button-link" type="button" data-jump-view="scan">Start a scan</button>
+            <button class="button-link ghost" type="button" data-load-sample="walkthrough">Try the sample report</button>
             <button class="button-link ghost" type="button" data-jump-view="report">See the report layout</button>
           </div>
           <div class="hero-steps" aria-label="How it works">
@@ -1644,6 +1645,15 @@
               <span>Shareable report for follow-up and action.</span>
             </div>
           </div>
+          <div class="field-stack" style="margin-top: 8px;">
+            <label class="field-label" for="waitlist-email-input">Join the beta waitlist</label>
+            <div class="inline-form">
+              <input id="waitlist-email-input" class="text-input" type="email" placeholder="you@example.com" autocomplete="email" />
+              <button id="waitlist-submit-btn" class="button-link ghost" type="button">Join</button>
+            </div>
+            <input id="waitlist-use-case-input" class="text-input" type="text" maxlength="120" placeholder="Example: toddler-proofing, renter move-in, pet safety" />
+            <p id="waitlist-note" class="meta-copy">If you are not ready to scan yet, leave an email and a quick use case so we can shape the next beta wave around real demand.</p>
+          </div>
         </div>
       </section>
 
@@ -1662,6 +1672,9 @@
               <div>
                 <h4>Make the first scan feel easy.</h4>
                 <p>If someone is trying this for the first time, we want them to know exactly what to record and what they’ll get back.</p>
+              </div>
+              <div class="actions" style="margin-bottom: 12px;">
+                <button class="button-link ghost" type="button" data-load-sample="walkthrough">Open the built-in sample report</button>
               </div>
               <div class="guide-grid">
                 <article class="guide-card">

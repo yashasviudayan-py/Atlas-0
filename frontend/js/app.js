@@ -15,11 +15,13 @@ const VIEW_LABELS = {
 const state = {
   activeView: 'scan',
   activeJobId: null,
+  activeSampleKey: null,
   jobs: new Map(),
   showLowConfidence: false,
   accessPolicy: null,
   privacyPolicy: null,
   operatorSettings: null,
+  reportViewEvents: new Set(),
 };
 
 const navButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
@@ -27,6 +29,9 @@ const navButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
 );
 const jumpButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
   document.querySelectorAll('[data-jump-view]')
+);
+const sampleButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
+  document.querySelectorAll('[data-load-sample]')
 );
 const viewElements = document.querySelectorAll('.view');
 const viewLabel = document.getElementById('hdr-view-label');
@@ -55,6 +60,10 @@ const operatorProduct = document.getElementById('operator-product');
 const accessTokenInput = /** @type {HTMLInputElement} */ (document.getElementById('access-token-input'));
 const accessTokenSave = /** @type {HTMLButtonElement} */ (document.getElementById('access-token-save'));
 const accessTokenClear = /** @type {HTMLButtonElement} */ (document.getElementById('access-token-clear'));
+const waitlistEmailInput = /** @type {HTMLInputElement} */ (document.getElementById('waitlist-email-input'));
+const waitlistUseCaseInput = /** @type {HTMLInputElement} */ (document.getElementById('waitlist-use-case-input'));
+const waitlistSubmitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('waitlist-submit-btn'));
+const waitlistNote = document.getElementById('waitlist-note');
 
 const reportHero = document.getElementById('report-hero');
 const reportHeroMeta = document.getElementById('report-hero-meta');
@@ -103,6 +112,10 @@ function requestedJobId() {
   return new URLSearchParams(window.location.search).get('job');
 }
 
+function requestedSampleKey() {
+  return new URLSearchParams(window.location.search).get('sample');
+}
+
 function requestedView() {
   const value = new URLSearchParams(window.location.search).get('view');
   return value && VIEW_LABELS[value] ? value : null;
@@ -112,16 +125,23 @@ function reportDeepLink(job) {
   if (!job?.job_id) {
     return '';
   }
-  const relative = job.share_url || `/app?view=report&job=${encodeURIComponent(job.job_id)}`;
+  const relative = job.share_url || (job.sample_key
+    ? `/app?view=report&sample=${encodeURIComponent(job.sample_key)}`
+    : `/app?view=report&job=${encodeURIComponent(job.job_id)}`);
   return new URL(relative, window.location.origin).toString();
 }
 
 function syncUrlState() {
   const url = new URL(window.location.href);
-  if (state.activeJobId) {
+  if (state.activeSampleKey) {
+    url.searchParams.delete('job');
+    url.searchParams.set('sample', state.activeSampleKey);
+  } else if (state.activeJobId) {
     url.searchParams.set('job', state.activeJobId);
+    url.searchParams.delete('sample');
   } else {
     url.searchParams.delete('job');
+    url.searchParams.delete('sample');
   }
 
   const view = state.activeView || 'scan';
@@ -155,6 +175,12 @@ async function copyText(value) {
   document.body.removeChild(ghost);
 }
 
+async function trackProductEvent(eventName, extra = {}) {
+  try {
+    await api.logProductEvent({ event_name: eventName, ...extra });
+  } catch {}
+}
+
 function switchView(id) {
   state.activeView = id;
   navButtons.forEach((button) => {
@@ -185,6 +211,7 @@ function activeJob() {
 
 function setActiveJob(jobId) {
   state.activeJobId = jobId;
+  state.activeSampleKey = state.jobs.get(jobId)?.sample_key || null;
   renderUploads();
   renderProcessing(activeJob());
   renderReport(activeJob());
@@ -203,7 +230,7 @@ function upsertJob(job) {
   if (job.status === 'complete') {
     renderReport(job);
     switchView('report');
-    showToast('Scan complete. Report is ready.');
+    showToast(job.is_sample ? 'Sample report ready.' : 'Scan complete. Report is ready.');
   } else if (job.status === 'error') {
     showToast(job.error || 'Scan failed.', 3600);
   }
@@ -221,7 +248,9 @@ function removeJob(jobId) {
 }
 
 function renderUploads() {
-  const jobs = [...state.jobs.values()].sort((a, b) => b.job_id.localeCompare(a.job_id));
+  const jobs = [...state.jobs.values()]
+    .filter((job) => !job.is_sample)
+    .sort((a, b) => b.job_id.localeCompare(a.job_id));
   recentEmpty.style.display = jobs.length ? 'none' : '';
   recentEmpty.textContent = jobs.length
     ? ''
@@ -270,6 +299,26 @@ function renderProcessing(job) {
     processGuidance.innerHTML = renderProcessGuidance(null);
     uploadStatus.textContent = 'Ready for first scan';
     reportStatus.textContent = 'No report yet';
+    return;
+  }
+
+  if (job.is_sample) {
+    processStage.textContent = 'Sample report loaded';
+    processCopy.textContent = 'The built-in walkthrough is open so you can explore the report before recording your own room.';
+    processBar.style.width = '100%';
+    processMeta.textContent = `${escapeHtml(job.room_label || 'Sample room')} · ${escapeHtml(job.summary?.audience_label || 'General home safety')} · sample`;
+    processGuidance.innerHTML = `
+      <article class="guidance-card">
+        <strong>Use this as a reference</strong>
+        <p>This sample shows the tone, evidence, and follow-through structure we want first-time users to understand quickly.</p>
+      </article>
+      <article class="guidance-card">
+        <strong>What to do next</strong>
+        <p>When you are ready, switch back to Scan and record one real room with the same calm, steady walkthrough style.</p>
+      </article>
+    `;
+    uploadStatus.textContent = 'Sample report loaded';
+    reportStatus.textContent = 'Sample report ready';
     return;
   }
 
@@ -339,17 +388,29 @@ function renderReport(job) {
   const scanQuality = job.scan_quality || {};
   const notes = job.trust_notes || [];
   const evaluation = job.evaluation_summary || {};
+  const resolution = job.resolution_summary || {};
   const comparison = job.room_comparison || null;
   const roomLabel = job.room_label || summary.room_label || '';
   const audienceLabel = summary.audience_label || 'General home safety';
   const weekendFixes = job.weekend_fix_list || [];
   const roomWins = job.room_wins || [];
+  const viewKey = `${job.sample_key || 'job'}:${job.job_id}`;
+  if (!state.reportViewEvents.has(viewKey)) {
+    state.reportViewEvents.add(viewKey);
+    trackProductEvent('report_viewed', {
+      surface: 'report_view',
+      job_id: job.job_id,
+      sample_key: job.sample_key || null,
+      audience_mode: job.audience_mode || 'general',
+      room_labeled: Boolean(roomLabel),
+    });
+  }
 
   reportHeadline.textContent = summary.headline || (summary.top_hazard_label
     ? `Top concern: ${summary.top_hazard_label}`
     : 'Hazard report');
   reportSubhead.textContent = summary.overview || `${roomLabel || job.filename} · ${audienceLabel} · ${summary.confidence_label || 'Approximate grounding'}`;
-  reportHeroMeta.innerHTML = renderHeroBadges(summary, roomLabel, comparison);
+  reportHeroMeta.innerHTML = renderHeroBadges(summary, roomLabel, comparison, resolution, job.is_sample);
 
   summaryObjects.textContent = String(summary.object_count || 0);
   summaryHazards.textContent = String(summary.hazard_count || 0);
@@ -453,12 +514,20 @@ function renderReport(job) {
             <span>${escapeHtml(risk.hazard_code || 'finding')}</span>
             <span>${escapeHtml(risk.confidence_label || 'weak')} evidence</span>
             <span>${escapeHtml(risk.reasoning?.support_summary || 'Limited support')}</span>
+            ${risk.follow_up_status ? `<span>${escapeHtml(formatFollowUpLabel(risk.follow_up_status))}</span>` : ''}
           </div>
-          <div class="feedback-row" data-feedback-controls data-job-id="${job.job_id}" data-hazard-code="${escapeHtml(risk.hazard_code || '')}" data-object-id="${escapeHtml(risk.object_id || '')}">
-            ${renderFeedbackButton('useful', risk.latest_feedback)}
-            ${renderFeedbackButton('wrong', risk.latest_feedback)}
-            ${renderFeedbackButton('duplicate', risk.latest_feedback)}
-          </div>
+          ${job.is_sample ? '' : `
+            <div class="feedback-row" data-follow-up-controls data-job-id="${job.job_id}" data-hazard-code="${escapeHtml(risk.hazard_code || '')}" data-object-id="${escapeHtml(risk.object_id || '')}" data-active-status="${escapeHtml(risk.follow_up_status || '')}">
+              ${renderFollowUpButton('resolved', risk.follow_up_status)}
+              ${renderFollowUpButton('monitor', risk.follow_up_status)}
+              ${renderFollowUpButton('ignored', risk.follow_up_status)}
+            </div>
+            <div class="feedback-row" data-feedback-controls data-job-id="${job.job_id}" data-hazard-code="${escapeHtml(risk.hazard_code || '')}" data-object-id="${escapeHtml(risk.object_id || '')}">
+              ${renderFeedbackButton('useful', risk.latest_feedback)}
+              ${renderFeedbackButton('wrong', risk.latest_feedback)}
+              ${renderFeedbackButton('duplicate', risk.latest_feedback)}
+            </div>
+          `}
         </article>
       `).join('')
     : emptyMarkup(
@@ -504,29 +573,40 @@ function renderReport(job) {
     ? notes.map((note) => `<li>${escapeHtml(note)}</li>`).join('')
     : '<li>No additional trust notes.</li>';
 
-  exportPdfBtn.href = api.reportPdfUrl(job.job_id);
+  exportPdfBtn.href = job.is_sample ? api.sampleReportPdfUrl() : api.reportPdfUrl(job.job_id);
   exportPdfBtn.classList.remove('disabled');
   copyShareBtn.classList.remove('disabled');
   copyShareBtn.disabled = false;
-  deleteJobBtn.classList.remove('disabled');
-  deleteJobBtn.disabled = false;
-  shareLinkNote.textContent = summary.share_summary || 'Share link opens this exact report view.';
-  attachFeedbackHandlers(job.job_id);
-  attachEvaluationHandlers(job.job_id);
+  deleteJobBtn.classList.toggle('disabled', Boolean(job.is_sample));
+  deleteJobBtn.disabled = Boolean(job.is_sample);
+  shareLinkNote.textContent = job.is_sample
+    ? 'Share link opens this built-in sample report view.'
+    : (summary.share_summary || 'Share link opens this exact report view.');
+  if (!job.is_sample) {
+    attachFollowUpHandlers(job.job_id);
+    attachFeedbackHandlers(job.job_id);
+    attachEvaluationHandlers(job.job_id);
+  }
 }
 
-function renderHeroBadges(summary, roomLabel, comparison) {
+function renderHeroBadges(summary, roomLabel, comparison, resolution, isSample) {
   const badges = [
     summary.audience_label || 'General home safety',
     summary.report_posture || 'screening',
     summary.coverage_label ? `${summary.coverage_label} coverage` : 'Coverage pending',
     summary.rescan_recommended ? 'Rescan recommended' : 'Evidence-backed',
   ];
+  if (isSample) {
+    badges.unshift('Built-in sample');
+  }
   if (roomLabel) {
     badges.unshift(roomLabel);
   }
   if (typeof summary.room_score === 'number') {
     badges.push(`${summary.room_score}/100 room score`);
+  }
+  if (Number(resolution?.resolved_count || 0) > 0) {
+    badges.push(`${resolution.resolved_count} resolved`);
   }
   if (comparison?.score_delta) {
     const delta = Number(comparison.score_delta || 0);
@@ -800,7 +880,9 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Missed-hazard jobs', value: String(settings.evaluation.jobs_with_missed_hazards || 0) },
       { label: 'False-positive job rate', value: `${Math.round((settings.evaluation.false_positive_job_rate || 0) * 100)}%` },
       { label: 'Average review coverage', value: `${Math.round((settings.evaluation.avg_review_coverage || 0) * 100)}%` },
-      { label: 'Seed eval fixtures', value: `${settings.evaluation.seed_fixture_count || 0} / ${settings.evaluation.target_corpus_size || 0}` },
+      { label: 'Committed eval fixtures', value: String(settings.evaluation.seed_fixture_count || 0) },
+      { label: 'Saved eval candidates', value: String(settings.evaluation.saved_eval_candidates || 0) },
+      { label: 'Review-ready eval cases', value: `${settings.evaluation.available_eval_cases || 0} / ${settings.evaluation.target_corpus_size || 0}` },
     ])}
     ${renderReleaseGates(settings.evaluation.release_gates)}
   `;
@@ -816,6 +898,11 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Terminal jobs', value: String(settings.product.terminal_jobs || 0) },
       { label: 'Labeled rooms', value: String(settings.product.labeled_rooms || 0) },
       { label: 'Repeat-scan rooms', value: String(settings.product.repeat_scan_rooms || 0) },
+      { label: 'Waitlist signups', value: String(settings.product.waitlist_signups || 0) },
+      { label: 'Sample report opens', value: String(settings.product.sample_report_opens || 0) },
+      { label: 'Share events', value: String(settings.product.share_events || 0) },
+      { label: 'PDF downloads', value: String(settings.product.pdf_download_events || 0) },
+      { label: 'CTA start-scan taps', value: String(settings.product.cta_start_scan_events || 0) },
     ])}
   `;
 }
@@ -882,6 +969,16 @@ async function bootstrapApp() {
   }
   await refreshOperatorState();
   await bootstrapJobs();
+  const sampleKey = requestedSampleKey();
+  if (sampleKey) {
+    try {
+      const sample = await api.fetchSampleReport();
+      upsertJob(sample);
+      setActiveJob(sample.job_id);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not open the sample report.', 3600);
+    }
+  }
   const jobId = requestedJobId();
   if (jobId) {
     try {
@@ -899,7 +996,27 @@ navButtons.forEach((button) => {
 });
 
 jumpButtons.forEach((button) => {
-  button.addEventListener('click', () => switchView(button.dataset.jumpView || 'scan'));
+  button.addEventListener('click', () => {
+    const destination = button.dataset.jumpView || 'scan';
+    if (destination === 'scan') {
+      trackProductEvent('cta_start_scan', { surface: 'hero' });
+    }
+    switchView(destination);
+  });
+});
+
+sampleButtons.forEach((button) => {
+  button.addEventListener('click', async () => {
+    try {
+      const sample = await api.fetchSampleReport();
+      upsertJob(sample);
+      setActiveJob(sample.job_id);
+      switchView('report');
+      showToast('Sample report loaded.');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not load the sample report.', 3600);
+    }
+  });
 });
 
 document.getElementById('scene-refresh-btn')?.addEventListener('click', () => {
@@ -947,6 +1064,11 @@ accessTokenSave?.addEventListener('click', async () => {
       upsertJob(await api.fetchJob(requestedJobId()));
     } catch {}
   }
+  if (requestedSampleKey()) {
+    try {
+      upsertJob(await api.fetchSampleReport());
+    } catch {}
+  }
   showToast(state.operatorSettings ? 'Access token saved.' : 'Token saved, but access is still blocked.', 3200);
 });
 
@@ -961,6 +1083,31 @@ accessTokenClear?.addEventListener('click', async () => {
   renderProcessing(null);
   renderReport(null);
   showToast('Stored access token cleared.');
+});
+
+waitlistSubmitBtn?.addEventListener('click', async () => {
+  const email = waitlistEmailInput.value.trim();
+  const useCase = waitlistUseCaseInput.value.trim();
+  if (!email) {
+    showToast('Enter an email to join the beta waitlist.', 3200);
+    return;
+  }
+
+  try {
+    const response = await api.submitWaitlist({
+      email,
+      use_case: useCase || null,
+    });
+    waitlistEmailInput.value = '';
+    waitlistUseCaseInput.value = '';
+    if (waitlistNote) {
+      waitlistNote.textContent = response.message;
+    }
+    await refreshOperatorState();
+    showToast(`Waitlist joined. Position ${response.waitlist_count}.`, 3200);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not join the waitlist.', 3600);
+  }
 });
 
 deleteJobBtn?.addEventListener('click', async () => {
@@ -989,10 +1136,31 @@ copyShareBtn?.addEventListener('click', async () => {
   try {
     const link = reportDeepLink(job);
     await copyText(link);
+    await trackProductEvent('report_share_copied', {
+      surface: 'report_toolbar',
+      job_id: job.job_id,
+      sample_key: job.sample_key || null,
+      audience_mode: job.audience_mode || 'general',
+      room_labeled: Boolean(job.room_label || job.summary?.room_label),
+    });
     showToast('Report link copied.');
   } catch (error) {
     showToast(error instanceof Error ? error.message : 'Could not copy report link.', 3600);
   }
+});
+
+exportPdfBtn?.addEventListener('click', () => {
+  const job = activeJob();
+  if (!job || job.status !== 'complete') {
+    return;
+  }
+  trackProductEvent('report_pdf_downloaded', {
+    surface: 'report_toolbar',
+    job_id: job.job_id,
+    sample_key: job.sample_key || null,
+    audience_mode: job.audience_mode || 'general',
+    room_labeled: Boolean(job.room_label || job.summary?.room_label),
+  });
 });
 
 function escapeHtml(value) {
@@ -1066,6 +1234,18 @@ function renderEvalButton(status, activeStatus) {
   return `<button class="feedback-btn ${activeClass}" type="button" data-eval-status="${status}">${label}</button>`;
 }
 
+function renderFollowUpButton(status, activeStatus) {
+  const activeClass = status === activeStatus ? 'active' : '';
+  return `<button class="feedback-btn ${activeClass}" type="button" data-follow-up="${status}">${formatFollowUpLabel(status)}</button>`;
+}
+
+function formatFollowUpLabel(status) {
+  if (status === 'resolved') return 'Resolved';
+  if (status === 'monitor') return 'Monitor';
+  if (status === 'ignored') return 'Ignored';
+  return 'Open';
+}
+
 function renderScanQuality(scanQuality) {
   if (!scanQuality || Object.keys(scanQuality).length === 0) {
     return emptyMarkup('No scan quality diagnostics were recorded for this job.');
@@ -1104,6 +1284,7 @@ function renderReportPosture(summary, scanQuality, job) {
   const guidance = scanQuality.retry_guidance || [];
   const comparison = job.room_comparison || null;
   const history = Array.isArray(job.room_history) ? job.room_history : [];
+  const resolution = job.resolution_summary || {};
 
   return `
     <div class="report-copy-block">
@@ -1130,11 +1311,25 @@ function renderReportPosture(summary, scanQuality, job) {
         <span>${escapeHtml(`${comparison.summary} Score change: ${comparison.score_delta > 0 ? '+' : ''}${comparison.score_delta}. Hazard delta: ${comparison.hazard_delta > 0 ? '+' : ''}${comparison.hazard_delta}.`)}</span>
       </div>
     ` : ''}
+    ${resolution.total_findings ? `
+      <div class="report-copy-block">
+        <strong>Follow-through state</strong>
+        <span>${escapeHtml(resolution.summary || 'No follow-up state yet.')}</span>
+      </div>
+    ` : ''}
     <div class="report-card-meta">
       <span>${escapeHtml(posture)}</span>
       <span>${escapeHtml(summary.coverage_label || 'Unknown')} coverage</span>
       <span>${summary.rescan_recommended ? 'Rescan recommended' : 'No rescan required for first-pass review'}</span>
     </div>
+    ${resolution.total_findings ? `
+      <div class="report-card-meta">
+        <span>${escapeHtml(String(resolution.resolved_count || 0))} resolved</span>
+        <span>${escapeHtml(String(resolution.monitor_count || 0))} monitor</span>
+        <span>${escapeHtml(String(resolution.ignored_count || 0))} ignored</span>
+        <span>${escapeHtml(String(resolution.open_count || 0))} open</span>
+      </div>
+    ` : ''}
     ${history.length ? `<div class="report-card-meta">${history.slice(0, 3).map((entry) => `<span>${escapeHtml(`${entry.filename} · ${entry.room_score ?? '—'}/100`)}</span>`).join('')}</div>` : ''}
     ${guidance.length ? `<ul class="quality-warning-list">${guidance.slice(0, 2).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
   `;
@@ -1144,6 +1339,22 @@ function renderEvaluationSummary(evaluation, job) {
   if (!evaluation || Object.keys(evaluation).length === 0) {
     return emptyMarkup('No review coverage has been recorded for this report yet.');
   }
+
+  const controls = job.is_sample
+    ? '<p class="meta-copy">Sample reports stay read-only so the built-in walkthrough remains stable for every visitor.</p>'
+    : `
+      <div class="evaluation-controls" data-eval-controls data-job-id="${job.job_id}">
+        <div class="feedback-row">
+          ${renderEvalButton('confirmed', evaluation.human_status)}
+          ${renderEvalButton('needs_review', evaluation.human_status)}
+          ${renderEvalButton('missed_hazard', evaluation.human_status)}
+        </div>
+        <div class="feedback-row">
+          <button class="feedback-btn" type="button" data-export-eval-candidate="true">Save Eval Case</button>
+        </div>
+        <p class="meta-copy">Use these controls to build the eval set, log missed hazards, and keep the beta report loop honest.</p>
+      </div>
+    `;
 
   return `
     <div class="report-copy-block">
@@ -1186,14 +1397,7 @@ function renderEvaluationSummary(evaluation, job) {
       <span>Human verdict: ${escapeHtml(evaluation.human_status || 'not set')}</span>
       <span>${escapeHtml(evaluation.benchmark_match === true ? 'Benchmark matched' : evaluation.benchmark_match === false ? 'Benchmark mismatch' : 'No benchmark comparison')}</span>
     </div>
-    <div class="evaluation-controls" data-eval-controls data-job-id="${job.job_id}">
-      <div class="feedback-row">
-        ${renderEvalButton('confirmed', evaluation.human_status)}
-        ${renderEvalButton('needs_review', evaluation.human_status)}
-        ${renderEvalButton('missed_hazard', evaluation.human_status)}
-      </div>
-      <p class="meta-copy">Use these controls to build the eval set, log missed hazards, and keep the beta report loop honest.</p>
-    </div>
+    ${controls}
   `;
 }
 
@@ -1232,8 +1436,55 @@ function attachFeedbackHandlers(jobId) {
   });
 }
 
+function attachFollowUpHandlers(jobId) {
+  reportHazards.querySelectorAll('[data-follow-up-controls]').forEach((container) => {
+    container.querySelectorAll('[data-follow-up]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const nextStatus = button.dataset.followUp || '';
+        const activeStatus = container.dataset.activeStatus || '';
+        const status = nextStatus === activeStatus ? 'open' : nextStatus;
+        try {
+          const updated = await api.submitFindingFollowUp(jobId, {
+            hazard_code: container.dataset.hazardCode,
+            object_id: container.dataset.objectId || null,
+            status,
+          });
+          upsertJob(updated);
+          showToast(status === 'open' ? 'Finding reset to open.' : 'Follow-up saved.');
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : 'Could not save follow-up.', 3600);
+        }
+      });
+    });
+  });
+}
+
 function attachEvaluationHandlers(jobId) {
   reportEvalCard.querySelectorAll('[data-eval-controls]').forEach((container) => {
+    container.querySelectorAll('[data-export-eval-candidate]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const suggested = `${jobId}-eval`;
+        const label = window.prompt(
+          'Optional eval-case label. Leave it as-is or clear it to use the job ID.',
+          suggested,
+        );
+        if (label === null) {
+          return;
+        }
+
+        try {
+          const updated = await api.exportEvalCandidate(jobId, {
+            label: label.trim() || null,
+          });
+          upsertJob(updated);
+          await refreshOperatorState();
+          showToast('Eval case saved.');
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : 'Could not save eval case.', 3600);
+        }
+      });
+    });
+
     container.querySelectorAll('[data-eval-status]').forEach((button) => {
       button.addEventListener('click', async () => {
         const status = button.dataset.evalStatus;
