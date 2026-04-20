@@ -387,7 +387,7 @@ Turn labels into actionable hazard judgments with explicit evidence.
 ### Still missing
 
 - reasoning traces that show which relationships produced a claim
-- user feedback capture for wrong/duplicate findings
+- persistent per-finding follow-through states such as resolved / monitor / ignored
 
 ---
 
@@ -459,14 +459,24 @@ back to.
   summaries plus runtime/storage diagnostics.
 - The product now uses safer low-confidence language instead of implying that
   "no strong hazard found" means "safe."
+- Share-link flow for reports is live.
+- Room history, before/after rescan comparisons, and a room score foundation are
+  live.
+- Audience-specific modes such as toddler / pet / renter are live.
+- A public built-in sample walkthrough report now exists for first-time users.
+- Findings can now carry a persistent follow-through state so the report can
+  track resolved / monitor / ignored work over time.
+- A basic public waitlist capture path now exists in the frontend and API.
+- Product funnel events now persist so operator metrics can track sample opens,
+  share actions, PDF downloads, and CTA usage.
+- Reviewed reports can now be exported as eval candidates, which turns the eval
+  corpus from a vague goal into an operator workflow.
 
 ### Still missing
 
-- landing page / sample scan funnel for strangers
-- share-link flow for reports
-- room history and before/after rescan comparisons
-- audience-specific modes such as toddler / pet / renter
-- product analytics for acquisition, drop-off, and repeat usage
+- broader landing page / invite funnel beyond the current hero + waitlist
+- richer analytics and attribution beyond the current first-pass event stream
+- a genuinely larger reviewed eval corpus built from real beta scans
 
 ---
 
