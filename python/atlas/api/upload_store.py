@@ -34,6 +34,12 @@ class UploadStore:
         self._max_storage_bytes = max_storage_bytes
         self.root_dir.mkdir(parents=True, exist_ok=True)
 
+    def meta_dir(self) -> Path:
+        """Return the directory holding non-job metadata files."""
+        path = self.root_dir / "_meta"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
     def job_dir(self, job_id: str) -> Path:
         """Return the directory holding all files for one upload job."""
         return self.root_dir / job_id
@@ -70,6 +76,24 @@ class UploadStore:
         """Return the persisted path for one finding replay artifact."""
         return self.replay_dir(job_id) / f"{replay_id}{suffix}"
 
+    def product_events_path(self) -> Path:
+        """Return the JSONL file holding product analytics events."""
+        return self.meta_dir() / "product_events.jsonl"
+
+    def waitlist_path(self) -> Path:
+        """Return the JSONL file holding waitlist submissions."""
+        return self.meta_dir() / "waitlist.jsonl"
+
+    def eval_candidates_dir(self) -> Path:
+        """Return the directory holding exported eval candidates."""
+        path = self.meta_dir() / "eval_candidates"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def eval_candidate_path(self, candidate_id: str) -> Path:
+        """Return the persisted JSON path for one eval candidate."""
+        return self.eval_candidates_dir() / f"{candidate_id}.json"
+
     def create_job(self, job: dict[str, Any]) -> None:
         """Create the job directory and write its initial manifest."""
         self.job_dir(str(job["job_id"])).mkdir(parents=True, exist_ok=True)
@@ -103,6 +127,47 @@ class UploadStore:
             job_id = str(data.get("job_id", manifest.parent.name))
             jobs[job_id] = data
         return jobs
+
+    def append_product_event(self, event: dict[str, Any]) -> None:
+        """Append one product analytics event to the JSONL log."""
+        self._append_json_line(self.product_events_path(), event)
+
+    def load_product_events(self) -> list[dict[str, Any]]:
+        """Load all persisted product analytics events."""
+        return self._load_json_lines(self.product_events_path())
+
+    def append_waitlist_entry(self, entry: dict[str, Any]) -> None:
+        """Append one waitlist signup entry to the JSONL log."""
+        self._append_json_line(self.waitlist_path(), entry)
+
+    def load_waitlist_entries(self) -> list[dict[str, Any]]:
+        """Load all persisted waitlist submissions."""
+        return self._load_json_lines(self.waitlist_path())
+
+    def save_eval_candidate(self, candidate_id: str, payload: dict[str, Any]) -> Path:
+        """Persist one exported evaluation candidate payload."""
+        path = self.eval_candidate_path(candidate_id)
+        tmp_path = path.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(path)
+        return path
+
+    def load_eval_candidates(self) -> list[dict[str, Any]]:
+        """Load all saved evaluation candidate payloads."""
+        entries: list[dict[str, Any]] = []
+        for path in sorted(self.eval_candidates_dir().glob("*.json")):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    "upload_store_eval_candidate_skipped",
+                    path=str(path),
+                    error=str(exc),
+                )
+                continue
+            if isinstance(payload, dict):
+                entries.append(payload)
+        return entries
 
     def save_original_upload(self, job_id: str, filename: str, content: bytes) -> Path | None:
         """Persist the original upload bytes when enabled."""
@@ -238,7 +303,7 @@ class UploadStore:
         replay_files = 0
         original_uploads = 0
 
-        for job_dir in self.root_dir.iterdir():
+        for job_dir in self._iter_job_dirs():
             if not job_dir.is_dir():
                 continue
             persisted_jobs += 1
@@ -258,23 +323,30 @@ class UploadStore:
                 elif path.parent.name == "replays":
                     replay_files += 1
 
-        usage_ratio = 0.0 if self._max_storage_bytes <= 0 else bytes_used / self._max_storage_bytes
+        meta_bytes = sum(
+            path.stat().st_size for path in self.meta_dir().rglob("*") if path.is_file()
+        )
         return {
             "persisted_jobs": persisted_jobs,
-            "bytes_used": bytes_used,
+            "bytes_used": bytes_used + meta_bytes,
             "byte_budget": self._max_storage_bytes,
-            "usage_percent": math.floor(usage_ratio * 100),
+            "usage_percent": math.floor(((bytes_used + meta_bytes) / self._max_storage_bytes) * 100)
+            if self._max_storage_bytes > 0
+            else 0,
             "queued_inputs": queued_inputs,
             "original_uploads": original_uploads,
             "reports": reports,
             "evidence_files": evidence_files,
             "replay_files": replay_files,
+            "meta_bytes": meta_bytes,
+            "waitlist_entries": len(self.load_waitlist_entries()),
+            "eval_candidates": len(self.load_eval_candidates()),
         }
 
     def _prune_old_jobs(self) -> None:
         """Best-effort pruning to keep persisted job storage bounded."""
         job_dirs = sorted(
-            (path for path in self.root_dir.iterdir() if path.is_dir()),
+            self._iter_job_dirs(),
             key=lambda path: path.stat().st_mtime,
             reverse=True,
         )
@@ -288,7 +360,7 @@ class UploadStore:
                     logger.warning("upload_store_prune_failed", path=str(path), error=str(exc))
 
             job_dirs = sorted(
-                (path for path in self.root_dir.iterdir() if path.is_dir()),
+                self._iter_job_dirs(),
                 key=lambda path: path.stat().st_mtime,
                 reverse=True,
             )
@@ -301,7 +373,7 @@ class UploadStore:
 
         if self._max_storage_bytes > 0:
             job_dirs = sorted(
-                (path for path in self.root_dir.iterdir() if path.is_dir()),
+                self._iter_job_dirs(),
                 key=lambda path: path.stat().st_mtime,
                 reverse=True,
             )
@@ -328,3 +400,44 @@ class UploadStore:
     def _job_size_bytes(self, job_dir: Path) -> int:
         """Return the total byte size for one job directory."""
         return sum(path.stat().st_size for path in job_dir.rglob("*") if path.is_file())
+
+    def _iter_job_dirs(self) -> list[Path]:
+        """Return only real persisted job directories under the storage root."""
+        return [
+            path
+            for path in self.root_dir.iterdir()
+            if path.is_dir() and (path / "job.json").exists()
+        ]
+
+    def _append_json_line(self, path: Path, payload: dict[str, Any]) -> None:
+        """Append one JSON line to a metadata log file."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, sort_keys=True))
+            handle.write("\n")
+
+    def _load_json_lines(self, path: Path) -> list[dict[str, Any]]:
+        """Load newline-delimited JSON metadata entries from disk."""
+        if not path.exists():
+            return []
+        rows: list[dict[str, Any]] = []
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        payload = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        logger.warning(
+                            "upload_store_jsonl_entry_skipped",
+                            path=str(path),
+                            error=str(exc),
+                        )
+                        continue
+                    if isinstance(payload, dict):
+                        rows.append(payload)
+        except OSError as exc:
+            logger.warning("upload_store_jsonl_load_failed", path=str(path), error=str(exc))
+        return rows

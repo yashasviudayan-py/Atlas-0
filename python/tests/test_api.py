@@ -97,6 +97,31 @@ def test_product_privacy_is_public() -> None:
     assert "retention" in data["summary"].lower()
 
 
+def test_product_waitlist_is_public() -> None:
+    response = client.post(
+        "/product/waitlist",
+        json={"email": "beta@example.com", "use_case": "toddler-proofing"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["accepted"] is True
+    assert data["waitlist_count"] == 1
+    assert _upload_store.load_waitlist_entries()[0]["email"] == "beta@example.com"
+
+
+def test_product_event_is_public() -> None:
+    response = client.post(
+        "/product/events",
+        json={"event_name": "cta_start_scan", "surface": "hero"},
+    )
+
+    assert response.status_code == 204
+    events = _upload_store.load_product_events()
+    assert events[0]["event_name"] == "cta_start_scan"
+    assert events[0]["surface"] == "hero"
+
+
 def test_job_listing_requires_token_when_configured() -> None:
     _api_cfg.enable_job_listing = True
     _api_cfg.access_token = "secret-token"
@@ -123,8 +148,63 @@ def test_operator_settings_require_token_when_configured() -> None:
     assert authenticated.json()["uploads"]["max_storage_bytes"] == _upload_cfg.max_storage_bytes
     assert authenticated.json()["providers"]["primary_provider"] in {"ollama", "claude", "openai"}
     assert "upload_success_rate" in authenticated.json()["product"]
+    assert "waitlist_signups" in authenticated.json()["product"]
     assert "reviewed_jobs" in authenticated.json()["evaluation"]
+    assert "saved_eval_candidates" in authenticated.json()["evaluation"]
     assert "release_gates" in authenticated.json()["evaluation"]
+
+
+def test_sample_report_is_public(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_sample_report() -> dict[str, object]:
+        job = {
+            "job_id": "sample-walkthrough",
+            "filename": "sample_walkthrough",
+            "room_label": "Sample living room",
+            "is_sample": True,
+            "sample_key": "walkthrough",
+            "audience_mode": "general",
+            "status": "complete",
+            "stage": "complete",
+            "progress": 1.0,
+            "objects": [],
+            "risks": [],
+            "fix_first": [],
+            "summary": {"filename": "sample_walkthrough", "hazard_count": 0, "object_count": 0},
+            "recommendations": [],
+            "evidence_frames": [],
+            "scan_quality": {"status": "good", "score": 0.74, "usable": True, "warnings": []},
+            "trust_notes": ["This is a built-in sample walkthrough."],
+            "scene_source": "estimated_multiview",
+            "finding_feedback": [],
+            "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+            "human_evaluation": None,
+            "finding_follow_up": [],
+            "resolution_summary": None,
+            "report_url": "/sample-report/report.pdf",
+            "share_url": "/app?view=report&sample=walkthrough",
+            "error": None,
+            "artifacts": {},
+            "attempt_count": 0,
+            "queued_at": "2026-04-20T00:00:00+00:00",
+            "started_at": "2026-04-20T00:00:00+00:00",
+            "completed_at": "2026-04-20T00:00:00+00:00",
+        }
+        return {
+            "job": server_mod._ensure_job_derived_fields(job),
+            "evidence_artifacts": {},
+            "replay_artifacts": {},
+            "report_pdf": b"pdf",
+        }
+
+    monkeypatch.setattr(server_mod, "_build_sample_report", fake_sample_report)
+
+    response = client.get("/sample-report")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["is_sample"] is True
+    assert data["sample_key"] == "walkthrough"
+    assert data["share_url"] == "/app?view=report&sample=walkthrough"
 
 
 def test_upload_job_status_exposes_report_fields():
@@ -513,6 +593,60 @@ def test_record_job_feedback_updates_job_and_finding() -> None:
     assert data["evaluation_summary"]["useful_events"] == 1
 
 
+def test_record_job_follow_up_updates_resolution_summary() -> None:
+    _upload_jobs["jobfollow1"] = {
+        "job_id": "jobfollow1",
+        "filename": "hallway.mp4",
+        "status": "complete",
+        "stage": "complete",
+        "progress": 1.0,
+        "objects": [],
+        "risks": [
+            {
+                "object_id": "track-01",
+                "hazard_code": "walkway_clutter",
+                "hazard_title": "Walkway clutter",
+                "object_label": "Box",
+                "risk_score": 0.58,
+                "severity": "moderate",
+                "location_label": "front-center",
+                "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+                "latest_feedback": None,
+                "follow_up_status": None,
+            }
+        ],
+        "fix_first": [],
+        "summary": {"filename": "hallway.mp4", "hazard_count": 1, "object_count": 1},
+        "recommendations": [],
+        "evidence_frames": [],
+        "scan_quality": {"status": "fair", "score": 0.61, "usable": True, "warnings": []},
+        "trust_notes": [],
+        "scene_source": "estimated_multiview",
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "human_evaluation": None,
+        "finding_follow_up": [],
+        "report_url": "/reports/jobfollow1.pdf",
+        "error": None,
+    }
+
+    response = client.post(
+        "/jobs/jobfollow1/follow-up",
+        json={
+            "hazard_code": "walkway_clutter",
+            "object_id": "track-01",
+            "status": "resolved",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["finding_follow_up"][0]["status"] == "resolved"
+    assert data["risks"][0]["follow_up_status"] == "resolved"
+    assert data["resolution_summary"]["resolved_count"] == 1
+    assert data["resolution_summary"]["open_count"] == 0
+
+
 def test_record_job_evaluation_updates_job_summary() -> None:
     _upload_jobs["jobeval1"] = {
         "job_id": "jobeval1",
@@ -569,6 +703,60 @@ def test_record_job_evaluation_updates_job_summary() -> None:
     assert data["evaluation_summary"]["missed_hazard_count"] == 1
     assert data["evaluation_summary"]["human_status"] == "missed_hazard"
     assert data["evaluation_summary"]["needs_review"] is True
+
+
+def test_export_eval_candidate_persists_review_ready_case() -> None:
+    _upload_jobs["jobevalexport"] = {
+        "job_id": "jobevalexport",
+        "filename": "kitchen.mp4",
+        "status": "complete",
+        "stage": "complete",
+        "progress": 1.0,
+        "objects": [],
+        "risks": [
+            {
+                "object_id": "track-01",
+                "hazard_code": "edge_placement",
+                "hazard_title": "Edge placement",
+                "object_label": "Glass bowl",
+                "risk_score": 0.73,
+                "severity": "high",
+                "location_label": "counter edge",
+                "feedback_summary": {"useful": 1, "wrong": 0, "duplicate": 0},
+                "latest_feedback": "useful",
+            }
+        ],
+        "fix_first": [],
+        "summary": {"filename": "kitchen.mp4", "hazard_count": 1, "object_count": 1},
+        "recommendations": [],
+        "evidence_frames": [],
+        "scan_quality": {"status": "good", "score": 0.73, "usable": True, "warnings": []},
+        "trust_notes": [],
+        "scene_source": "estimated_multiview",
+        "finding_feedback": [
+            {
+                "hazard_code": "edge_placement",
+                "object_id": "track-01",
+                "verdict": "useful",
+                "finding_key": "track-01:edge_placement",
+            }
+        ],
+        "feedback_summary": {"useful": 1, "wrong": 0, "duplicate": 0},
+        "report_url": "/reports/jobevalexport.pdf",
+        "error": None,
+    }
+    server_mod._ensure_job_derived_fields(_upload_jobs["jobevalexport"])
+
+    response = client.post(
+        "/jobs/jobevalexport/eval-candidate",
+        json={"label": "kitchen_case_01"},
+    )
+
+    assert response.status_code == 200
+    candidates = _upload_store.load_eval_candidates()
+    assert candidates[0]["candidate_id"] == "kitchen_case_01"
+    assert candidates[0]["review_ready"] is True
+    assert candidates[0]["top_hazard_code"] == "edge_placement"
 
 
 def test_delete_upload_job_removes_persisted_artifacts() -> None:

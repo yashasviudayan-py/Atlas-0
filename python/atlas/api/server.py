@@ -49,13 +49,14 @@ from atlas.api.metrics import (
 )
 from atlas.api.overlay import CameraParams, OverlayBuilder
 from atlas.api.upload_analysis import (
+    analyze_frame_samples,
     analyze_uploaded_image,
     analyze_uploaded_video,
     build_finding_replays,
 )
 from atlas.api.upload_store import UploadStore
 from atlas.utils.config import load_config
-from atlas.utils.video import probe_video_metadata
+from atlas.utils.video import ExtractedFrame, probe_video_metadata
 from atlas.vlm.inference import SemanticLabel, VLMConfig, VLMEngine
 from atlas.world_model.agent import RiskEntry, WorldModelAgent
 from atlas.world_model.hazards import (
@@ -265,6 +266,41 @@ class PrivacyPolicyResponse(BaseModel):
     text_redaction_enabled: bool
     summary: str
     details: list[str]
+
+
+class ProductEventRequest(BaseModel):
+    """One lightweight public product analytics event."""
+
+    event_name: str
+    surface: str | None = None
+    job_id: str | None = None
+    sample_key: str | None = None
+    audience_mode: str | None = None
+    room_labeled: bool | None = None
+
+
+class WaitlistRequest(BaseModel):
+    """One public waitlist signup submission."""
+
+    email: str
+    use_case: str | None = None
+    name: str | None = None
+    notes: str | None = None
+
+
+class WaitlistResponse(BaseModel):
+    """Public response returned after a waitlist signup."""
+
+    accepted: bool
+    waitlist_count: int
+    message: str
+
+
+class EvalCandidateRequest(BaseModel):
+    """Operator request to export a reviewed report as an eval candidate."""
+
+    label: str | None = None
+    note: str | None = None
 
 
 class OverlayRiskEntry(BaseModel):
@@ -521,6 +557,77 @@ def operator_access() -> OperatorAccessResponse:
 def product_privacy() -> PrivacyPolicyResponse:
     """Expose user-visible privacy and deletion controls."""
     return PrivacyPolicyResponse(**_public_privacy_descriptor())
+
+
+@app.post("/product/events", status_code=204)
+def record_product_event(payload: ProductEventRequest, request: Request) -> Response:
+    """Record one lightweight public product event for funnel analysis."""
+    event_name = _normalize_public_event_name(payload.event_name)
+    if event_name is None:
+        raise HTTPException(status_code=400, detail="Unknown product event name.")
+
+    _upload_store.append_product_event(
+        {
+            "event_name": event_name,
+            "surface": str(payload.surface or "").strip() or None,
+            "job_id": str(payload.job_id or "").strip() or None,
+            "sample_key": str(payload.sample_key or "").strip() or None,
+            "audience_mode": normalize_audience_mode(payload.audience_mode),
+            "room_labeled": bool(payload.room_labeled),
+            "host": _request_host(request),
+            "created_at": _utc_now_iso(),
+        }
+    )
+    return Response(status_code=204)
+
+
+@app.post("/product/waitlist", response_model=WaitlistResponse)
+def join_waitlist(payload: WaitlistRequest, request: Request) -> WaitlistResponse:
+    """Capture a public beta-interest submission."""
+    email = _normalize_waitlist_email(payload.email)
+    if email is None:
+        raise HTTPException(status_code=400, detail="Enter a valid email address.")
+
+    name = " ".join(str(payload.name or "").strip().split())
+    use_case = " ".join(str(payload.use_case or "").strip().split())
+    notes = " ".join(str(payload.notes or "").strip().split())
+    if len(name) > 80:
+        raise HTTPException(status_code=400, detail="Name must be 80 characters or fewer.")
+    if len(use_case) > 120:
+        raise HTTPException(status_code=400, detail="Use case must be 120 characters or fewer.")
+    if len(notes) > 280:
+        raise HTTPException(
+            status_code=400,
+            detail="Waitlist note must be 280 characters or fewer.",
+        )
+
+    entry = {
+        "email": email,
+        "name": name or None,
+        "use_case": use_case or None,
+        "notes": notes or None,
+        "host": _request_host(request),
+        "created_at": _utc_now_iso(),
+    }
+    _upload_store.append_waitlist_entry(entry)
+    _upload_store.append_product_event(
+        {
+            "event_name": "waitlist_submitted",
+            "surface": "hero_waitlist",
+            "job_id": None,
+            "sample_key": None,
+            "audience_mode": "general",
+            "room_labeled": False,
+            "host": _request_host(request),
+            "created_at": entry["created_at"],
+        }
+    )
+    waitlist_count = len(_upload_store.load_waitlist_entries())
+    return WaitlistResponse(
+        accepted=True,
+        waitlist_count=waitlist_count,
+        message="You're on the list. We'll use this to shape the next beta wave.",
+    )
 
 
 @app.get("/operator/settings", response_model=OperatorSettingsResponse)
@@ -896,6 +1003,117 @@ def _feedback_counts(events: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+_PUBLIC_PRODUCT_EVENTS = {
+    "cta_start_scan",
+    "sample_report_opened",
+    "upload_started",
+    "upload_completed",
+    "report_viewed",
+    "report_share_copied",
+    "report_pdf_downloaded",
+    "waitlist_submitted",
+}
+
+
+def _normalize_public_event_name(value: str | None) -> str | None:
+    """Normalize one public-facing product event name."""
+    event_name = str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
+    return event_name if event_name in _PUBLIC_PRODUCT_EVENTS else None
+
+
+def _normalize_waitlist_email(value: str | None) -> str | None:
+    """Normalize and lightly validate one waitlist email address."""
+    email = str(value or "").strip().lower()
+    if not email or len(email) > 160 or "@" not in email:
+        return None
+    local, _sep, domain = email.partition("@")
+    if not local or "." not in domain or domain.startswith(".") or domain.endswith("."):
+        return None
+    return email
+
+
+def _load_eval_candidate_entries() -> list[dict[str, Any]]:
+    """Load saved operator-exported evaluation candidates from disk."""
+    return _upload_store.load_eval_candidates()
+
+
+def _review_ready_for_eval(job: dict[str, Any]) -> bool:
+    """Return True when a completed job is mature enough for eval export."""
+    evaluation = dict(job.get("evaluation_summary") or {})
+    human = dict(job.get("human_evaluation") or {})
+    return bool(human) or int(evaluation.get("reviewed_findings", 0) or 0) > 0
+
+
+def _normalize_follow_up_status(value: str | None) -> str | None:
+    """Normalize one persisted finding follow-up status."""
+    status = str(value or "").strip().lower()
+    if status in {"resolved", "monitor", "ignored"}:
+        return status
+    return None
+
+
+def _apply_follow_up_events(job: dict[str, Any]) -> None:
+    """Project persisted follow-up events onto the current risk list."""
+    latest_by_key: dict[str, dict[str, Any]] = {}
+    for event in list(job.get("finding_follow_up") or []):
+        finding_key = str(event.get("finding_key", "")).strip()
+        if finding_key:
+            latest_by_key[finding_key] = event
+
+    for risk in list(job.get("risks") or []):
+        current_status = _normalize_follow_up_status(risk.get("follow_up_status"))
+        finding_key = (
+            f"{risk.get('object_id') or risk.get('object_label') or 'finding'}:"
+            f"{risk.get('hazard_code') or 'unknown'}"
+        )
+        event = latest_by_key.get(finding_key)
+        if event is None:
+            risk["follow_up_status"] = current_status
+            continue
+
+        status = _normalize_follow_up_status(event.get("status"))
+        risk["follow_up_status"] = status
+        risk["follow_up_updated_at"] = event.get("created_at") if status else None
+        note = str(event.get("note") or "").strip()
+        risk["follow_up_note"] = (note or None) if status else None
+
+
+def _build_resolution_summary(job: dict[str, Any]) -> dict[str, Any]:
+    """Summarize the current follow-up state for one completed report."""
+    risks = list(job.get("risks") or [])
+    counts = {"resolved": 0, "monitor": 0, "ignored": 0, "open": 0}
+
+    for risk in risks:
+        status = _normalize_follow_up_status(risk.get("follow_up_status"))
+        if status is None:
+            counts["open"] += 1
+        else:
+            counts[status] += 1
+
+    total_findings = len(risks)
+    acted_on_count = counts["resolved"] + counts["monitor"] + counts["ignored"]
+    progress_ratio = round(acted_on_count / total_findings, 2) if total_findings else 0.0
+    if total_findings == 0:
+        summary = "No findings need follow-up yet."
+    else:
+        summary = (
+            f"{counts['resolved']} resolved, {counts['monitor']} being monitored,"
+            f" {counts['ignored']} intentionally ignored, and {counts['open']}"
+            " still open."
+        )
+
+    return {
+        "total_findings": total_findings,
+        "resolved_count": counts["resolved"],
+        "monitor_count": counts["monitor"],
+        "ignored_count": counts["ignored"],
+        "open_count": counts["open"],
+        "acted_on_count": acted_on_count,
+        "progress_ratio": progress_ratio,
+        "summary": summary,
+    }
+
+
 def _eval_corpus_dir() -> pathlib.Path:
     """Return the directory holding seeded evaluation fixtures."""
     return pathlib.Path(__file__).parents[3] / "data" / "eval_corpus"
@@ -1005,6 +1223,11 @@ def _aggregate_evaluation_metrics() -> dict[str, Any]:
         round(jobs_with_missed_hazards / total_complete, 2) if total_complete else 0.0
     )
     corpus_entries = _load_eval_corpus_entries()
+    eval_candidates = _load_eval_candidate_entries()
+    review_ready_candidates = sum(
+        1 for candidate in eval_candidates if bool(candidate.get("review_ready"))
+    )
+    available_eval_cases = len(corpus_entries) + review_ready_candidates
     release_gates = _evaluation_release_gates(
         reviewed_jobs=reviewed_jobs,
         benchmarked_jobs=benchmarked_jobs,
@@ -1012,7 +1235,7 @@ def _aggregate_evaluation_metrics() -> dict[str, Any]:
         false_positive_job_rate=false_positive_job_rate,
         missed_hazard_rate=missed_hazard_rate,
         avg_review_coverage=avg_review_coverage,
-        seed_fixture_count=len(corpus_entries),
+        seed_fixture_count=available_eval_cases,
     )
 
     return {
@@ -1026,6 +1249,10 @@ def _aggregate_evaluation_metrics() -> dict[str, Any]:
         "false_positive_job_rate": false_positive_job_rate,
         "avg_review_coverage": avg_review_coverage,
         "seed_fixture_count": len(corpus_entries),
+        "saved_eval_candidates": len(eval_candidates),
+        "review_ready_eval_candidates": review_ready_candidates,
+        "available_eval_cases": available_eval_cases,
+        "candidate_gap": max(0, _evaluation_cfg.target_corpus_size - available_eval_cases),
         "target_corpus_size": _evaluation_cfg.target_corpus_size,
         "release_gates": release_gates,
     }
@@ -1142,6 +1369,14 @@ def _aggregate_product_metrics() -> dict[str, Any]:
         if completed_with_duration
         else 0.0
     )
+    product_events = _upload_store.load_product_events()
+    waitlist_entries = _upload_store.load_waitlist_entries()
+    event_counts: dict[str, int] = {}
+    for event in product_events:
+        name = _normalize_public_event_name(event.get("event_name"))
+        if name is None:
+            continue
+        event_counts[name] = event_counts.get(name, 0) + 1
 
     return {
         "terminal_jobs": len(terminal_jobs),
@@ -1154,6 +1389,14 @@ def _aggregate_product_metrics() -> dict[str, Any]:
         ),
         "report_usefulness_rate": usefulness_rate,
         "avg_report_seconds": avg_report_seconds,
+        "product_event_count": len(product_events),
+        "waitlist_signups": len(waitlist_entries),
+        "sample_report_opens": event_counts.get("sample_report_opened", 0),
+        "share_events": event_counts.get("report_share_copied", 0),
+        "pdf_download_events": event_counts.get("report_pdf_downloaded", 0),
+        "upload_start_events": event_counts.get("upload_started", 0),
+        "upload_completed_events": event_counts.get("upload_completed", 0),
+        "cta_start_scan_events": event_counts.get("cta_start_scan", 0),
     }
 
 
@@ -1438,12 +1681,19 @@ def _room_comparison(job: dict[str, Any]) -> dict[str, Any] | None:
 
 def _ensure_job_derived_fields(job: dict[str, Any]) -> dict[str, Any]:
     """Populate lightweight derived fields for older or manually inserted jobs."""
-    if job.get("risks") is not None and not isinstance(job.get("evaluation_summary"), dict):
+    if job.get("risks") is not None:
+        _apply_follow_up_events(job)
+        job["resolution_summary"] = _build_resolution_summary(job)
         job["evaluation_summary"] = _build_evaluation_summary(job)
     summary = dict(job.get("summary") or {})
     audience_mode = normalize_audience_mode(job.get("audience_mode"))
     job["audience_mode"] = audience_mode
-    job["share_url"] = _share_path_for_job(str(job.get("job_id", "")))
+    sample_key = str(job.get("sample_key") or "").strip()
+    job["share_url"] = (
+        f"/app?view=report&sample={sample_key}"
+        if sample_key
+        else _share_path_for_job(str(job.get("job_id", "")))
+    )
     summary["audience_mode"] = audience_mode
     summary["audience_label"] = audience_mode_label(audience_mode)
     room_label = _normalize_room_label(job.get("room_label") or summary.get("room_label"))
@@ -1467,6 +1717,8 @@ def _ensure_job_derived_fields(job: dict[str, Any]) -> dict[str, Any]:
             comparison_summary=job.get("room_comparison"),
             audience_mode=audience_mode,
         )
+        if isinstance(job.get("resolution_summary"), dict):
+            summary["resolution_summary"] = job["resolution_summary"]
         summary["share_summary"] = _share_summary(job)
     return job
 
@@ -1536,6 +1788,149 @@ def _require_private_access(request: Request) -> None:
 def _utc_now_iso() -> str:
     """Return the current UTC timestamp in ISO-8601 format."""
     return datetime.now(UTC).isoformat()
+
+
+def _sample_report_frames_dir() -> pathlib.Path:
+    """Return the directory holding the built-in sample walkthrough frames."""
+    return pathlib.Path(__file__).parents[3] / "data" / "sample_walkthrough" / "frames"
+
+
+def _sample_report_cache() -> dict[str, Any] | None:
+    """Return the in-memory sample report cache when available."""
+    cache = _state.get("sample_report_cache")
+    return cache if isinstance(cache, dict) else None
+
+
+async def _build_sample_report() -> dict[str, Any]:
+    """Build and cache the public sample walkthrough report."""
+    cached = _sample_report_cache()
+    if cached is not None:
+        return cached
+
+    lock = _state.get("sample_report_lock")
+    if not isinstance(lock, asyncio.Lock):
+        lock = asyncio.Lock()
+        _state["sample_report_lock"] = lock
+
+    async with lock:
+        cached = _sample_report_cache()
+        if cached is not None:
+            return cached
+
+        frames_dir = _sample_report_frames_dir()
+        frame_paths = sorted(frames_dir.glob("*.jpg"))
+        if not frame_paths:
+            raise HTTPException(status_code=500, detail="Built-in sample frames are unavailable.")
+
+        frame_samples = [
+            ExtractedFrame(
+                index=index,
+                timestamp_s=round(index * 1.25, 2),
+                image_bytes=path.read_bytes(),
+            )
+            for index, path in enumerate(frame_paths)
+        ]
+        result = await analyze_frame_samples(
+            frame_samples,
+            filename="sample_walkthrough",
+            scan_kind="video",
+            labeler=_label_upload_region,
+            audience_mode="general",
+        )
+
+        job_id = "sample-walkthrough"
+        risks = [dict(risk) for risk in result.risks]
+        evidence_frames = [dict(frame) for frame in result.evidence_frames]
+        for frame in evidence_frames:
+            evidence_id = str(frame.get("evidence_id", ""))
+            if evidence_id:
+                frame["image_url"] = f"/sample-report/evidence/{evidence_id}"
+
+        replay_descriptors, replay_payloads = build_finding_replays(
+            risks,
+            result.evidence_artifacts,
+        )
+        replay_by_key: dict[str, dict[str, Any]] = {}
+        for descriptor in replay_descriptors:
+            replay = dict(descriptor)
+            replay_id = str(replay.get("replay_id", ""))
+            if not replay_id:
+                continue
+            replay["image_url"] = f"/sample-report/replays/{replay_id}"
+            replay_key = (
+                f"{replay.get('object_id') or 'finding'}:"
+                f"{replay.get('hazard_code') or 'unknown'}"
+            )
+            replay_by_key[replay_key] = replay
+
+        for risk in risks:
+            replay = replay_by_key.get(_finding_key(risk))
+            if replay is not None:
+                risk["replay"] = replay
+
+        now = _utc_now_iso()
+        job: dict[str, Any] = {
+            "job_id": job_id,
+            "filename": "sample_walkthrough",
+            "room_label": "Sample living room",
+            "is_sample": True,
+            "sample_key": "walkthrough",
+            "audience_mode": "general",
+            "content_type": "video/mp4",
+            "status": "complete",
+            "stage": "complete",
+            "progress": 1.0,
+            "objects": result.objects,
+            "risks": risks,
+            "point_cloud": result.point_cloud,
+            "fix_first": result.fix_first,
+            "weekend_fix_list": None,
+            "summary": result.summary,
+            "recommendations": result.recommendations,
+            "evidence_frames": evidence_frames,
+            "scan_quality": result.scan_quality,
+            "trust_notes": [
+                "This is ATLAS-0's built-in sample walkthrough.",
+                *result.trust_notes,
+            ],
+            "scene_source": result.scene_source,
+            "finding_feedback": [],
+            "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+            "human_evaluation": None,
+            "finding_follow_up": [],
+            "resolution_summary": None,
+            "room_history": [],
+            "room_comparison": None,
+            "room_wins": None,
+            "report_url": "/sample-report/report.pdf",
+            "share_url": "/app?view=report&sample=walkthrough",
+            "error": None,
+            "artifacts": {
+                "report_pdf": {
+                    "kind": "report_pdf",
+                    "storage_backend": "memory",
+                    "storage_key": "sample-report/report.pdf",
+                    "media_type": "application/pdf",
+                    "url": "/sample-report/report.pdf",
+                },
+            },
+            "attempt_count": 0,
+            "queued_at": now,
+            "started_at": now,
+            "completed_at": now,
+        }
+        if job.get("summary") is None:
+            job["summary"] = {}
+        job["summary"]["share_summary"] = "Built-in sample walkthrough report"
+        pdf_bytes = _build_pdf_report(_ensure_job_derived_fields(job))
+        cache = {
+            "job": job,
+            "evidence_artifacts": dict(result.evidence_artifacts),
+            "replay_artifacts": dict(replay_payloads),
+            "report_pdf": pdf_bytes,
+        }
+        _state["sample_report_cache"] = cache
+        return cache
 
 
 def _upload_queue() -> asyncio.Queue[str | None] | None:
@@ -1734,6 +2129,8 @@ class UploadJobStatus(BaseModel):
     job_id: str
     filename: str
     room_label: str | None = None
+    is_sample: bool = False
+    sample_key: str | None = None
     audience_mode: str | None = None
     status: str  # queued | processing | complete | error
     stage: str  # upload | ingest | vlm | risk | complete
@@ -1755,6 +2152,8 @@ class UploadJobStatus(BaseModel):
     room_history: list[dict[str, Any]] | None = None
     room_comparison: dict[str, Any] | None = None
     room_wins: list[dict[str, Any]] | None = None
+    finding_follow_up: list[dict[str, Any]] | None = None
+    resolution_summary: dict[str, Any] | None = None
     report_url: str | None = None
     share_url: str | None = None
     error: str | None = None
@@ -1770,6 +2169,15 @@ class FindingFeedbackRequest(BaseModel):
 
     hazard_code: str
     verdict: str
+    object_id: str | None = None
+    note: str | None = None
+
+
+class FindingFollowUpRequest(BaseModel):
+    """Persist a lightweight follow-up status for one report finding."""
+
+    hazard_code: str
+    status: str
     object_id: str | None = None
     note: str | None = None
 
@@ -2633,6 +3041,8 @@ async def _process_upload(job_id: str) -> None:
             status="complete",
             stage="complete",
             progress=1.0,
+            is_sample=False,
+            sample_key=None,
             objects=result.objects,
             risks=risks,
             point_cloud=result.point_cloud,
@@ -2646,8 +3056,22 @@ async def _process_upload(job_id: str) -> None:
             finding_feedback=[],
             feedback_summary={"useful": 0, "wrong": 0, "duplicate": 0},
             human_evaluation=None,
+            finding_follow_up=[],
+            resolution_summary=None,
             report_url=f"/reports/{job['job_id']}.pdf",
             completed_at=_utc_now_iso(),
+        )
+        _upload_store.append_product_event(
+            {
+                "event_name": "upload_completed",
+                "surface": "upload_pipeline",
+                "job_id": job_id,
+                "sample_key": None,
+                "audience_mode": normalize_audience_mode(job.get("audience_mode")),
+                "room_labeled": bool(job.get("room_label")),
+                "host": "server",
+                "created_at": str(job.get("completed_at") or _utc_now_iso()),
+            }
         )
 
         pdf_bytes = _build_pdf_report(job)
@@ -2893,6 +3317,8 @@ async def upload_media(request: Request) -> UploadJobStatus:
         "job_id": job_id,
         "filename": filename,
         "room_label": room_label,
+        "is_sample": False,
+        "sample_key": None,
         "audience_mode": audience_mode,
         "content_type": content_type,
         "status": "queued",
@@ -2911,6 +3337,8 @@ async def upload_media(request: Request) -> UploadJobStatus:
         "finding_feedback": [],
         "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
         "human_evaluation": None,
+        "finding_follow_up": [],
+        "resolution_summary": None,
         "room_wins": None,
         "report_url": None,
         "share_url": _share_path_for_job(job_id),
@@ -2948,10 +3376,41 @@ async def upload_media(request: Request) -> UploadJobStatus:
         )
 
     _update_job(job, stage="upload", progress=0.1)
+    _upload_store.append_product_event(
+        {
+            "event_name": "upload_started",
+            "surface": "upload_form",
+            "job_id": job_id,
+            "sample_key": None,
+            "audience_mode": audience_mode,
+            "room_labeled": bool(room_label),
+            "host": _request_host(request),
+            "created_at": now,
+        }
+    )
     await _enqueue_upload_job(job_id)
 
     logger.info("upload_accepted", job_id=job_id, filename=filename, content_type=content_type)
     return UploadJobStatus(**job)
+
+
+@app.get("/sample-report", response_model=UploadJobStatus)
+async def get_sample_report() -> UploadJobStatus:
+    """Return the built-in public sample walkthrough report."""
+    cache = await _build_sample_report()
+    _upload_store.append_product_event(
+        {
+            "event_name": "sample_report_opened",
+            "surface": "sample_report",
+            "job_id": cache["job"].get("job_id"),
+            "sample_key": cache["job"].get("sample_key"),
+            "audience_mode": normalize_audience_mode(cache["job"].get("audience_mode")),
+            "room_labeled": bool(cache["job"].get("room_label")),
+            "host": "server",
+            "created_at": _utc_now_iso(),
+        }
+    )
+    return UploadJobStatus(**cache["job"])
 
 
 @app.get("/jobs", response_model=list[UploadJobStatus])
@@ -2980,6 +3439,68 @@ def get_upload_job(job_id: str, request: Request) -> UploadJobStatus:
     if job_id not in _upload_jobs:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
     return UploadJobStatus(**_ensure_job_derived_fields(_upload_jobs[job_id]))
+
+
+@app.post("/jobs/{job_id}/follow-up", response_model=UploadJobStatus)
+def record_job_follow_up(
+    job_id: str,
+    payload: FindingFollowUpRequest,
+    request: Request,
+) -> UploadJobStatus:
+    """Store a persistent follow-up state for one completed report finding."""
+    _require_private_access(request)
+    job = _upload_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+    if job.get("status") != "complete":
+        raise HTTPException(
+            status_code=409,
+            detail="Follow-up is only accepted for completed jobs.",
+        )
+
+    normalized_status = str(payload.status or "").strip().lower()
+    if normalized_status not in {"resolved", "monitor", "ignored", "open"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Follow-up status must be resolved, monitor, ignored, or open.",
+        )
+    note = str(payload.note or "").strip()
+    if len(note) > 280:
+        raise HTTPException(
+            status_code=400,
+            detail="Follow-up note must be 280 characters or fewer.",
+        )
+
+    risks = list(job.get("risks") or [])
+    target = next(
+        (
+            risk
+            for risk in risks
+            if str(risk.get("hazard_code", "")) == payload.hazard_code
+            and (payload.object_id is None or str(risk.get("object_id", "")) == payload.object_id)
+        ),
+        None,
+    )
+    if target is None:
+        raise HTTPException(status_code=404, detail="Matching finding was not found in the report.")
+
+    status = _normalize_follow_up_status(normalized_status)
+    created_at = _utc_now_iso() if status else None
+    target["follow_up_status"] = status
+    target["follow_up_updated_at"] = created_at
+    target["follow_up_note"] = (note or None) if status else None
+    event = {
+        "hazard_code": payload.hazard_code,
+        "object_id": payload.object_id or target.get("object_id"),
+        "status": normalized_status,
+        "note": note or None,
+        "created_at": created_at or _utc_now_iso(),
+        "finding_key": _finding_key(target),
+    }
+    events = list(job.get("finding_follow_up") or [])
+    events.append(event)
+    _update_job(job, risks=risks, finding_follow_up=events)
+    return UploadJobStatus(**job)
 
 
 @app.post("/jobs/{job_id}/feedback", response_model=UploadJobStatus)
@@ -3099,6 +3620,77 @@ def record_job_evaluation(
     return UploadJobStatus(**job)
 
 
+@app.post("/jobs/{job_id}/eval-candidate", response_model=UploadJobStatus)
+def export_eval_candidate(
+    job_id: str,
+    payload: EvalCandidateRequest,
+    request: Request,
+) -> UploadJobStatus:
+    """Export one reviewed completed report into the persisted eval-candidate store."""
+    _require_private_access(request)
+    job = _upload_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+    if job.get("status") != "complete":
+        raise HTTPException(
+            status_code=409,
+            detail="Eval candidates can only be exported from completed jobs.",
+        )
+    if not _review_ready_for_eval(job):
+        raise HTTPException(
+            status_code=409,
+            detail="Add human review or finding feedback before exporting this eval candidate.",
+        )
+
+    note = str(payload.note or "").strip()
+    if len(note) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="Eval candidate note must be 500 characters or fewer.",
+        )
+    requested_label = str(payload.label or "").strip().lower().replace(" ", "_").replace("-", "_")
+    label = requested_label or str(job.get("job_id"))
+    if len(label) > 80:
+        raise HTTPException(
+            status_code=400,
+            detail="Eval candidate label must be 80 characters or fewer.",
+        )
+
+    summary = dict(job.get("summary") or {})
+    evaluation = dict(job.get("evaluation_summary") or {})
+    human = dict(job.get("human_evaluation") or {})
+    hazard_codes = [str(risk.get("hazard_code", "")) for risk in list(job.get("risks") or [])]
+    candidate = {
+        "candidate_id": label,
+        "job_id": job_id,
+        "filename": job.get("filename"),
+        "room_label": job.get("room_label"),
+        "audience_mode": normalize_audience_mode(job.get("audience_mode")),
+        "scene_source": job.get("scene_source"),
+        "top_hazard_code": hazard_codes[0] if hazard_codes else None,
+        "hazard_codes": hazard_codes,
+        "hazard_count": int(summary.get("hazard_count", 0) or 0),
+        "object_count": int(summary.get("object_count", 0) or 0),
+        "review_ready": True,
+        "evaluation_summary": evaluation,
+        "human_evaluation": human or None,
+        "benchmark_label": evaluation.get("benchmark_label"),
+        "export_note": note or None,
+        "exported_at": _utc_now_iso(),
+        "source": "operator_export",
+    }
+    _upload_store.save_eval_candidate(label, candidate)
+    _update_job(
+        job,
+        human_evaluation={
+            **human,
+            "eval_candidate_label": label,
+            "eval_candidate_exported_at": candidate["exported_at"],
+        },
+    )
+    return UploadJobStatus(**job)
+
+
 @app.get("/jobs/{job_id}/evidence/{evidence_id}")
 def download_evidence(job_id: str, evidence_id: str, request: Request) -> Response:
     """Download one persisted evidence crop for a completed report."""
@@ -3114,6 +3706,16 @@ def download_evidence(job_id: str, evidence_id: str, request: Request) -> Respon
     return Response(content=content, media_type=media_type)
 
 
+@app.get("/sample-report/evidence/{evidence_id}")
+async def download_sample_evidence(evidence_id: str) -> Response:
+    """Download one evidence crop from the built-in sample report."""
+    cache = await _build_sample_report()
+    payload = cache["evidence_artifacts"].get(evidence_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"Evidence {evidence_id!r} not found")
+    return Response(content=payload, media_type="image/jpeg")
+
+
 @app.get("/jobs/{job_id}/replays/{replay_id}")
 def download_finding_replay(job_id: str, replay_id: str, request: Request) -> Response:
     """Download one persisted finding replay for a completed report."""
@@ -3127,6 +3729,16 @@ def download_finding_replay(job_id: str, replay_id: str, request: Request) -> Re
 
     content, media_type = artifact
     return Response(content=content, media_type=media_type)
+
+
+@app.get("/sample-report/replays/{replay_id}")
+async def download_sample_replay(replay_id: str) -> Response:
+    """Download one replay artifact from the built-in sample report."""
+    cache = await _build_sample_report()
+    payload = cache["replay_artifacts"].get(replay_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"Replay {replay_id!r} not found")
+    return Response(content=payload, media_type="image/gif")
 
 
 @app.delete("/jobs/{job_id}", status_code=204)
@@ -3169,10 +3781,45 @@ def download_report(job_id: str, request: Request) -> Response:
                 url=f"/reports/{job_id}.pdf",
             ),
         )
+    _upload_store.append_product_event(
+        {
+            "event_name": "report_pdf_downloaded",
+            "surface": "report_pdf",
+            "job_id": job_id,
+            "sample_key": None,
+            "audience_mode": normalize_audience_mode(job.get("audience_mode")),
+            "room_labeled": bool(job.get("room_label")),
+            "host": _request_host(request),
+            "created_at": _utc_now_iso(),
+        }
+    )
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="atlas0-report-{job_id}.pdf"'},
+    )
+
+
+@app.get("/sample-report/report.pdf")
+async def download_sample_report() -> Response:
+    """Download the built-in sample walkthrough PDF."""
+    cache = await _build_sample_report()
+    _upload_store.append_product_event(
+        {
+            "event_name": "report_pdf_downloaded",
+            "surface": "sample_report_pdf",
+            "job_id": cache["job"].get("job_id"),
+            "sample_key": cache["job"].get("sample_key"),
+            "audience_mode": normalize_audience_mode(cache["job"].get("audience_mode")),
+            "room_labeled": bool(cache["job"].get("room_label")),
+            "host": "server",
+            "created_at": _utc_now_iso(),
+        }
+    )
+    return Response(
+        content=cache["report_pdf"],
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="atlas0-sample-report.pdf"'},
     )
 
 

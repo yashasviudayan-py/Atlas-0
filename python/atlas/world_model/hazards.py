@@ -322,6 +322,9 @@ def _build_hazard(
             "duplicate": 0,
         },
         "latest_feedback": None,
+        "follow_up_status": None,
+        "follow_up_updated_at": None,
+        "follow_up_note": None,
     }
 
 
