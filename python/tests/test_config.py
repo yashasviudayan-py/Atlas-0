@@ -154,6 +154,7 @@ class TestLoadConfig:
         assert cfg.camera.slam_width == 640
         assert cfg.ipc.mmap_path == "/tmp/atlas.mmap"
         assert cfg.uploads.storage_dir == ".atlas/uploads"
+        assert cfg.uploads.artifact_backend == "local_fs"
         assert cfg.uploads.save_original_uploads is False
         assert cfg.uploads.retention_days == 14
         assert cfg.uploads.max_upload_bytes == 75_000_000
@@ -161,6 +162,8 @@ class TestLoadConfig:
         assert cfg.uploads.max_job_attempts == 2
         assert cfg.uploads.job_timeout_seconds == 180.0
         assert cfg.uploads.max_storage_bytes == 1_500_000_000
+        assert cfg.uploads.strict_startup_checks is False
+        assert cfg.uploads.job_failure_log_limit == 20
         assert cfg.uploads.min_scan_quality_score == pytest.approx(0.42)
         assert cfg.uploads.min_motion_coverage == pytest.approx(0.2)
         assert cfg.uploads.min_saliency_coverage == pytest.approx(0.22)
@@ -229,6 +232,13 @@ timeout_seconds = 30.0
 def test_evaluation_config_rejects_out_of_range_thresholds() -> None:
     with pytest.raises(ValidationError):
         EvaluationConfig(min_benchmark_match_rate=1.2)
+
+
+def test_upload_config_rejects_unknown_artifact_backend() -> None:
+    from atlas.utils.config import UploadsConfig
+
+    with pytest.raises(ValidationError):
+        UploadsConfig(artifact_backend="s3")
 
     def test_env_override_slam_bool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ATLAS_SLAM_ENABLE_LOOP_CLOSURE", "false")

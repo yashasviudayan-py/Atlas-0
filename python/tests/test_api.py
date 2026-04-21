@@ -22,6 +22,12 @@ def reset_upload_jobs(tmp_path: Path):
         "upload_queue_ids": _state.get("upload_queue_ids"),
         "upload_cancelled_jobs": _state.get("upload_cancelled_jobs"),
         "upload_worker_tasks": _state.get("upload_worker_tasks"),
+        "active_upload_workers": _state.get("active_upload_workers"),
+        "startup_checks": _state.get("startup_checks"),
+        "service_started_at": _state.get("service_started_at"),
+        "recent_job_failures": _state.get("recent_job_failures"),
+        "last_resume_scan_at": _state.get("last_resume_scan_at"),
+        "last_prune_at": _state.get("last_prune_at"),
     }
     api_snapshot = {
         "access_token": _api_cfg.access_token,
@@ -35,6 +41,10 @@ def reset_upload_jobs(tmp_path: Path):
         "max_queue_depth": _upload_cfg.max_queue_depth,
         "max_job_attempts": _upload_cfg.max_job_attempts,
         "job_timeout_seconds": _upload_cfg.job_timeout_seconds,
+        "artifact_backend": _upload_cfg.artifact_backend,
+        "artifact_base_url": _upload_cfg.artifact_base_url,
+        "strict_startup_checks": _upload_cfg.strict_startup_checks,
+        "job_failure_log_limit": _upload_cfg.job_failure_log_limit,
     }
     root_snapshot = _upload_store.root_dir
     _upload_jobs.clear()
@@ -43,6 +53,10 @@ def reset_upload_jobs(tmp_path: Path):
     _state["upload_queue_ids"] = set()
     _state["upload_cancelled_jobs"] = set()
     _state["upload_worker_tasks"] = []
+    _state["active_upload_workers"] = 0
+    _state["startup_checks"] = {"ready": True, "checks": [], "summary": "ok"}
+    _state["service_started_at"] = "2026-04-21T00:00:00+00:00"
+    _state["recent_job_failures"] = []
     yield
     _upload_jobs.clear()
     _upload_jobs.update(snapshot)
@@ -61,6 +75,10 @@ def reset_upload_jobs(tmp_path: Path):
     _upload_cfg.max_queue_depth = upload_snapshot["max_queue_depth"]
     _upload_cfg.max_job_attempts = upload_snapshot["max_job_attempts"]
     _upload_cfg.job_timeout_seconds = upload_snapshot["job_timeout_seconds"]
+    _upload_cfg.artifact_backend = upload_snapshot["artifact_backend"]
+    _upload_cfg.artifact_base_url = upload_snapshot["artifact_base_url"]
+    _upload_cfg.strict_startup_checks = upload_snapshot["strict_startup_checks"]
+    _upload_cfg.job_failure_log_limit = upload_snapshot["job_failure_log_limit"]
 
 
 def test_health_check():
@@ -68,6 +86,8 @@ def test_health_check():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
+    assert "deployment_ready" in data
+    assert "worker_mode" in data
 
 
 def test_spatial_query_empty():
@@ -95,6 +115,7 @@ def test_product_privacy_is_public() -> None:
     data = response.json()
     assert data["delete_supported"] is True
     assert "retention" in data["summary"].lower()
+    assert data["artifact_backend"] == _upload_cfg.artifact_backend
 
 
 def test_product_waitlist_is_public() -> None:
@@ -146,12 +167,29 @@ def test_operator_settings_require_token_when_configured() -> None:
     assert authenticated.status_code == 200
     assert authenticated.json()["uploads"]["max_queue_depth"] == _upload_cfg.max_queue_depth
     assert authenticated.json()["uploads"]["max_storage_bytes"] == _upload_cfg.max_storage_bytes
+    assert authenticated.json()["uploads"]["artifact_backend"] == _upload_cfg.artifact_backend
     assert authenticated.json()["providers"]["primary_provider"] in {"ollama", "claude", "openai"}
     assert "upload_success_rate" in authenticated.json()["product"]
     assert "waitlist_signups" in authenticated.json()["product"]
     assert "reviewed_jobs" in authenticated.json()["evaluation"]
     assert "saved_eval_candidates" in authenticated.json()["evaluation"]
     assert "release_gates" in authenticated.json()["evaluation"]
+    assert "deployment_ready" in authenticated.json()["system"]
+    assert "startup_checks" in authenticated.json()["system"]
+
+
+def test_operator_storage_prune_requires_token_when_configured() -> None:
+    _api_cfg.access_token = "secret-token"
+
+    unauthenticated = client.post("/operator/storage/prune")
+    authenticated = client.post(
+        "/operator/storage/prune",
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert unauthenticated.status_code == 401
+    assert authenticated.status_code == 200
+    assert "deleted_jobs" in authenticated.json()
 
 
 def test_sample_report_is_public(monkeypatch: pytest.MonkeyPatch) -> None:
