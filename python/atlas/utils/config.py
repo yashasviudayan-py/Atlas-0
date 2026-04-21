@@ -255,6 +255,8 @@ class UploadsConfig(BaseModel):
     """Upload/report persistence configuration."""
 
     storage_dir: str = ".atlas/uploads"
+    artifact_backend: str = "local_fs"
+    artifact_base_url: str | None = None
     save_original_uploads: bool = False
     max_persisted_jobs: int = 200
     retention_days: int = 14
@@ -272,6 +274,8 @@ class UploadsConfig(BaseModel):
     redact_text_heavy_regions: bool = True
     text_density_threshold: float = 0.52
     max_redacted_regions_per_frame: int = 2
+    strict_startup_checks: bool = False
+    job_failure_log_limit: int = 20
 
     @field_validator(
         "max_persisted_jobs",
@@ -283,6 +287,7 @@ class UploadsConfig(BaseModel):
         "max_storage_bytes",
         "max_redacted_regions_per_frame",
         "min_frames_for_room_report",
+        "job_failure_log_limit",
     )
     @classmethod
     def _positive_int(cls, v: int) -> int:
@@ -314,6 +319,23 @@ class UploadsConfig(BaseModel):
         if not 0.0 <= v <= 1.0:
             raise ValueError(f"must be in [0, 1], got {v}")
         return v
+
+    @field_validator("artifact_backend")
+    @classmethod
+    def _valid_artifact_backend(cls, v: str) -> str:
+        token = v.strip().lower()
+        allowed = {"local_fs"}
+        if token not in allowed:
+            raise ValueError(f"artifact_backend must be one of {allowed}, got {v!r}")
+        return token
+
+    @field_validator("artifact_base_url")
+    @classmethod
+    def _normalize_artifact_base_url(cls, v: str | None) -> str | None:
+        token = (v or "").strip()
+        if not token:
+            return None
+        return token.rstrip("/")
 
 
 class EvaluationConfig(BaseModel):

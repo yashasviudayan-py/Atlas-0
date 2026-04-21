@@ -111,6 +111,11 @@ snapshot_interval_keyframes = 5
 [uploads]
 # Disk-backed directory for persisted upload job manifests and reports.
 storage_dir = ".atlas/uploads"
+# Artifact backend used for persisted reports/evidence. Today the production
+# path is local filesystem with object-store-compatible pointers layered on top.
+artifact_backend = "local_fs"
+# Optional public base URL used when artifacts are served behind a dedicated host.
+artifact_base_url = ""
 # Keep the original uploaded media alongside generated report artifacts.
 # Disable by default to reduce privacy exposure.
 save_original_uploads = false
@@ -147,6 +152,10 @@ redact_text_heavy_regions = true
 text_density_threshold = 0.52
 # Maximum number of text-heavy regions redacted per sampled frame.
 max_redacted_regions_per_frame = 2
+# Fail startup if required storage/provider checks are not production-ready.
+strict_startup_checks = false
+# Keep a bounded in-memory log of recent job failures for operator diagnostics.
+job_failure_log_limit = 20
 
 [evaluation]
 # Target size for the first real beta evaluation corpus.

@@ -22,12 +22,16 @@ class UploadStore:
         self,
         root_dir: Path,
         *,
+        artifact_backend: str = "local_fs",
+        artifact_base_url: str | None = None,
         save_original_uploads: bool = False,
         max_persisted_jobs: int = 200,
         retention_days: int = 14,
         max_storage_bytes: int = 1_500_000_000,
     ) -> None:
         self.root_dir = root_dir
+        self._artifact_backend = artifact_backend
+        self._artifact_base_url = (artifact_base_url or "").strip().rstrip("/") or None
         self._save_original_uploads = save_original_uploads
         self._max_persisted_jobs = max_persisted_jobs
         self._retention_days = retention_days
@@ -283,14 +287,15 @@ class UploadStore:
         rel_path = Path(relative_path)
         full_path = self.job_dir(job_id) / rel_path
         size_bytes = full_path.stat().st_size if full_path.exists() else 0
+        storage_key = f"jobs/{job_id}/{rel_path.as_posix()}"
         return {
             "kind": kind,
-            "storage_backend": _ARTIFACT_BACKEND,
-            "storage_key": f"jobs/{job_id}/{rel_path.as_posix()}",
+            "storage_backend": self._artifact_backend or _ARTIFACT_BACKEND,
+            "storage_key": storage_key,
             "relative_path": rel_path.as_posix(),
             "media_type": media_type,
             "size_bytes": size_bytes,
-            "url": url,
+            "url": self._artifact_url(storage_key, url),
         }
 
     def storage_summary(self) -> dict[str, int]:
@@ -341,6 +346,18 @@ class UploadStore:
             "meta_bytes": meta_bytes,
             "waitlist_entries": len(self.load_waitlist_entries()),
             "eval_candidates": len(self.load_eval_candidates()),
+        }
+
+    def prune(self) -> dict[str, int]:
+        """Run retention pruning immediately and return a coarse diff summary."""
+        before = self.storage_summary()
+        self._prune_old_jobs()
+        after = self.storage_summary()
+        return {
+            "deleted_jobs": max(0, before["persisted_jobs"] - after["persisted_jobs"]),
+            "bytes_reclaimed": max(0, before["bytes_used"] - after["bytes_used"]),
+            "remaining_jobs": after["persisted_jobs"],
+            "remaining_bytes": after["bytes_used"],
         }
 
     def _prune_old_jobs(self) -> None:
@@ -441,3 +458,9 @@ class UploadStore:
         except OSError as exc:
             logger.warning("upload_store_jsonl_load_failed", path=str(path), error=str(exc))
         return rows
+
+    def _artifact_url(self, storage_key: str, fallback_url: str | None) -> str | None:
+        """Return the public artifact URL when a base URL is configured."""
+        if self._artifact_base_url:
+            return f"{self._artifact_base_url}/{storage_key}"
+        return fallback_url
