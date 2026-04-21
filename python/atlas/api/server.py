@@ -16,9 +16,10 @@ import hmac
 import io
 import ipaddress
 import json
+import os
 import pathlib
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email.parser import BytesParser
 from email.policy import default
 from typing import Annotated, Any
@@ -41,10 +42,18 @@ from atlas.api.metrics import (
     REGISTRY,
     assessment_age_seconds,
     generate_latest,
+    job_delete_total,
     object_count,
     query_total,
+    report_download_total,
     risk_count,
     slam_active,
+    storage_bytes,
+    upload_job_seconds,
+    upload_queue_depth,
+    upload_total,
+    upload_workers_active,
+    waitlist_signup_total,
     ws_clients_active,
 )
 from atlas.api.overlay import CameraParams, OverlayBuilder
@@ -75,10 +84,15 @@ logger = structlog.get_logger(__name__)
 @contextlib.asynccontextmanager
 async def _lifespan(application: FastAPI):  # type: ignore[type-arg]
     """Start the world-model agent on server startup; stop it on shutdown."""
+    _service_started_at()
+    startup = _run_startup_checks()
+    if _upload_cfg.strict_startup_checks and not startup.get("ready"):
+        raise RuntimeError(str(startup.get("summary")))
     agent = _get_agent()
     await agent.start()
     await _start_upload_workers()
     await _resume_pending_upload_jobs()
+    _refresh_operational_metrics()
     logger.info("world_model_agent_started_via_lifespan")
     yield
     await _stop_upload_workers()
@@ -112,6 +126,8 @@ _upload_cfg = _runtime_cfg.uploads
 _evaluation_cfg = _runtime_cfg.evaluation
 _upload_store = UploadStore(
     pathlib.Path(_upload_cfg.storage_dir),
+    artifact_backend=_upload_cfg.artifact_backend,
+    artifact_base_url=_upload_cfg.artifact_base_url,
     save_original_uploads=_upload_cfg.save_original_uploads,
     max_persisted_jobs=_upload_cfg.max_persisted_jobs,
     retention_days=_upload_cfg.retention_days,
@@ -180,6 +196,9 @@ class HealthResponse(BaseModel):
     object_count: int
     risk_count: int
     risks_stale_seconds: float
+    deployment_ready: bool = False
+    worker_mode: str = "in_process"
+    warnings: list[str] = []
 
 
 class SpatialQuery(BaseModel):
@@ -252,6 +271,7 @@ class OperatorSettingsResponse(BaseModel):
     uploads: dict[str, Any]
     queue: dict[str, Any]
     storage: dict[str, Any]
+    system: dict[str, Any]
     providers: dict[str, Any]
     evaluation: dict[str, Any]
     product: dict[str, Any]
@@ -266,6 +286,7 @@ class PrivacyPolicyResponse(BaseModel):
     text_redaction_enabled: bool
     summary: str
     details: list[str]
+    artifact_backend: str = "local_fs"
 
 
 class ProductEventRequest(BaseModel):
@@ -294,6 +315,16 @@ class WaitlistResponse(BaseModel):
     accepted: bool
     waitlist_count: int
     message: str
+
+
+class StoragePruneResponse(BaseModel):
+    """Protected response returned after a manual storage prune."""
+
+    deleted_jobs: int
+    bytes_reclaimed: int
+    remaining_jobs: int
+    remaining_bytes: int
+    pruned_at: str
 
 
 class EvalCandidateRequest(BaseModel):
@@ -357,6 +388,13 @@ async def health_check(
     stale = agent.risks_stale_seconds
     # -1.0 means "no assessment has completed yet" (JSON can't encode inf).
     stale_json = stale if stale != float("inf") else -1.0
+    startup = _startup_check_summary()
+    warnings = [
+        check["detail"]
+        for check in startup.get("checks", [])
+        if str(check.get("status")) != "pass" and isinstance(check.get("detail"), str)
+    ]
+    _refresh_operational_metrics()
     # Update Prometheus gauges on every health poll.
     object_count.set(len(objects))
     risk_count.set(len(risks))
@@ -370,6 +408,9 @@ async def health_check(
         object_count=len(objects),
         risk_count=len(risks),
         risks_stale_seconds=stale_json,
+        deployment_ready=bool(startup.get("ready")),
+        worker_mode="in_process",
+        warnings=warnings[:4],
     )
 
 
@@ -610,6 +651,7 @@ def join_waitlist(payload: WaitlistRequest, request: Request) -> WaitlistRespons
         "created_at": _utc_now_iso(),
     }
     _upload_store.append_waitlist_entry(entry)
+    waitlist_signup_total.inc()
     _upload_store.append_product_event(
         {
             "event_name": "waitlist_submitted",
@@ -635,9 +677,12 @@ def operator_settings(request: Request) -> OperatorSettingsResponse:
     """Return protected operator diagnostics and upload-policy visibility."""
     _require_private_access(request)
     counts = _job_status_counts()
+    _refresh_operational_metrics()
     return OperatorSettingsResponse(
         access=_operator_access_descriptor(),
         uploads={
+            "artifact_backend": _upload_cfg.artifact_backend,
+            "artifact_base_url": _upload_cfg.artifact_base_url,
             "save_original_uploads": _upload_cfg.save_original_uploads,
             "retention_days": _upload_cfg.retention_days,
             "max_upload_bytes": _upload_cfg.max_upload_bytes,
@@ -647,6 +692,7 @@ def operator_settings(request: Request) -> OperatorSettingsResponse:
             "max_job_attempts": _upload_cfg.max_job_attempts,
             "job_timeout_seconds": _upload_cfg.job_timeout_seconds,
             "max_storage_bytes": _upload_cfg.max_storage_bytes,
+            "strict_startup_checks": _upload_cfg.strict_startup_checks,
         },
         queue={
             "queued_jobs": counts["queued"],
@@ -656,10 +702,21 @@ def operator_settings(request: Request) -> OperatorSettingsResponse:
             "worker_count": _upload_cfg.max_concurrent_jobs,
         },
         storage=_upload_store.storage_summary(),
+        system=_operator_system_summary(),
         providers=_provider_runtime_summary(),
         evaluation=_aggregate_evaluation_metrics(),
         product=_aggregate_product_metrics(),
     )
+
+
+@app.post("/operator/storage/prune", response_model=StoragePruneResponse)
+def prune_operator_storage(request: Request) -> StoragePruneResponse:
+    """Run retention/storage pruning immediately for operator diagnostics."""
+    _require_private_access(request)
+    result = _upload_store.prune()
+    _state["last_prune_at"] = _utc_now_iso()
+    _refresh_operational_metrics()
+    return StoragePruneResponse(pruned_at=str(_state["last_prune_at"]), **result)
 
 
 @app.get("/metrics", include_in_schema=False)
@@ -853,14 +910,249 @@ def _to_risk_info(risk: RiskEntry) -> RiskInfo:
 
 _IMAGE_TYPES = frozenset({"image/jpeg", "image/png", "image/webp", "image/gif", "image/bmp"})
 _VIDEO_TYPES = frozenset({"video/mp4", "video/quicktime", "video/webm", "video/x-msvideo"})
+_CLOUD_PROVIDERS = frozenset({"openai", "claude"})
 
 # In-memory job store (keyed by job_id).
 _upload_jobs: dict[str, dict[str, Any]] = _upload_store.load_jobs()
 
 
+def _service_started_at() -> str:
+    """Return the service start timestamp, creating it on first access."""
+    started_at = _state.get("service_started_at")
+    if isinstance(started_at, str) and started_at:
+        return started_at
+    started_at = _utc_now_iso()
+    _state["service_started_at"] = started_at
+    return started_at
+
+
+def _startup_check_summary() -> dict[str, Any]:
+    """Return the cached startup-check summary."""
+    summary = _state.get("startup_checks")
+    if isinstance(summary, dict):
+        return summary
+    return {"ready": False, "checks": [], "summary": "Startup checks have not run yet."}
+
+
+def _recent_job_failures() -> list[dict[str, Any]]:
+    """Return the bounded in-memory job failure log."""
+    items = _state.setdefault("recent_job_failures", [])
+    return items if isinstance(items, list) else []
+
+
+def _record_job_failure(
+    *,
+    job_id: str,
+    stage: str,
+    error: str,
+    attempt_count: int,
+    will_retry: bool,
+) -> None:
+    """Append one failure event to the bounded operator failure log."""
+    failures = _recent_job_failures()
+    failures.append(
+        {
+            "job_id": job_id,
+            "stage": stage,
+            "error": error[:240],
+            "attempt_count": attempt_count,
+            "will_retry": will_retry,
+            "created_at": _utc_now_iso(),
+        }
+    )
+    limit = max(1, int(_upload_cfg.job_failure_log_limit or 20))
+    if len(failures) > limit:
+        del failures[:-limit]
+
+
+def _set_worker_activity(active_workers: int) -> None:
+    """Store and export the number of active upload workers."""
+    _state["active_upload_workers"] = max(0, active_workers)
+    upload_workers_active.set(int(_state["active_upload_workers"]))
+
+
+def _refresh_operational_metrics() -> None:
+    """Refresh gauges derived from queue depth and persisted storage."""
+    queue_depth = len(_upload_queue_ids())
+    upload_queue_depth.set(queue_depth)
+    upload_workers_active.set(int(_state.get("active_upload_workers", 0) or 0))
+    storage = _upload_store.storage_summary()
+    storage_bytes.set(int(storage.get("bytes_used", 0) or 0))
+
+
+def _provider_env_ready(provider: str | None) -> bool:
+    """Return True when the configured provider has the expected env wiring."""
+    token = str(provider or "").strip().lower()
+    if not token or token == "ollama":
+        return True
+    if token == "openai":
+        return bool(os.environ.get("OPENAI_API_KEY"))
+    if token == "claude":
+        return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    return False
+
+
+def _run_startup_checks() -> dict[str, Any]:
+    """Validate storage/provider/runtime assumptions needed for production use."""
+    checks: list[dict[str, str]] = []
+
+    storage_root = pathlib.Path(_upload_cfg.storage_dir)
+    try:
+        storage_root.mkdir(parents=True, exist_ok=True)
+        probe = storage_root / ".atlas-write-probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        checks.append(
+            {
+                "name": "storage_root",
+                "status": "pass",
+                "detail": f"Storage root {storage_root} is writable.",
+            }
+        )
+    except OSError as exc:
+        checks.append(
+            {
+                "name": "storage_root",
+                "status": "fail",
+                "detail": f"Storage root {storage_root} is not writable: {exc}.",
+            }
+        )
+
+    if _upload_cfg.max_queue_depth >= _upload_cfg.max_concurrent_jobs:
+        checks.append(
+            {
+                "name": "queue_capacity",
+                "status": "pass",
+                "detail": "Queue depth is at least as large as worker concurrency.",
+            }
+        )
+    else:
+        checks.append(
+            {
+                "name": "queue_capacity",
+                "status": "fail",
+                "detail": "Queue depth must be greater than or equal to worker concurrency.",
+            }
+        )
+
+    if _upload_cfg.max_storage_bytes >= _upload_cfg.max_upload_bytes:
+        checks.append(
+            {
+                "name": "storage_budget",
+                "status": "pass",
+                "detail": "Storage budget can hold at least one max-size upload safely.",
+            }
+        )
+    else:
+        checks.append(
+            {
+                "name": "storage_budget",
+                "status": "warn",
+                "detail": (
+                    "Storage budget is smaller than one max-size upload and will churn quickly."
+                ),
+            }
+        )
+
+    if _upload_cfg.artifact_backend == "local_fs":
+        checks.append(
+            {
+                "name": "artifact_backend",
+                "status": "pass",
+                "detail": "Artifact backend is local_fs with object-store-compatible pointers.",
+            }
+        )
+    else:
+        checks.append(
+            {
+                "name": "artifact_backend",
+                "status": "fail",
+                "detail": f"Unsupported artifact backend {_upload_cfg.artifact_backend!r}.",
+            }
+        )
+
+    providers = [load_config().vlm.provider, load_config().vlm.fallback_provider]
+    for provider in providers:
+        token = str(provider or "").strip().lower()
+        if not token:
+            continue
+        checks.append(
+            {
+                "name": f"provider_{token}",
+                "status": "pass" if _provider_env_ready(token) else "warn",
+                "detail": (
+                    f"{token} provider credentials look available."
+                    if _provider_env_ready(token)
+                    else f"{token} provider is configured without the expected API credentials."
+                ),
+            }
+        )
+
+    if _FRONTEND_DIR.exists():
+        checks.append(
+            {
+                "name": "frontend_bundle",
+                "status": "pass",
+                "detail": "Frontend bundle is present for the hosted product path.",
+            }
+        )
+    else:
+        checks.append(
+            {
+                "name": "frontend_bundle",
+                "status": "warn",
+                "detail": "Frontend bundle is missing; API-only mode will still boot.",
+            }
+        )
+
+    ready = all(check["status"] == "pass" for check in checks if check["name"] != "frontend_bundle")
+    summary = {
+        "ready": ready,
+        "checked_at": _utc_now_iso(),
+        "summary": (
+            "Startup checks passed for the current deployment profile."
+            if ready
+            else "Startup checks found production-readiness gaps that operators should fix."
+        ),
+        "checks": checks,
+    }
+    _state["startup_checks"] = summary
+    return summary
+
+
+def _operator_system_summary() -> dict[str, Any]:
+    """Return deployment and worker diagnostics for operator review."""
+    startup = _startup_check_summary()
+    started_at = _service_started_at()
+    uptime_seconds = 0.0
+    with contextlib.suppress(ValueError):
+        uptime_seconds = max(
+            0.0,
+            (datetime.now(UTC) - datetime.fromisoformat(started_at)).total_seconds(),
+        )
+
+    return {
+        "worker_mode": "in_process",
+        "deployment_ready": bool(startup.get("ready")),
+        "startup_summary": startup.get("summary"),
+        "startup_checks": startup.get("checks", []),
+        "service_started_at": started_at,
+        "uptime_seconds": round(uptime_seconds, 1),
+        "storage_root": str(pathlib.Path(_upload_cfg.storage_dir)),
+        "artifact_backend": _upload_cfg.artifact_backend,
+        "artifact_base_url": _upload_cfg.artifact_base_url,
+        "recent_failures": list(reversed(_recent_job_failures()[-5:])),
+        "active_workers": int(_state.get("active_upload_workers", 0) or 0),
+        "queue_depth": len(_upload_queue_ids()),
+        "last_resume_scan_at": _state.get("last_resume_scan_at"),
+        "last_prune_at": _state.get("last_prune_at"),
+    }
+
+
 def _save_job(job: dict[str, Any]) -> None:
     """Persist the current in-memory job manifest to disk."""
     _upload_store.save_job(job)
+    _refresh_operational_metrics()
 
 
 def _update_job(job: dict[str, Any], **fields: Any) -> None:
@@ -1544,6 +1836,21 @@ def _share_summary(job: dict[str, Any]) -> str:
     return f"{room_text}{audience_label} · {headline}{score_text}"
 
 
+def _job_expiry_iso(job: dict[str, Any]) -> str | None:
+    """Return the expected artifact expiry timestamp for one persisted job."""
+    retention_days = int(_upload_cfg.retention_days or 0)
+    if retention_days <= 0:
+        return None
+    anchor = str(job.get("completed_at") or job.get("queued_at") or "").strip()
+    if not anchor:
+        return None
+    try:
+        expires = datetime.fromisoformat(anchor) + timedelta(days=retention_days)
+    except ValueError:
+        return None
+    return expires.isoformat()
+
+
 def _room_score_payload(job: dict[str, Any]) -> dict[str, Any] | None:
     """Compute a lightweight room safety score for repeat-use comparisons."""
     if str(job.get("status")) != "complete":
@@ -1704,6 +2011,8 @@ def _ensure_job_derived_fields(job: dict[str, Any]) -> dict[str, Any]:
         score_payload = _room_score_payload(job)
         if score_payload:
             summary.update(score_payload)
+        summary["artifact_expires_at"] = _job_expiry_iso(job)
+        summary["retention_days"] = _upload_cfg.retention_days
         job["summary"] = summary
         job["room_history"] = _room_history(job)
         job["room_comparison"] = _room_comparison(job)
@@ -1720,6 +2029,7 @@ def _ensure_job_derived_fields(job: dict[str, Any]) -> dict[str, Any]:
         if isinstance(job.get("resolution_summary"), dict):
             summary["resolution_summary"] = job["resolution_summary"]
         summary["share_summary"] = _share_summary(job)
+    job["expires_at"] = _job_expiry_iso(job)
     return job
 
 
@@ -2003,6 +2313,7 @@ def _public_privacy_descriptor() -> dict[str, Any]:
         "save_original_uploads": _upload_cfg.save_original_uploads,
         "delete_supported": True,
         "text_redaction_enabled": _upload_cfg.redact_text_heavy_regions,
+        "artifact_backend": _upload_cfg.artifact_backend,
         "summary": (
             "ATLAS-0 keeps upload artifacts on a time-limited retention window for reports,"
             " review, and debugging, and it exposes delete controls in the product."
@@ -2020,10 +2331,12 @@ async def _start_upload_workers() -> None:
     _state["upload_queue"] = queue
     _state["upload_queue_ids"] = set()
     _state["upload_cancelled_jobs"] = set()
+    _state["active_upload_workers"] = 0
     _state["upload_worker_tasks"] = [
         asyncio.create_task(_upload_worker_loop(index))
         for index in range(_upload_cfg.max_concurrent_jobs)
     ]
+    _refresh_operational_metrics()
 
 
 async def _stop_upload_workers() -> None:
@@ -2041,6 +2354,8 @@ async def _stop_upload_workers() -> None:
     _state.pop("upload_queue", None)
     _state.pop("upload_queue_ids", None)
     _state.pop("upload_cancelled_jobs", None)
+    _state.pop("active_upload_workers", None)
+    _refresh_operational_metrics()
 
 
 async def _enqueue_upload_job(job_id: str) -> None:
@@ -2056,10 +2371,12 @@ async def _enqueue_upload_job(job_id: str) -> None:
 
     queued_ids.add(job_id)
     await queue.put(job_id)
+    _refresh_operational_metrics()
 
 
 async def _resume_pending_upload_jobs() -> None:
     """Requeue persisted jobs that were interrupted before finishing."""
+    _state["last_resume_scan_at"] = _utc_now_iso()
     for job_id, job in _upload_jobs.items():
         status = str(job.get("status", "")).lower()
         if status not in {"queued", "processing"}:
@@ -2103,6 +2420,8 @@ async def _upload_worker_loop(worker_index: int) -> None:
             break
 
         _upload_queue_ids().discard(job_id)
+        _set_worker_activity(int(_state.get("active_upload_workers", 0) or 0) + 1)
+        _refresh_operational_metrics()
         try:
             await _process_upload(job_id)
         except Exception as exc:  # pragma: no cover - safety net for worker loop
@@ -2113,6 +2432,8 @@ async def _upload_worker_loop(worker_index: int) -> None:
                 error=str(exc),
             )
         finally:
+            _set_worker_activity(max(0, int(_state.get("active_upload_workers", 0) or 0) - 1))
+            _refresh_operational_metrics()
             queue.task_done()
 
 
@@ -2159,6 +2480,7 @@ class UploadJobStatus(BaseModel):
     error: str | None = None
     artifacts: dict[str, Any] | None = None
     attempt_count: int = 0
+    expires_at: str | None = None
     queued_at: str | None = None
     started_at: str | None = None
     completed_at: str | None = None
@@ -2931,6 +3253,7 @@ async def _process_upload(job_id: str) -> None:
 
     content_type = str(job.get("content_type") or "application/octet-stream")
     attempt_count = int(job.get("attempt_count") or 0) + 1
+    started_wall = datetime.now(UTC)
 
     try:
         _update_job(
@@ -3073,6 +3396,7 @@ async def _process_upload(job_id: str) -> None:
                 "created_at": str(job.get("completed_at") or _utc_now_iso()),
             }
         )
+        upload_total.labels(outcome="completed").inc()
 
         pdf_bytes = _build_pdf_report(job)
         report_path = _upload_store.save_report_pdf(job_id, pdf_bytes)
@@ -3105,6 +3429,10 @@ async def _process_upload(job_id: str) -> None:
         _upload_store.remove_job_input(job_id)
         artifacts.pop("queued_input", None)
         _save_job(job)
+        upload_job_seconds.labels(outcome="completed").observe(
+            max(0.0, (datetime.now(UTC) - started_wall).total_seconds())
+        )
+        _refresh_operational_metrics()
     except asyncio.CancelledError:
         logger.info("upload_processing_cancelled", job_id=job_id)
         raise
@@ -3113,6 +3441,13 @@ async def _process_upload(job_id: str) -> None:
         if job_id not in _upload_jobs or _is_upload_cancelled(job_id):
             return
         if attempt_count < _upload_cfg.max_job_attempts:
+            _record_job_failure(
+                job_id=job_id,
+                stage=str(job.get("stage") or "processing"),
+                error="Upload analysis timed out.",
+                attempt_count=attempt_count,
+                will_retry=True,
+            )
             _update_job(
                 job,
                 status="queued",
@@ -3121,9 +3456,17 @@ async def _process_upload(job_id: str) -> None:
                 error="Upload analysis timed out. Retrying automatically.",
                 queued_at=_utc_now_iso(),
             )
+            upload_total.labels(outcome="retried").inc()
             await _enqueue_upload_job(job_id)
             return
 
+        _record_job_failure(
+            job_id=job_id,
+            stage=str(job.get("stage") or "processing"),
+            error="Upload analysis timed out.",
+            attempt_count=attempt_count,
+            will_retry=False,
+        )
         _update_job(
             job,
             status="error",
@@ -3134,11 +3477,23 @@ async def _process_upload(job_id: str) -> None:
         )
         _upload_store.remove_job_input(job_id)
         _set_job_artifact(job, "queued_input", None)
+        upload_total.labels(outcome="timed_out").inc()
+        upload_job_seconds.labels(outcome="timed_out").observe(
+            max(0.0, (datetime.now(UTC) - started_wall).total_seconds())
+        )
+        _refresh_operational_metrics()
     except Exception as exc:
         logger.warning("upload_processing_failed", job_id=job_id, error=str(exc))
         if job_id not in _upload_jobs or _is_upload_cancelled(job_id):
             return
         if attempt_count < _upload_cfg.max_job_attempts:
+            _record_job_failure(
+                job_id=job_id,
+                stage=str(job.get("stage") or "processing"),
+                error=str(exc),
+                attempt_count=attempt_count,
+                will_retry=True,
+            )
             _update_job(
                 job,
                 status="queued",
@@ -3147,9 +3502,17 @@ async def _process_upload(job_id: str) -> None:
                 error=f"Retrying after failure: {exc}",
                 queued_at=_utc_now_iso(),
             )
+            upload_total.labels(outcome="retried").inc()
             await _enqueue_upload_job(job_id)
             return
 
+        _record_job_failure(
+            job_id=job_id,
+            stage=str(job.get("stage") or "processing"),
+            error=str(exc),
+            attempt_count=attempt_count,
+            will_retry=False,
+        )
         _update_job(
             job,
             status="error",
@@ -3160,6 +3523,11 @@ async def _process_upload(job_id: str) -> None:
         )
         _upload_store.remove_job_input(job_id)
         _set_job_artifact(job, "queued_input", None)
+        upload_total.labels(outcome="failed").inc()
+        upload_job_seconds.labels(outcome="failed").observe(
+            max(0.0, (datetime.now(UTC) - started_wall).total_seconds())
+        )
+        _refresh_operational_metrics()
     finally:
         _upload_cancelled_jobs().discard(job_id)
 
@@ -3388,6 +3756,8 @@ async def upload_media(request: Request) -> UploadJobStatus:
             "created_at": now,
         }
     )
+    upload_total.labels(outcome="accepted").inc()
+    _refresh_operational_metrics()
     await _enqueue_upload_job(job_id)
 
     logger.info("upload_accepted", job_id=job_id, filename=filename, content_type=content_type)
@@ -3410,6 +3780,7 @@ async def get_sample_report() -> UploadJobStatus:
             "created_at": _utc_now_iso(),
         }
     )
+    _refresh_operational_metrics()
     return UploadJobStatus(**cache["job"])
 
 
@@ -3753,6 +4124,9 @@ def delete_upload_job(job_id: str, request: Request) -> Response:
     if not existed and not removed:
         cancelled.discard(job_id)
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+    job_delete_total.inc()
+    _state["last_prune_at"] = _utc_now_iso()
+    _refresh_operational_metrics()
     return Response(status_code=204)
 
 
@@ -3793,6 +4167,7 @@ def download_report(job_id: str, request: Request) -> Response:
             "created_at": _utc_now_iso(),
         }
     )
+    report_download_total.labels(source="job").inc()
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -3816,6 +4191,7 @@ async def download_sample_report() -> Response:
             "created_at": _utc_now_iso(),
         }
     )
+    report_download_total.labels(source="sample").inc()
     return Response(
         content=cache["report_pdf"],
         media_type="application/pdf",
