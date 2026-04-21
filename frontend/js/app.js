@@ -55,8 +55,10 @@ const accessHelp = document.getElementById('access-help');
 const privacyPolicy = document.getElementById('privacy-policy');
 const operatorPolicy = document.getElementById('operator-policy');
 const operatorQueue = document.getElementById('operator-queue');
+const operatorSystem = document.getElementById('operator-system');
 const operatorEval = document.getElementById('operator-eval');
 const operatorProduct = document.getElementById('operator-product');
+const operatorPruneBtn = /** @type {HTMLButtonElement} */ (document.getElementById('operator-prune-btn'));
 const accessTokenInput = /** @type {HTMLInputElement} */ (document.getElementById('access-token-input'));
 const accessTokenSave = /** @type {HTMLButtonElement} */ (document.getElementById('access-token-save'));
 const accessTokenClear = /** @type {HTMLButtonElement} */ (document.getElementById('access-token-clear'));
@@ -579,9 +581,12 @@ function renderReport(job) {
   copyShareBtn.disabled = false;
   deleteJobBtn.classList.toggle('disabled', Boolean(job.is_sample));
   deleteJobBtn.disabled = Boolean(job.is_sample);
+  const expiryNote = job.expires_at
+    ? ` Artifacts are scheduled to expire on ${new Date(job.expires_at).toLocaleDateString()}.`
+    : '';
   shareLinkNote.textContent = job.is_sample
     ? 'Share link opens this built-in sample report view.'
-    : (summary.share_summary || 'Share link opens this exact report view.');
+    : `${summary.share_summary || 'Share link opens this exact report view.'}${expiryNote}`;
   if (!job.is_sample) {
     attachFollowUpHandlers(job.job_id);
     attachFeedbackHandlers(job.job_id);
@@ -816,8 +821,10 @@ function renderAccessPanels(errorMessage = '') {
     accessHelp.textContent = 'The hosted access policy could not be loaded from the API.';
     operatorPolicy.innerHTML = emptyMarkup('Operator policy details are unavailable right now.');
     operatorQueue.innerHTML = emptyMarkup('Queue diagnostics are unavailable right now.');
+    operatorSystem.innerHTML = emptyMarkup('Deployment diagnostics are unavailable right now.');
     operatorEval.innerHTML = emptyMarkup('Evaluation metrics are unavailable right now.');
     operatorProduct.innerHTML = emptyMarkup('Product metrics are unavailable right now.');
+    operatorPruneBtn.disabled = true;
     return;
   }
 
@@ -844,10 +851,14 @@ function renderAccessPanels(errorMessage = '') {
         : 'Operator settings are not available yet.',
     );
     operatorQueue.innerHTML = emptyMarkup('Queue diagnostics will appear here once operator access is available.');
+    operatorSystem.innerHTML = emptyMarkup('Deployment diagnostics will appear here once operator access is available.');
     operatorEval.innerHTML = emptyMarkup('Evaluation metrics will appear here once operator access is available.');
     operatorProduct.innerHTML = emptyMarkup('Product metrics will appear here once operator access is available.');
+    operatorPruneBtn.disabled = true;
     return;
   }
+
+  operatorPruneBtn.disabled = false;
 
   operatorPolicy.innerHTML = renderPolicyItems([
     { label: 'Access mode', value: settings.access.mode === 'token' ? 'Token protected' : settings.access.mode === 'loopback' ? 'Loopback-friendly' : 'Restricted' },
@@ -870,6 +881,30 @@ function renderAccessPanels(errorMessage = '') {
     { label: 'Disk used', value: formatBytes(settings.storage.bytes_used || 0) },
     { label: 'Budget used', value: `${settings.storage.usage_percent || 0}%` },
   ]);
+
+  const startupChecks = Array.isArray(settings.system?.startup_checks) ? settings.system.startup_checks : [];
+  const startupSummary = settings.system?.startup_summary || '';
+  const recentFailures = Array.isArray(settings.system?.recent_failures) ? settings.system.recent_failures : [];
+  operatorSystem.innerHTML = `
+    <p class="subsection-label">Deployment readiness</p>
+    ${renderPolicyItems([
+      { label: 'Status', value: settings.system?.deployment_ready ? 'Ready' : 'Needs operator fixes' },
+      { label: 'Worker mode', value: settings.system?.worker_mode || 'unknown' },
+      { label: 'Service uptime', value: `${Math.round(settings.system?.uptime_seconds || 0)}s` },
+      { label: 'Artifact backend', value: settings.system?.artifact_backend || settings.uploads.artifact_backend || 'unknown' },
+      { label: 'Storage root', value: settings.system?.storage_root || 'unknown' },
+      { label: 'Recent failures', value: String(recentFailures.length) },
+    ])}
+    <p class="meta-copy">${escapeHtml(startupSummary)}</p>
+    ${startupChecks.length ? renderPolicyItems(startupChecks.map((check) => ({
+      label: check.name || 'Check',
+      value: `${check.status || 'unknown'} · ${check.detail || ''}`,
+    }))) : ''}
+    ${recentFailures.length ? `<p class="subsection-label">Recent job failures</p>${renderPolicyItems(recentFailures.map((failure) => ({
+      label: `${failure.job_id || 'job'} · ${failure.stage || 'stage'}`,
+      value: `${failure.will_retry ? 'Retrying' : 'Terminal'} · ${failure.error || 'Unknown failure'}`,
+    })))}` : '<p class="meta-copy">No recent terminal worker failures recorded.</p>'}
+  `;
 
   operatorEval.innerHTML = `
     <p class="subsection-label">Evaluation loop</p>
@@ -910,7 +945,11 @@ function renderAccessPanels(errorMessage = '') {
 async function pollHealth() {
   try {
     const health = await api.fetchHealth();
-    healthStatus.textContent = health.slam_active ? 'Live scene connected' : 'Upload-first mode';
+    if (Array.isArray(health.warnings) && health.warnings.length) {
+      healthStatus.textContent = `Needs attention · ${health.warnings[0]}`;
+    } else {
+      healthStatus.textContent = health.slam_active ? 'Live scene connected' : 'Upload-first mode';
+    }
   } catch {
     healthStatus.textContent = 'API unavailable';
   }
@@ -1083,6 +1122,21 @@ accessTokenClear?.addEventListener('click', async () => {
   renderProcessing(null);
   renderReport(null);
   showToast('Stored access token cleared.');
+});
+
+operatorPruneBtn?.addEventListener('click', async () => {
+  try {
+    const result = await api.pruneOperatorStorage();
+    await refreshOperatorState();
+    showToast(
+      result.deleted_jobs
+        ? `Pruned ${result.deleted_jobs} job(s) and reclaimed ${formatBytes(result.bytes_reclaimed || 0)}.`
+        : 'Storage prune completed with no expired jobs removed.',
+      3400,
+    );
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not run storage prune.', 3600);
+  }
 });
 
 waitlistSubmitBtn?.addEventListener('click', async () => {

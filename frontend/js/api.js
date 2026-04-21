@@ -67,6 +67,9 @@ export const fetchJobs    = ()         => json('/jobs');
 export const fetchSampleReport = ()    => json('/sample-report');
 export const fetchAccessPolicy = ()    => json('/operator/access');
 export const fetchOperatorSettings = () => json('/operator/settings');
+export const pruneOperatorStorage = () => json('/operator/storage/prune', {
+  method: 'POST',
+});
 export const fetchPrivacyPolicy = ()   => json('/product/privacy');
 export const submitWaitlist = (payload) => json('/product/waitlist', {
   method: 'POST',
