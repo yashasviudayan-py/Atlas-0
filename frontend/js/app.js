@@ -864,18 +864,22 @@ function renderAccessPanels(errorMessage = '') {
     { label: 'Access mode', value: settings.access.mode === 'token' ? 'Token protected' : settings.access.mode === 'loopback' ? 'Loopback-friendly' : 'Restricted' },
     { label: 'Primary provider', value: settings.providers.primary_provider || 'unknown' },
     { label: 'Fallback provider', value: settings.providers.fallback_provider || 'None' },
+    { label: 'Worker mode', value: settings.uploads.worker_mode || settings.system?.worker_mode || 'unknown' },
     { label: 'Job listing', value: settings.access.enable_job_listing ? 'Enabled' : 'Direct job IDs only' },
     { label: 'Retention window', value: `${settings.uploads.retention_days} day(s)` },
     { label: 'Keep originals', value: settings.uploads.save_original_uploads ? 'Yes' : 'No' },
+    { label: 'Artifact backend', value: settings.uploads.artifact_backend || 'unknown' },
     { label: 'Queue depth limit', value: String(settings.uploads.max_queue_depth) },
     { label: 'Retry budget', value: `${settings.uploads.max_job_attempts} attempt(s)` },
   ]);
 
   operatorQueue.innerHTML = renderPolicyItems([
     { label: 'Workers', value: String(settings.queue.worker_count) },
+    { label: 'Configured capacity', value: String(settings.queue.configured_capacity || settings.uploads.max_concurrent_jobs || 0) },
     { label: 'Queued jobs', value: String(settings.queue.queued_jobs) },
     { label: 'Processing jobs', value: String(settings.queue.processing_jobs) },
     { label: 'Failed jobs', value: String(settings.queue.failed_jobs) },
+    { label: 'Active claims', value: String(settings.storage.active_claims || 0) },
     { label: 'Stored jobs', value: String(settings.storage.persisted_jobs) },
     { label: 'Storage budget', value: formatBytes(settings.storage.byte_budget || 0) },
     { label: 'Disk used', value: formatBytes(settings.storage.bytes_used || 0) },
@@ -891,7 +895,9 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Status', value: settings.system?.deployment_ready ? 'Ready' : 'Needs operator fixes' },
       { label: 'Worker mode', value: settings.system?.worker_mode || 'unknown' },
       { label: 'Service uptime', value: `${Math.round(settings.system?.uptime_seconds || 0)}s` },
+      { label: 'Active workers', value: String(settings.system?.active_workers || 0) },
       { label: 'Artifact backend', value: settings.system?.artifact_backend || settings.uploads.artifact_backend || 'unknown' },
+      { label: 'Object store root', value: settings.system?.artifact_object_dir || settings.uploads.artifact_object_dir || 'local job storage' },
       { label: 'Storage root', value: settings.system?.storage_root || 'unknown' },
       { label: 'Recent failures', value: String(recentFailures.length) },
     ])}
