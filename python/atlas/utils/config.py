@@ -255,8 +255,14 @@ class UploadsConfig(BaseModel):
     """Upload/report persistence configuration."""
 
     storage_dir: str = ".atlas/uploads"
+    worker_mode: str = "in_process"
+    worker_poll_seconds: float = 0.5
+    worker_claim_ttl_seconds: float = 300.0
+    worker_heartbeat_seconds: float = 10.0
+    worker_stale_after_seconds: float = 45.0
     artifact_backend: str = "local_fs"
     artifact_base_url: str | None = None
+    artifact_object_dir: str | None = None
     save_original_uploads: bool = False
     max_persisted_jobs: int = 200
     retention_days: int = 14
@@ -298,6 +304,10 @@ class UploadsConfig(BaseModel):
     @field_validator(
         "max_video_duration_seconds",
         "job_timeout_seconds",
+        "worker_poll_seconds",
+        "worker_claim_ttl_seconds",
+        "worker_heartbeat_seconds",
+        "worker_stale_after_seconds",
         "min_scan_quality_score",
         "min_motion_coverage",
         "min_saliency_coverage",
@@ -324,9 +334,18 @@ class UploadsConfig(BaseModel):
     @classmethod
     def _valid_artifact_backend(cls, v: str) -> str:
         token = v.strip().lower()
-        allowed = {"local_fs"}
+        allowed = {"local_fs", "object_store_fs"}
         if token not in allowed:
             raise ValueError(f"artifact_backend must be one of {allowed}, got {v!r}")
+        return token
+
+    @field_validator("worker_mode")
+    @classmethod
+    def _valid_worker_mode(cls, v: str) -> str:
+        token = v.strip().lower()
+        allowed = {"in_process", "external"}
+        if token not in allowed:
+            raise ValueError(f"worker_mode must be one of {allowed}, got {v!r}")
         return token
 
     @field_validator("artifact_base_url")
@@ -336,6 +355,12 @@ class UploadsConfig(BaseModel):
         if not token:
             return None
         return token.rstrip("/")
+
+    @field_validator("artifact_object_dir")
+    @classmethod
+    def _normalize_artifact_object_dir(cls, v: str | None) -> str | None:
+        token = (v or "").strip()
+        return token or None
 
 
 class EvaluationConfig(BaseModel):
