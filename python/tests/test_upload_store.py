@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 from atlas.api.upload_store import UploadStore
@@ -49,6 +50,20 @@ def test_upload_store_persists_report_pdf(tmp_path: Path) -> None:
     assert store.load_report_pdf("job-003") == pdf_bytes
 
 
+def test_upload_store_persists_report_pdf_in_object_store_fs(tmp_path: Path) -> None:
+    store = UploadStore(
+        tmp_path,
+        artifact_backend="object_store_fs",
+        artifact_object_dir=tmp_path / "objects",
+    )
+    store.create_job({"job_id": "job-003b"})
+
+    saved = store.save_report_pdf("job-003b", b"%PDF-1.4\nfixture\n")
+
+    assert store.load_report_pdf("job-003b") == b"%PDF-1.4\nfixture\n"
+    assert "objects/jobs/job-003b/report.pdf" in str(saved)
+
+
 def test_upload_store_manifest_is_json(tmp_path: Path) -> None:
     store = UploadStore(tmp_path)
     store.create_job({"job_id": "job-004", "status": "queued"})
@@ -81,6 +96,22 @@ def test_upload_store_delete_job_removes_artifacts(tmp_path: Path) -> None:
 
     assert store.delete_job("job-006") is True
     assert not (tmp_path / "job-006").exists()
+
+
+def test_upload_store_delete_job_removes_object_store_artifacts(tmp_path: Path) -> None:
+    store = UploadStore(
+        tmp_path,
+        artifact_backend="object_store_fs",
+        artifact_object_dir=tmp_path / "objects",
+        save_original_uploads=True,
+    )
+    store.create_job({"job_id": "job-006b"})
+    store.save_original_upload("job-006b", "scan.mov", b"movie")
+    store.save_report_pdf("job-006b", b"pdf")
+
+    assert store.delete_job("job-006b") is True
+    assert not (tmp_path / "job-006b").exists()
+    assert not (tmp_path / "objects" / "jobs" / "job-006b").exists()
 
 
 def test_upload_store_persists_and_removes_job_input(tmp_path: Path) -> None:
@@ -151,6 +182,26 @@ def test_upload_store_artifact_pointer_uses_storage_keys(tmp_path: Path) -> None
     assert pointer["url"] == "/reports/job-009.pdf"
 
 
+def test_upload_store_artifact_pointer_uses_object_store_size(tmp_path: Path) -> None:
+    store = UploadStore(
+        tmp_path,
+        artifact_backend="object_store_fs",
+        artifact_object_dir=tmp_path / "objects",
+    )
+    store.create_job({"job_id": "job-009b"})
+    report_path = store.save_report_pdf("job-009b", b"pdf-bytes")
+
+    pointer = store.artifact_pointer(
+        "job-009b",
+        store.job_relative_path("job-009b", report_path),
+        kind="report_pdf",
+        media_type="application/pdf",
+    )
+
+    assert pointer["storage_backend"] == "object_store_fs"
+    assert pointer["size_bytes"] == len(b"pdf-bytes")
+
+
 def test_upload_store_prunes_oldest_jobs_when_byte_budget_exceeded(tmp_path: Path) -> None:
     store = UploadStore(tmp_path, max_storage_bytes=500)
     store.create_job({"job_id": "job-010"})
@@ -163,3 +214,48 @@ def test_upload_store_prunes_oldest_jobs_when_byte_budget_exceeded(tmp_path: Pat
 
     assert store.job_dir("job-010").exists() is False
     assert store.job_dir("job-011").exists() is True
+
+
+def test_upload_store_claims_next_queued_job(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path)
+    store.create_job({"job_id": "job-013", "status": "queued"})
+    store.save_job_input("job-013", "scan.mp4", b"video")
+
+    claimed = store.claim_next_job("worker-a", lease_seconds=60.0)
+
+    assert claimed is not None
+    assert claimed[0] == "job-013"
+    assert store.load_job_claim("job-013")["worker_id"] == "worker-a"
+
+
+def test_upload_store_reclaims_stale_job_claim(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path)
+    store.create_job({"job_id": "job-014", "status": "queued"})
+    store.save_job_input("job-014", "scan.mp4", b"video")
+    assert store.claim_next_job("worker-a", lease_seconds=0.01) is not None
+
+    import time
+
+    time.sleep(0.02)
+    claimed = store.claim_next_job("worker-b", lease_seconds=60.0)
+
+    assert claimed is not None
+    assert claimed[0] == "job-014"
+    assert store.load_job_claim("job-014")["worker_id"] == "worker-b"
+
+
+def test_upload_store_tracks_active_worker_records(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path)
+    store.save_worker_record(
+        "worker-a",
+        {
+            "worker_id": "worker-a",
+            "state": "idle",
+            "heartbeat_unix": time.time(),
+        },
+    )
+
+    active = store.active_worker_records(stale_after_seconds=30.0)
+
+    assert len(active) == 1
+    assert active[0]["worker_id"] == "worker-a"

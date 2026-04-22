@@ -6,6 +6,7 @@ import json
 import math
 import time
 from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ class UploadStore:
         *,
         artifact_backend: str = "local_fs",
         artifact_base_url: str | None = None,
+        artifact_object_dir: Path | None = None,
         save_original_uploads: bool = False,
         max_persisted_jobs: int = 200,
         retention_days: int = 14,
@@ -32,6 +34,7 @@ class UploadStore:
         self.root_dir = root_dir
         self._artifact_backend = artifact_backend
         self._artifact_base_url = (artifact_base_url or "").strip().rstrip("/") or None
+        self._artifact_object_dir = artifact_object_dir
         self._save_original_uploads = save_original_uploads
         self._max_persisted_jobs = max_persisted_jobs
         self._retention_days = retention_days
@@ -48,17 +51,29 @@ class UploadStore:
         """Return the directory holding all files for one upload job."""
         return self.root_dir / job_id
 
+    def object_dir(self) -> Path:
+        """Return the root directory for filesystem-backed object artifacts."""
+        path = self._artifact_object_dir or (self.root_dir / "_objects")
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def artifact_job_dir(self, job_id: str) -> Path:
+        """Return the directory holding persisted binary artifacts for one job."""
+        if self._artifact_backend == "object_store_fs":
+            return self.object_dir() / "jobs" / job_id
+        return self.job_dir(job_id)
+
     def manifest_path(self, job_id: str) -> Path:
         """Return the JSON manifest path for one upload job."""
         return self.job_dir(job_id) / "job.json"
 
     def report_path(self, job_id: str) -> Path:
         """Return the persisted PDF path for one upload job."""
-        return self.job_dir(job_id) / "report.pdf"
+        return self.artifact_job_dir(job_id) / "report.pdf"
 
     def upload_path(self, job_id: str, suffix: str = ".bin") -> Path:
         """Return the persisted original-upload path for one job."""
-        return self.job_dir(job_id) / f"upload{suffix}"
+        return self.artifact_job_dir(job_id) / f"upload{suffix}"
 
     def queued_input_path(self, job_id: str, suffix: str = ".bin") -> Path:
         """Return the persisted worker-input path for one upload job."""
@@ -66,11 +81,11 @@ class UploadStore:
 
     def evidence_dir(self, job_id: str) -> Path:
         """Return the directory holding evidence crops for one job."""
-        return self.job_dir(job_id) / "evidence"
+        return self.artifact_job_dir(job_id) / "evidence"
 
     def replay_dir(self, job_id: str) -> Path:
         """Return the directory holding finding replays for one job."""
-        return self.job_dir(job_id) / "replays"
+        return self.artifact_job_dir(job_id) / "replays"
 
     def evidence_path(self, job_id: str, evidence_id: str, suffix: str = ".jpg") -> Path:
         """Return the persisted path for one evidence artifact."""
@@ -79,6 +94,20 @@ class UploadStore:
     def replay_path(self, job_id: str, replay_id: str, suffix: str = ".gif") -> Path:
         """Return the persisted path for one finding replay artifact."""
         return self.replay_dir(job_id) / f"{replay_id}{suffix}"
+
+    def job_claim_path(self, job_id: str) -> Path:
+        """Return the durable claim file for one queued upload job."""
+        return self.job_dir(job_id) / "worker-claim.json"
+
+    def worker_dir(self) -> Path:
+        """Return the directory holding detached-worker heartbeat records."""
+        path = self.meta_dir() / "workers"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def worker_record_path(self, worker_id: str) -> Path:
+        """Return the durable heartbeat record path for one detached worker."""
+        return self.worker_dir() / f"{worker_id}.json"
 
     def product_events_path(self) -> Path:
         """Return the JSONL file holding product analytics events."""
@@ -131,6 +160,47 @@ class UploadStore:
             job_id = str(data.get("job_id", manifest.parent.name))
             jobs[job_id] = data
         return jobs
+
+    def save_worker_record(self, worker_id: str, payload: dict[str, Any]) -> Path:
+        """Persist one detached-worker heartbeat record atomically."""
+        path = self.worker_record_path(worker_id)
+        tmp_path = path.with_suffix(".json.tmp")
+        tmp_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        tmp_path.replace(path)
+        return path
+
+    def delete_worker_record(self, worker_id: str) -> None:
+        """Delete one detached-worker heartbeat record."""
+        self.worker_record_path(worker_id).unlink(missing_ok=True)
+
+    def load_worker_records(self) -> list[dict[str, Any]]:
+        """Load all detached-worker heartbeat records from disk."""
+        rows: list[dict[str, Any]] = []
+        for path in sorted(self.worker_dir().glob("*.json")):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    "upload_store_worker_record_skipped",
+                    path=str(path),
+                    error=str(exc),
+                )
+                continue
+            if isinstance(payload, dict):
+                rows.append(payload)
+        return rows
+
+    def active_worker_records(self, *, stale_after_seconds: float) -> list[dict[str, Any]]:
+        """Return only detached workers whose heartbeat is still fresh."""
+        cutoff = time.time() - max(0.001, stale_after_seconds)
+        return [
+            row
+            for row in self.load_worker_records()
+            if self._worker_record_is_active(row, cutoff=cutoff)
+        ]
 
     def append_product_event(self, event: dict[str, Any]) -> None:
         """Append one product analytics event to the JSONL log."""
@@ -269,10 +339,87 @@ class UploadStore:
     def delete_job(self, job_id: str) -> bool:
         """Delete all persisted artifacts for a job."""
         job_dir = self.job_dir(job_id)
-        if not job_dir.exists():
+        artifact_dir = self.artifact_job_dir(job_id)
+        exists = job_dir.exists() or artifact_dir.exists()
+        if not exists:
             return False
-        self._delete_tree(job_dir)
+        if artifact_dir.exists() and artifact_dir != job_dir:
+            self._delete_tree(artifact_dir)
+        if job_dir.exists():
+            self._delete_tree(job_dir)
         return True
+
+    def claim_next_job(
+        self,
+        worker_id: str,
+        *,
+        lease_seconds: float = 300.0,
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Claim the next queued job for a worker using a durable lease file."""
+        for path in sorted(self._iter_job_dirs(), key=lambda item: item.stat().st_mtime):
+            manifest = self.manifest_path(path.name)
+            try:
+                payload = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            status = str(payload.get("status") or "").lower()
+            if status not in {"queued", "processing"}:
+                continue
+            if not self.has_job_input(path.name):
+                continue
+            if self._claim_job(path.name, worker_id, lease_seconds=lease_seconds):
+                return path.name, payload
+        return None
+
+    def refresh_job_claim(
+        self,
+        job_id: str,
+        worker_id: str,
+        *,
+        lease_seconds: float = 300.0,
+    ) -> bool:
+        """Refresh the lease for one already-claimed job."""
+        claim = self.load_job_claim(job_id)
+        if not isinstance(claim, dict) or claim.get("worker_id") != worker_id:
+            return False
+        self._write_job_claim(job_id, worker_id, lease_seconds=lease_seconds)
+        return True
+
+    def release_job_claim(self, job_id: str, worker_id: str) -> None:
+        """Release a durable job claim if it belongs to the given worker."""
+        claim = self.load_job_claim(job_id)
+        if isinstance(claim, dict) and claim.get("worker_id") != worker_id:
+            return
+        self.job_claim_path(job_id).unlink(missing_ok=True)
+
+    def load_job_claim(self, job_id: str) -> dict[str, Any] | None:
+        """Load one worker-claim payload when present."""
+        claim_path = self.job_claim_path(job_id)
+        if not claim_path.exists():
+            return None
+        try:
+            payload = json.loads(claim_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def job_relative_path(self, job_id: str, path: Path) -> Path:
+        """Return the logical job-relative path for one persisted artifact path."""
+        with_attempts = (
+            self.job_dir(job_id),
+            self.artifact_job_dir(job_id),
+        )
+        for root in with_attempts:
+            try:
+                return path.relative_to(root)
+            except ValueError:
+                continue
+        msg = f"Path {path} is not stored under job {job_id!r}"
+        raise ValueError(msg)
+
+    def artifact_exists(self, job_id: str, relative_path: str | Path) -> bool:
+        """Return True when one job-relative persisted artifact exists."""
+        return self._storage_path(job_id, relative_path).exists()
 
     def artifact_pointer(
         self,
@@ -285,7 +432,7 @@ class UploadStore:
     ) -> dict[str, Any]:
         """Build one artifact pointer using storage-key semantics."""
         rel_path = Path(relative_path)
-        full_path = self.job_dir(job_id) / rel_path
+        full_path = self._storage_path(job_id, rel_path)
         size_bytes = full_path.stat().st_size if full_path.exists() else 0
         storage_key = f"jobs/{job_id}/{rel_path.as_posix()}"
         return {
@@ -307,26 +454,49 @@ class UploadStore:
         evidence_files = 0
         replay_files = 0
         original_uploads = 0
+        active_claims = 0
 
         for job_dir in self._iter_job_dirs():
             if not job_dir.is_dir():
                 continue
             persisted_jobs += 1
+            if self._claim_is_active(self.load_job_claim(job_dir.name)):
+                active_claims += 1
             for path in job_dir.rglob("*"):
                 if not path.is_file():
                     continue
                 bytes_used += path.stat().st_size
-                name = path.name
-                if name.startswith("queued-input."):
+                if path.name.startswith("queued-input."):
                     queued_inputs += 1
-                elif name.startswith("upload."):
-                    original_uploads += 1
-                elif name == "report.pdf":
-                    reports += 1
-                elif path.parent.name == "evidence":
-                    evidence_files += 1
-                elif path.parent.name == "replays":
-                    replay_files += 1
+
+            artifact_root = self.artifact_job_dir(job_dir.name)
+            if artifact_root == job_dir or not artifact_root.exists():
+                for path in job_dir.rglob("*"):
+                    if not path.is_file():
+                        continue
+                    name = path.name
+                    if name.startswith("upload."):
+                        original_uploads += 1
+                    elif name == "report.pdf":
+                        reports += 1
+                    elif path.parent.name == "evidence":
+                        evidence_files += 1
+                    elif path.parent.name == "replays":
+                        replay_files += 1
+            else:
+                for path in artifact_root.rglob("*"):
+                    if not path.is_file():
+                        continue
+                    bytes_used += path.stat().st_size
+                    name = path.name
+                    if name.startswith("upload."):
+                        original_uploads += 1
+                    elif name == "report.pdf":
+                        reports += 1
+                    elif path.parent.name == "evidence":
+                        evidence_files += 1
+                    elif path.parent.name == "replays":
+                        replay_files += 1
 
         meta_bytes = sum(
             path.stat().st_size for path in self.meta_dir().rglob("*") if path.is_file()
@@ -339,11 +509,13 @@ class UploadStore:
             if self._max_storage_bytes > 0
             else 0,
             "queued_inputs": queued_inputs,
+            "active_claims": active_claims,
             "original_uploads": original_uploads,
             "reports": reports,
             "evidence_files": evidence_files,
             "replay_files": replay_files,
             "meta_bytes": meta_bytes,
+            "worker_records": len(self.load_worker_records()),
             "waitlist_entries": len(self.load_waitlist_entries()),
             "eval_candidates": len(self.load_eval_candidates()),
         }
@@ -372,7 +544,7 @@ class UploadStore:
             for path in job_dirs:
                 try:
                     if path.stat().st_mtime < cutoff:
-                        self._delete_tree(path)
+                        self.delete_job(path.name)
                 except OSError as exc:
                     logger.warning("upload_store_prune_failed", path=str(path), error=str(exc))
 
@@ -384,7 +556,7 @@ class UploadStore:
 
         for path in job_dirs[self._max_persisted_jobs :]:
             try:
-                self._delete_tree(path)
+                self.delete_job(path.name)
             except OSError as exc:
                 logger.warning("upload_store_prune_failed", path=str(path), error=str(exc))
 
@@ -400,7 +572,7 @@ class UploadStore:
                     break
                 try:
                     size_bytes = self._job_size_bytes(path)
-                    self._delete_tree(path)
+                    self.delete_job(path.name)
                     total_bytes -= size_bytes
                 except OSError as exc:
                     logger.warning("upload_store_prune_failed", path=str(path), error=str(exc))
@@ -416,7 +588,11 @@ class UploadStore:
 
     def _job_size_bytes(self, job_dir: Path) -> int:
         """Return the total byte size for one job directory."""
-        return sum(path.stat().st_size for path in job_dir.rglob("*") if path.is_file())
+        total = sum(path.stat().st_size for path in job_dir.rglob("*") if path.is_file())
+        artifact_dir = self.artifact_job_dir(job_dir.name)
+        if artifact_dir != job_dir and artifact_dir.exists():
+            total += sum(path.stat().st_size for path in artifact_dir.rglob("*") if path.is_file())
+        return total
 
     def _iter_job_dirs(self) -> list[Path]:
         """Return only real persisted job directories under the storage root."""
@@ -425,6 +601,26 @@ class UploadStore:
             for path in self.root_dir.iterdir()
             if path.is_dir() and (path / "job.json").exists()
         ]
+
+    def _storage_path(self, job_id: str, relative_path: str | Path) -> Path:
+        """Resolve one logical job-relative artifact path to its storage path."""
+        rel_path = Path(relative_path)
+        if rel_path.name.startswith("queued-input.") or rel_path.name == "worker-claim.json":
+            return self.job_dir(job_id) / rel_path
+        return self.artifact_job_dir(job_id) / rel_path
+
+    def _worker_record_is_active(
+        self,
+        payload: dict[str, Any],
+        *,
+        cutoff: float,
+    ) -> bool:
+        """Return True when a detached-worker heartbeat is still fresh."""
+        try:
+            heartbeat = float(payload.get("heartbeat_unix", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return False
+        return heartbeat >= cutoff
 
     def _append_json_line(self, path: Path, payload: dict[str, Any]) -> None:
         """Append one JSON line to a metadata log file."""
@@ -464,3 +660,57 @@ class UploadStore:
         if self._artifact_base_url:
             return f"{self._artifact_base_url}/{storage_key}"
         return fallback_url
+
+    def _claim_job(self, job_id: str, worker_id: str, *, lease_seconds: float) -> bool:
+        """Attempt to claim one job, stealing stale claims when safe."""
+        claim_path = self.job_claim_path(job_id)
+        current = self.load_job_claim(job_id)
+        if isinstance(current, dict):
+            if current.get("worker_id") == worker_id:
+                self._write_job_claim(job_id, worker_id, lease_seconds=lease_seconds)
+                return True
+            if self._claim_is_active(current):
+                return False
+            claim_path.unlink(missing_ok=True)
+
+        try:
+            claim_path.parent.mkdir(parents=True, exist_ok=True)
+            with claim_path.open("x", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(
+                        self._claim_payload(worker_id, lease_seconds=lease_seconds),
+                        sort_keys=True,
+                    )
+                )
+        except FileExistsError:
+            return False
+        return True
+
+    def _write_job_claim(self, job_id: str, worker_id: str, *, lease_seconds: float) -> None:
+        """Persist one claim payload atomically."""
+        claim_path = self.job_claim_path(job_id)
+        tmp_path = claim_path.with_suffix(".json.tmp")
+        tmp_path.write_text(
+            json.dumps(self._claim_payload(worker_id, lease_seconds=lease_seconds), sort_keys=True),
+            encoding="utf-8",
+        )
+        tmp_path.replace(claim_path)
+
+    def _claim_payload(self, worker_id: str, *, lease_seconds: float) -> dict[str, Any]:
+        """Build one durable worker-claim payload."""
+        claimed_at = datetime.now(UTC)
+        return {
+            "worker_id": worker_id,
+            "claimed_at": claimed_at.isoformat(),
+            "expires_at": (claimed_at.timestamp() + max(0.001, lease_seconds)),
+        }
+
+    def _claim_is_active(self, claim: dict[str, Any] | None) -> bool:
+        """Return True when a claim exists and has not yet expired."""
+        if not isinstance(claim, dict):
+            return False
+        try:
+            expires_at = float(claim.get("expires_at", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return False
+        return expires_at > time.time()
