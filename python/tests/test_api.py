@@ -1,6 +1,7 @@
 """Tests for the Atlas-0 API server."""
 
 import asyncio
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -35,6 +36,11 @@ def reset_upload_jobs(tmp_path: Path):
         "enable_job_listing": _api_cfg.enable_job_listing,
     }
     upload_snapshot = {
+        "worker_mode": _upload_cfg.worker_mode,
+        "worker_poll_seconds": _upload_cfg.worker_poll_seconds,
+        "worker_claim_ttl_seconds": _upload_cfg.worker_claim_ttl_seconds,
+        "worker_heartbeat_seconds": _upload_cfg.worker_heartbeat_seconds,
+        "worker_stale_after_seconds": _upload_cfg.worker_stale_after_seconds,
         "max_upload_bytes": _upload_cfg.max_upload_bytes,
         "max_video_duration_seconds": _upload_cfg.max_video_duration_seconds,
         "max_concurrent_jobs": _upload_cfg.max_concurrent_jobs,
@@ -43,12 +49,17 @@ def reset_upload_jobs(tmp_path: Path):
         "job_timeout_seconds": _upload_cfg.job_timeout_seconds,
         "artifact_backend": _upload_cfg.artifact_backend,
         "artifact_base_url": _upload_cfg.artifact_base_url,
+        "artifact_object_dir": _upload_cfg.artifact_object_dir,
         "strict_startup_checks": _upload_cfg.strict_startup_checks,
         "job_failure_log_limit": _upload_cfg.job_failure_log_limit,
     }
     root_snapshot = _upload_store.root_dir
+    artifact_backend_snapshot = _upload_store._artifact_backend
+    artifact_base_url_snapshot = _upload_store._artifact_base_url
+    artifact_object_dir_snapshot = _upload_store._artifact_object_dir
     _upload_jobs.clear()
     _upload_store.root_dir = tmp_path
+    _upload_store._artifact_object_dir = tmp_path / "_objects"
     _state["upload_queue"] = asyncio.Queue()
     _state["upload_queue_ids"] = set()
     _state["upload_cancelled_jobs"] = set()
@@ -69,6 +80,11 @@ def reset_upload_jobs(tmp_path: Path):
     _api_cfg.access_token = api_snapshot["access_token"]
     _api_cfg.allow_unauthenticated_loopback = api_snapshot["allow_unauthenticated_loopback"]
     _api_cfg.enable_job_listing = api_snapshot["enable_job_listing"]
+    _upload_cfg.worker_mode = upload_snapshot["worker_mode"]
+    _upload_cfg.worker_poll_seconds = upload_snapshot["worker_poll_seconds"]
+    _upload_cfg.worker_claim_ttl_seconds = upload_snapshot["worker_claim_ttl_seconds"]
+    _upload_cfg.worker_heartbeat_seconds = upload_snapshot["worker_heartbeat_seconds"]
+    _upload_cfg.worker_stale_after_seconds = upload_snapshot["worker_stale_after_seconds"]
     _upload_cfg.max_upload_bytes = upload_snapshot["max_upload_bytes"]
     _upload_cfg.max_video_duration_seconds = upload_snapshot["max_video_duration_seconds"]
     _upload_cfg.max_concurrent_jobs = upload_snapshot["max_concurrent_jobs"]
@@ -77,8 +93,12 @@ def reset_upload_jobs(tmp_path: Path):
     _upload_cfg.job_timeout_seconds = upload_snapshot["job_timeout_seconds"]
     _upload_cfg.artifact_backend = upload_snapshot["artifact_backend"]
     _upload_cfg.artifact_base_url = upload_snapshot["artifact_base_url"]
+    _upload_cfg.artifact_object_dir = upload_snapshot["artifact_object_dir"]
     _upload_cfg.strict_startup_checks = upload_snapshot["strict_startup_checks"]
     _upload_cfg.job_failure_log_limit = upload_snapshot["job_failure_log_limit"]
+    _upload_store._artifact_backend = artifact_backend_snapshot
+    _upload_store._artifact_base_url = artifact_base_url_snapshot
+    _upload_store._artifact_object_dir = artifact_object_dir_snapshot
 
 
 def test_health_check():
@@ -165,6 +185,7 @@ def test_operator_settings_require_token_when_configured() -> None:
 
     assert unauthenticated.status_code == 401
     assert authenticated.status_code == 200
+    assert authenticated.json()["uploads"]["worker_mode"] == _upload_cfg.worker_mode
     assert authenticated.json()["uploads"]["max_queue_depth"] == _upload_cfg.max_queue_depth
     assert authenticated.json()["uploads"]["max_storage_bytes"] == _upload_cfg.max_storage_bytes
     assert authenticated.json()["uploads"]["artifact_backend"] == _upload_cfg.artifact_backend
@@ -575,6 +596,40 @@ def test_report_pdf_download_accepts_query_token() -> None:
     response = client.get("/reports/jobpdf02.pdf?access_token=secret-token")
 
     assert response.status_code == 200
+
+
+def test_report_pdf_download_works_with_object_store_backend() -> None:
+    _upload_cfg.artifact_backend = "object_store_fs"
+    _upload_cfg.artifact_object_dir = str(_upload_store.root_dir / "_objects")
+    _upload_store._artifact_backend = "object_store_fs"
+    _upload_store._artifact_object_dir = _upload_store.root_dir / "_objects"
+    _upload_jobs["jobpdf03"] = {
+        "job_id": "jobpdf03",
+        "filename": "kitchen.mp4",
+        "status": "complete",
+        "stage": "complete",
+        "progress": 1.0,
+        "objects": [],
+        "risks": [],
+        "fix_first": [],
+        "summary": {"filename": "kitchen.mp4", "hazard_count": 0, "object_count": 0},
+        "recommendations": [],
+        "evidence_frames": [],
+        "scan_quality": {"status": "good", "score": 0.8, "usable": True, "warnings": []},
+        "trust_notes": [],
+        "scene_source": "estimated_multiview",
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": "/reports/jobpdf03.pdf",
+        "error": None,
+    }
+    _upload_store.create_job(_upload_jobs["jobpdf03"])
+    _upload_store.save_report_pdf("jobpdf03", b"%PDF-1.4\nfixture\n")
+
+    response = client.get("/reports/jobpdf03.pdf")
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF-")
 
 
 def test_record_job_feedback_updates_job_and_finding() -> None:
@@ -1138,6 +1193,97 @@ async def test_resume_pending_upload_jobs_requeues_processing_jobs() -> None:
     queue = _state["upload_queue"]
     assert _upload_jobs["jobresume"]["status"] == "queued"
     assert await queue.get() == "jobresume"
+
+
+async def test_detached_upload_worker_claims_and_completes_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _upload_cfg.worker_mode = "external"
+    job = {
+        "job_id": "jobexternal",
+        "filename": "room.png",
+        "content_type": "image/png",
+        "status": "queued",
+        "stage": "upload",
+        "progress": 0.0,
+        "objects": None,
+        "risks": None,
+        "fix_first": None,
+        "summary": None,
+        "recommendations": None,
+        "evidence_frames": None,
+        "scan_quality": None,
+        "trust_notes": None,
+        "scene_source": None,
+        "finding_feedback": [],
+        "feedback_summary": {"useful": 0, "wrong": 0, "duplicate": 0},
+        "report_url": None,
+        "error": None,
+        "attempt_count": 0,
+    }
+    _upload_jobs["jobexternal"] = job
+    _upload_store.create_job(job)
+    _upload_store.save_job_input("jobexternal", "room.png", b"image")
+
+    async def fake_analyze(*_args, **_kwargs):
+        return SimpleNamespace(
+            objects=[],
+            risks=[],
+            point_cloud=[],
+            fix_first=[],
+            summary={"filename": "room.png", "hazard_count": 0, "object_count": 0},
+            recommendations=[],
+            evidence_frames=[],
+            evidence_artifacts={},
+            scan_quality={"status": "good", "score": 0.8, "usable": True, "warnings": []},
+            trust_notes=[],
+            scene_source="estimated_multiview",
+        )
+
+    async def fake_ingest(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(server_mod, "analyze_uploaded_image", fake_analyze)
+    monkeypatch.setattr(server_mod, "_build_pdf_report", lambda _job: b"%PDF-1.4\nfixture\n")
+    monkeypatch.setattr(
+        server_mod,
+        "_get_agent",
+        lambda: SimpleNamespace(ingest_from_upload=fake_ingest),
+    )
+
+    processed = await server_mod.run_detached_upload_worker(
+        worker_id="worker-test",
+        once=True,
+    )
+
+    assert processed is True
+    assert _upload_jobs["jobexternal"]["status"] == "complete"
+    assert _upload_store.load_job_claim("jobexternal") is None
+
+
+def test_operator_settings_reports_active_detached_workers() -> None:
+    _api_cfg.access_token = "secret-token"
+    _upload_cfg.worker_mode = "external"
+    _upload_store.save_worker_record(
+        "worker-a",
+        {
+            "worker_id": "worker-a",
+            "state": "idle",
+            "heartbeat_unix": time.time(),
+            "heartbeat_at": "2026-04-22T00:00:00+00:00",
+        },
+    )
+
+    response = client.get(
+        "/operator/settings",
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["queue"]["worker_count"] == 1
+    assert data["storage"]["worker_records"] == 1
+    assert data["system"]["active_workers"] == 1
 
 
 async def test_process_upload_retries_then_completes(monkeypatch: pytest.MonkeyPatch) -> None:

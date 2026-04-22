@@ -18,6 +18,7 @@ import ipaddress
 import json
 import os
 import pathlib
+import socket
 import uuid
 from datetime import UTC, datetime, timedelta
 from email.parser import BytesParser
@@ -128,6 +129,9 @@ _upload_store = UploadStore(
     pathlib.Path(_upload_cfg.storage_dir),
     artifact_backend=_upload_cfg.artifact_backend,
     artifact_base_url=_upload_cfg.artifact_base_url,
+    artifact_object_dir=(
+        pathlib.Path(_upload_cfg.artifact_object_dir) if _upload_cfg.artifact_object_dir else None
+    ),
     save_original_uploads=_upload_cfg.save_original_uploads,
     max_persisted_jobs=_upload_cfg.max_persisted_jobs,
     retention_days=_upload_cfg.retention_days,
@@ -409,7 +413,7 @@ async def health_check(
         risk_count=len(risks),
         risks_stale_seconds=stale_json,
         deployment_ready=bool(startup.get("ready")),
-        worker_mode="in_process",
+        worker_mode=_upload_cfg.worker_mode,
         warnings=warnings[:4],
     )
 
@@ -681,8 +685,14 @@ def operator_settings(request: Request) -> OperatorSettingsResponse:
     return OperatorSettingsResponse(
         access=_operator_access_descriptor(),
         uploads={
+            "worker_mode": _upload_cfg.worker_mode,
+            "worker_poll_seconds": _upload_cfg.worker_poll_seconds,
+            "worker_claim_ttl_seconds": _upload_cfg.worker_claim_ttl_seconds,
+            "worker_heartbeat_seconds": _upload_cfg.worker_heartbeat_seconds,
+            "worker_stale_after_seconds": _upload_cfg.worker_stale_after_seconds,
             "artifact_backend": _upload_cfg.artifact_backend,
             "artifact_base_url": _upload_cfg.artifact_base_url,
+            "artifact_object_dir": _upload_cfg.artifact_object_dir,
             "save_original_uploads": _upload_cfg.save_original_uploads,
             "retention_days": _upload_cfg.retention_days,
             "max_upload_bytes": _upload_cfg.max_upload_bytes,
@@ -699,7 +709,8 @@ def operator_settings(request: Request) -> OperatorSettingsResponse:
             "processing_jobs": counts["processing"],
             "completed_jobs": counts["complete"],
             "failed_jobs": counts["error"],
-            "worker_count": _upload_cfg.max_concurrent_jobs,
+            "worker_count": _effective_active_worker_count(),
+            "configured_capacity": _upload_cfg.max_concurrent_jobs,
         },
         storage=_upload_store.storage_summary(),
         system=_operator_system_summary(),
@@ -971,13 +982,38 @@ def _set_worker_activity(active_workers: int) -> None:
     upload_workers_active.set(int(_state["active_upload_workers"]))
 
 
+def _active_external_worker_records() -> list[dict[str, Any]]:
+    """Return detached workers whose durable heartbeat is still fresh."""
+    return _upload_store.active_worker_records(
+        stale_after_seconds=_upload_cfg.worker_stale_after_seconds,
+    )
+
+
+def _effective_active_worker_count() -> int:
+    """Return the best operator-facing active worker count for the current mode."""
+    if _upload_cfg.worker_mode == "external":
+        return len(_active_external_worker_records())
+    return int(_state.get("active_upload_workers", 0) or 0)
+
+
 def _refresh_operational_metrics() -> None:
     """Refresh gauges derived from queue depth and persisted storage."""
-    queue_depth = len(_upload_queue_ids())
+    queue_depth = _job_status_counts().get("queued", 0)
     upload_queue_depth.set(queue_depth)
-    upload_workers_active.set(int(_state.get("active_upload_workers", 0) or 0))
+    upload_workers_active.set(_effective_active_worker_count())
     storage = _upload_store.storage_summary()
     storage_bytes.set(int(storage.get("bytes_used", 0) or 0))
+
+
+def _refresh_upload_jobs_from_disk() -> None:
+    """Reload persisted upload jobs so API and detached workers share job state."""
+    persisted = _upload_store.load_jobs()
+    for job_id, payload in persisted.items():
+        _upload_jobs[job_id] = payload
+    for job in _upload_jobs.values():
+        _ensure_job_derived_fields(job)
+        if _upload_store.manifest_path(str(job.get("job_id") or "")).exists():
+            _refresh_job_artifacts(job)
 
 
 def _provider_env_ready(provider: str | None) -> bool:
@@ -1059,7 +1095,18 @@ def _run_startup_checks() -> dict[str, Any]:
             {
                 "name": "artifact_backend",
                 "status": "pass",
-                "detail": "Artifact backend is local_fs with object-store-compatible pointers.",
+                "detail": "Artifact backend is local_fs with job-local artifact storage.",
+            }
+        )
+    elif _upload_cfg.artifact_backend == "object_store_fs":
+        checks.append(
+            {
+                "name": "artifact_backend",
+                "status": "pass",
+                "detail": (
+                    "Artifact backend is object_store_fs with a filesystem-backed object"
+                    f" root at {_upload_store.object_dir()}."
+                ),
             }
         )
     else:
@@ -1068,6 +1115,28 @@ def _run_startup_checks() -> dict[str, Any]:
                 "name": "artifact_backend",
                 "status": "fail",
                 "detail": f"Unsupported artifact backend {_upload_cfg.artifact_backend!r}.",
+            }
+        )
+
+    checks.append(
+        {
+            "name": "worker_mode",
+            "status": "pass" if _upload_cfg.worker_mode in {"in_process", "external"} else "fail",
+            "detail": f"Worker mode is {_upload_cfg.worker_mode}.",
+        }
+    )
+
+    if _upload_cfg.worker_mode == "external":
+        detached = _active_external_worker_records()
+        checks.append(
+            {
+                "name": "external_workers",
+                "status": "pass" if detached else "warn",
+                "detail": (
+                    f"{len(detached)} detached upload worker(s) are advertising heartbeats."
+                    if detached
+                    else "No detached upload workers are currently advertising heartbeats."
+                ),
             }
         )
 
@@ -1124,6 +1193,7 @@ def _operator_system_summary() -> dict[str, Any]:
     """Return deployment and worker diagnostics for operator review."""
     startup = _startup_check_summary()
     started_at = _service_started_at()
+    detached_workers = _active_external_worker_records()
     uptime_seconds = 0.0
     with contextlib.suppress(ValueError):
         uptime_seconds = max(
@@ -1132,7 +1202,7 @@ def _operator_system_summary() -> dict[str, Any]:
         )
 
     return {
-        "worker_mode": "in_process",
+        "worker_mode": _upload_cfg.worker_mode,
         "deployment_ready": bool(startup.get("ready")),
         "startup_summary": startup.get("summary"),
         "startup_checks": startup.get("checks", []),
@@ -1141,9 +1211,11 @@ def _operator_system_summary() -> dict[str, Any]:
         "storage_root": str(pathlib.Path(_upload_cfg.storage_dir)),
         "artifact_backend": _upload_cfg.artifact_backend,
         "artifact_base_url": _upload_cfg.artifact_base_url,
+        "artifact_object_dir": str(_upload_store.object_dir()),
         "recent_failures": list(reversed(_recent_job_failures()[-5:])),
-        "active_workers": int(_state.get("active_upload_workers", 0) or 0),
-        "queue_depth": len(_upload_queue_ids()),
+        "active_workers": _effective_active_worker_count(),
+        "detached_workers": detached_workers[:5],
+        "queue_depth": _job_status_counts().get("queued", 0),
         "last_resume_scan_at": _state.get("last_resume_scan_at"),
         "last_prune_at": _state.get("last_prune_at"),
     }
@@ -1197,7 +1269,7 @@ def _refresh_job_artifacts(job: dict[str, Any]) -> None:
                 "queued_input",
                 _upload_store.artifact_pointer(
                     job_id,
-                    queued_path.relative_to(_upload_store.job_dir(job_id)),
+                    _upload_store.job_relative_path(job_id, queued_path),
                     kind="queued_input",
                     media_type=str(job.get("content_type") or "application/octet-stream"),
                 ),
@@ -1205,14 +1277,14 @@ def _refresh_job_artifacts(job: dict[str, Any]) -> None:
     else:
         _set_job_artifact(job, "queued_input", None)
 
-    upload_path = next(_upload_store.job_dir(job_id).glob("upload.*"), None)
+    upload_path = next(_upload_store.artifact_job_dir(job_id).glob("upload.*"), None)
     if upload_path is not None:
         _set_job_artifact(
             job,
             "original_upload",
             _upload_store.artifact_pointer(
                 job_id,
-                upload_path.relative_to(_upload_store.job_dir(job_id)),
+                _upload_store.job_relative_path(job_id, upload_path),
                 kind="original_upload",
                 media_type=str(job.get("content_type") or "application/octet-stream"),
             ),
@@ -1227,7 +1299,7 @@ def _refresh_job_artifacts(job: dict[str, Any]) -> None:
             "report_pdf",
             _upload_store.artifact_pointer(
                 job_id,
-                report_path.relative_to(_upload_store.job_dir(job_id)),
+                _upload_store.job_relative_path(job_id, report_path),
                 kind="report_pdf",
                 media_type="application/pdf",
                 url=str(job.get("report_url") or f"/reports/{job_id}.pdf"),
@@ -1244,7 +1316,7 @@ def _refresh_job_artifacts(job: dict[str, Any]) -> None:
         media_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
         evidence_artifacts[evidence_id] = _upload_store.artifact_pointer(
             job_id,
-            path.relative_to(_upload_store.job_dir(job_id)),
+            _upload_store.job_relative_path(job_id, path),
             kind="evidence_image",
             media_type=media_type,
             url=f"/jobs/{job_id}/evidence/{evidence_id}",
@@ -1263,7 +1335,7 @@ def _refresh_job_artifacts(job: dict[str, Any]) -> None:
         replay_id = path.stem
         replay_artifacts[replay_id] = _upload_store.artifact_pointer(
             job_id,
-            path.relative_to(_upload_store.job_dir(job_id)),
+            _upload_store.job_relative_path(job_id, path),
             kind="finding_replay",
             media_type="image/gif",
             url=f"/jobs/{job_id}/replays/{replay_id}",
@@ -2268,6 +2340,7 @@ def _is_upload_cancelled(job_id: str) -> bool:
 
 def _job_status_counts() -> dict[str, int]:
     """Aggregate upload-job status counts for operator diagnostics."""
+    _refresh_upload_jobs_from_disk()
     counts = {"queued": 0, "processing": 0, "complete": 0, "error": 0}
     for job in _upload_jobs.values():
         status = str(job.get("status", "")).lower()
@@ -2324,6 +2397,12 @@ def _public_privacy_descriptor() -> dict[str, Any]:
 
 async def _start_upload_workers() -> None:
     """Start the persistent upload queue and worker tasks once."""
+    if _upload_cfg.worker_mode != "in_process":
+        _state["upload_worker_tasks"] = []
+        _state["active_upload_workers"] = 0
+        _refresh_operational_metrics()
+        return
+
     if _upload_queue() is not None:
         return
 
@@ -2361,6 +2440,10 @@ async def _stop_upload_workers() -> None:
 async def _enqueue_upload_job(job_id: str) -> None:
     """Queue one upload job for background processing exactly once."""
     await _start_upload_workers()
+    if _upload_cfg.worker_mode != "in_process":
+        _refresh_operational_metrics()
+        return
+
     queue = _upload_queue()
     if queue is None:
         return
@@ -2377,6 +2460,7 @@ async def _enqueue_upload_job(job_id: str) -> None:
 async def _resume_pending_upload_jobs() -> None:
     """Requeue persisted jobs that were interrupted before finishing."""
     _state["last_resume_scan_at"] = _utc_now_iso()
+    _refresh_upload_jobs_from_disk()
     for job_id, job in _upload_jobs.items():
         status = str(job.get("status", "")).lower()
         if status not in {"queued", "processing"}:
@@ -2437,8 +2521,108 @@ async def _upload_worker_loop(worker_index: int) -> None:
             queue.task_done()
 
 
+def _next_detached_worker_id(prefix: str = "atlas-worker") -> str:
+    """Build a stable-ish worker identifier for detached execution."""
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
+
+
+def _write_detached_worker_heartbeat(
+    worker_id: str,
+    *,
+    state: str,
+    started_at: str,
+    claimed_job_id: str | None = None,
+) -> None:
+    """Persist one durable detached-worker heartbeat record."""
+    now = datetime.now(UTC)
+    _upload_store.save_worker_record(
+        worker_id,
+        {
+            "worker_id": worker_id,
+            "worker_mode": "external",
+            "state": state,
+            "claimed_job_id": claimed_job_id,
+            "started_at": started_at,
+            "heartbeat_at": now.isoformat(),
+            "heartbeat_unix": now.timestamp(),
+            "hostname": socket.gethostname(),
+            "pid": os.getpid(),
+        },
+    )
+
+
+def _claim_next_external_job(worker_id: str) -> str | None:
+    """Claim the next queued job from disk for detached worker execution."""
+    claimed = _upload_store.claim_next_job(
+        worker_id,
+        lease_seconds=_upload_cfg.worker_claim_ttl_seconds,
+    )
+    if claimed is None:
+        return None
+    job_id, manifest = claimed
+    _upload_jobs[job_id] = _ensure_job_derived_fields(manifest)
+    _refresh_job_artifacts(_upload_jobs[job_id])
+    return job_id
+
+
+async def run_detached_upload_worker(
+    *,
+    worker_id: str | None = None,
+    once: bool = False,
+) -> bool:
+    """Run one external upload worker loop against durable queued jobs."""
+    active_worker_id = worker_id or _next_detached_worker_id()
+    started_at = _utc_now_iso()
+    heartbeat_interval = max(1.0, float(_upload_cfg.worker_heartbeat_seconds or 10.0))
+    next_heartbeat = 0.0
+    try:
+        while True:
+            loop_now = asyncio.get_running_loop().time()
+            if loop_now >= next_heartbeat:
+                _write_detached_worker_heartbeat(
+                    active_worker_id,
+                    state="idle",
+                    started_at=started_at,
+                )
+                next_heartbeat = loop_now + heartbeat_interval
+                _refresh_operational_metrics()
+
+            _refresh_upload_jobs_from_disk()
+            job_id = _claim_next_external_job(active_worker_id)
+            if job_id is None:
+                if once:
+                    return False
+                await asyncio.sleep(_upload_cfg.worker_poll_seconds)
+                continue
+
+            _set_worker_activity(int(_state.get("active_upload_workers", 0) or 0) + 1)
+            _write_detached_worker_heartbeat(
+                active_worker_id,
+                state="processing",
+                started_at=started_at,
+                claimed_job_id=job_id,
+            )
+            _refresh_operational_metrics()
+            try:
+                await _process_upload(job_id, worker_id=active_worker_id)
+            finally:
+                _set_worker_activity(max(0, int(_state.get("active_upload_workers", 0) or 0) - 1))
+                _write_detached_worker_heartbeat(
+                    active_worker_id,
+                    state="idle",
+                    started_at=started_at,
+                )
+                _refresh_operational_metrics()
+            if once:
+                return True
+    finally:
+        _upload_store.delete_worker_record(active_worker_id)
+        _refresh_operational_metrics()
+
+
 def _active_upload_job_count() -> int:
     """Return the number of queued or processing upload jobs."""
+    _refresh_upload_jobs_from_disk()
     return sum(
         1 for job in _upload_jobs.values() if str(job.get("status")) in {"queued", "processing"}
     )
@@ -3232,7 +3416,7 @@ async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
     )
 
 
-async def _process_upload(job_id: str) -> None:
+async def _process_upload(job_id: str, *, worker_id: str | None = None) -> None:
     """Worker task: load one queued upload from disk and process it."""
     job = _upload_jobs.get(job_id)
     if job is None or _is_upload_cancelled(job_id):
@@ -3294,6 +3478,13 @@ async def _process_upload(job_id: str) -> None:
                 msg = f"Unsupported file type: {content_type!r}"
                 raise ValueError(msg)
 
+            if worker_id:
+                _upload_store.refresh_job_claim(
+                    job_id,
+                    worker_id,
+                    lease_seconds=_upload_cfg.worker_claim_ttl_seconds,
+                )
+
         if _is_upload_cancelled(job_id) or job_id not in _upload_jobs:
             return
 
@@ -3316,7 +3507,7 @@ async def _process_upload(job_id: str) -> None:
             frame["image_url"] = f"/jobs/{job_id}/evidence/{evidence_id}"
             pointer = _upload_store.artifact_pointer(
                 job_id,
-                evidence_path.relative_to(_upload_store.job_dir(job_id)),
+                _upload_store.job_relative_path(job_id, evidence_path),
                 kind="evidence_image",
                 media_type="image/jpeg",
                 url=frame["image_url"],
@@ -3339,7 +3530,7 @@ async def _process_upload(job_id: str) -> None:
             image_url = f"/jobs/{job_id}/replays/{replay_id}"
             pointer = _upload_store.artifact_pointer(
                 job_id,
-                replay_path.relative_to(_upload_store.job_dir(job_id)),
+                _upload_store.job_relative_path(job_id, replay_path),
                 kind="finding_replay",
                 media_type="image/gif",
                 url=image_url,
@@ -3403,7 +3594,7 @@ async def _process_upload(job_id: str) -> None:
         artifacts = _job_artifacts(job)
         artifacts["report_pdf"] = _upload_store.artifact_pointer(
             job_id,
-            report_path.relative_to(_upload_store.job_dir(job_id)),
+            _upload_store.job_relative_path(job_id, report_path),
             kind="report_pdf",
             media_type="application/pdf",
             url=f"/reports/{job['job_id']}.pdf",
@@ -3529,6 +3720,8 @@ async def _process_upload(job_id: str) -> None:
         )
         _refresh_operational_metrics()
     finally:
+        if worker_id:
+            _upload_store.release_job_claim(job_id, worker_id)
         _upload_cancelled_jobs().discard(job_id)
 
 
@@ -3725,7 +3918,7 @@ async def upload_media(request: Request) -> UploadJobStatus:
         "queued_input",
         _upload_store.artifact_pointer(
             job_id,
-            queued_input_path.relative_to(_upload_store.job_dir(job_id)),
+            _upload_store.job_relative_path(job_id, queued_input_path),
             kind="queued_input",
             media_type=content_type,
         ),
@@ -3737,7 +3930,7 @@ async def upload_media(request: Request) -> UploadJobStatus:
             "original_upload",
             _upload_store.artifact_pointer(
                 job_id,
-                original_upload_path.relative_to(_upload_store.job_dir(job_id)),
+                _upload_store.job_relative_path(job_id, original_upload_path),
                 kind="original_upload",
                 media_type=content_type,
             ),
@@ -3788,6 +3981,7 @@ async def get_sample_report() -> UploadJobStatus:
 def list_upload_jobs(request: Request) -> list[UploadJobStatus]:
     """List all upload jobs and their current status."""
     _require_private_access(request)
+    _refresh_upload_jobs_from_disk()
     if not _api_cfg.enable_job_listing:
         raise HTTPException(
             status_code=403,
@@ -3807,6 +4001,7 @@ def get_upload_job(job_id: str, request: Request) -> UploadJobStatus:
         HTTPException: 404 if the job is not found.
     """
     _require_private_access(request)
+    _refresh_upload_jobs_from_disk()
     if job_id not in _upload_jobs:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
     return UploadJobStatus(**_ensure_job_derived_fields(_upload_jobs[job_id]))
@@ -3820,6 +4015,7 @@ def record_job_follow_up(
 ) -> UploadJobStatus:
     """Store a persistent follow-up state for one completed report finding."""
     _require_private_access(request)
+    _refresh_upload_jobs_from_disk()
     job = _upload_jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
@@ -3882,6 +4078,7 @@ def record_job_feedback(
 ) -> UploadJobStatus:
     """Store user feedback for one finding in a completed upload report."""
     _require_private_access(request)
+    _refresh_upload_jobs_from_disk()
     job = _upload_jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
@@ -3947,6 +4144,7 @@ def record_job_evaluation(
 ) -> UploadJobStatus:
     """Store one human review verdict for a completed report."""
     _require_private_access(request)
+    _refresh_upload_jobs_from_disk()
     job = _upload_jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
@@ -3999,6 +4197,7 @@ def export_eval_candidate(
 ) -> UploadJobStatus:
     """Export one reviewed completed report into the persisted eval-candidate store."""
     _require_private_access(request)
+    _refresh_upload_jobs_from_disk()
     job = _upload_jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
@@ -4066,6 +4265,7 @@ def export_eval_candidate(
 def download_evidence(job_id: str, evidence_id: str, request: Request) -> Response:
     """Download one persisted evidence crop for a completed report."""
     _require_private_access(request)
+    _refresh_upload_jobs_from_disk()
     if job_id not in _upload_jobs:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
 
@@ -4091,6 +4291,7 @@ async def download_sample_evidence(evidence_id: str) -> Response:
 def download_finding_replay(job_id: str, replay_id: str, request: Request) -> Response:
     """Download one persisted finding replay for a completed report."""
     _require_private_access(request)
+    _refresh_upload_jobs_from_disk()
     if job_id not in _upload_jobs:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
 
@@ -4116,6 +4317,7 @@ async def download_sample_replay(replay_id: str) -> Response:
 def delete_upload_job(job_id: str, request: Request) -> Response:
     """Delete one persisted upload job and its artifacts."""
     _require_private_access(request)
+    _refresh_upload_jobs_from_disk()
     cancelled = _upload_cancelled_jobs()
     cancelled.add(job_id)
     existed = job_id in _upload_jobs
@@ -4134,6 +4336,7 @@ def delete_upload_job(job_id: str, request: Request) -> Response:
 def download_report(job_id: str, request: Request) -> Response:
     """Download a generated PDF report for a completed scan job."""
     _require_private_access(request)
+    _refresh_upload_jobs_from_disk()
     job = _upload_jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
@@ -4149,7 +4352,7 @@ def download_report(job_id: str, request: Request) -> Response:
             "report_pdf",
             _upload_store.artifact_pointer(
                 job_id,
-                report_path.relative_to(_upload_store.job_dir(job_id)),
+                _upload_store.job_relative_path(job_id, report_path),
                 kind="report_pdf",
                 media_type="application/pdf",
                 url=f"/reports/{job_id}.pdf",
@@ -4211,4 +4414,5 @@ __all__ = [
     "_upload_jobs",
     "app",
     "prometheus_metrics",
+    "run_detached_upload_worker",
 ]
