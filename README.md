@@ -173,6 +173,35 @@ uv run python scripts/run_atlas.py --config configs/default.toml
 uv run python scripts/run_atlas.py --no-api
 ```
 
+### Run The Production-Like Docker Stack
+
+The Docker path runs the public API and upload worker as separate services with
+shared durable artifact storage. This is the closest local shape to a hosted
+beta deployment.
+
+```bash
+cp .env.example .env
+# Edit .env and replace ATLAS_API_ACCESS_TOKEN before exposing the stack.
+docker compose -f docker/docker-compose.yml up --build
+```
+
+Then open:
+
+```text
+http://localhost:8420/app
+```
+
+The Compose stack uses:
+
+- `atlas-api` for FastAPI, static frontend, uploads, reports, and metrics
+- `atlas-worker` for detached upload analysis
+- `atlas_data` for persisted job manifests, PDFs, evidence, and replay assets
+- `object_store_fs` artifact storage so manifests stay pointer-based
+- `ollama` as the default local VLM provider
+
+Use the `Authorization: Bearer <ATLAS_API_ACCESS_TOKEN>` header for private
+upload/report endpoints when loopback auth is disabled.
+
 ## Core API Surface
 
 | Method | Endpoint | Purpose |
@@ -199,9 +228,15 @@ Before pushing, this repo expects all of the following to pass:
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test --all
-ruff check python/
+env RUSTFLAGS='-D warnings' cargo test --all
+ruff check python/ scripts/run_upload_worker.py
 ruff format --check python/
 pytest python/tests/ -v
+node --check frontend/js/api.js
+node --check frontend/js/app.js
+node --check frontend/js/upload.js
+python -m py_compile scripts/run_upload_worker.py
+python scripts/benchmark.py --iterations 1 --skip-vlm
 ```
 
 ### Benchmarks

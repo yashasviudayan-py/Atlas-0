@@ -728,6 +728,42 @@ be:
 This is the most important path if the goal is to make ATLAS-0 safe to expose
 to outside beta users.
 
+### April 23 Production Deployment Slice
+
+Today changes the default production-readiness focus from more UI polish to a
+repeatable deployment shape:
+
+1. CI parity and pinned toolchains
+   - Rust is pinned with `rust-toolchain.toml` so local checks and GitHub
+     Actions run the same compiler and Clippy rules.
+   - The CI workflow now checks the worker entrypoint, frontend JavaScript
+     syntax, and the benchmark smoke path in addition to Rust and Python tests.
+
+2. API / worker split in Docker
+   - Docker Compose now runs `atlas-api` and `atlas-worker` as separate
+     services.
+   - Upload analysis runs through `ATLAS_UPLOADS_WORKER_MODE=external` instead
+     of hiding work inside the API process.
+
+3. Durable artifact storage for beta-like runs
+   - Compose uses shared `atlas_data` storage and `object_store_fs` artifacts.
+   - Reports, evidence, replay assets, and PDFs are persisted as file-backed
+     objects instead of being treated as disposable container state.
+
+4. Hosted-beta guardrails
+   - The stack requires `ATLAS_API_ACCESS_TOKEN` before startup.
+   - Loopback auth bypass is disabled in Compose.
+   - Broad job listing remains disabled unless explicitly enabled.
+
+5. Operator runbook
+   - README now includes the production-like Docker path, service roles, and
+     the full pre-push verification list.
+
+Remaining production gap: this is still a single-host, filesystem-backed
+deployment. The next infrastructure jump is a managed queue plus remote object
+storage such as S3/R2/GCS, with structured tracing around provider latency,
+queue age, and artifact lifecycle events.
+
 1. Close the truth gap
    - build a 50-100 scan labeled evaluation set across clean rooms, cluttered
      rooms, difficult lighting, and intentionally adversarial cases
@@ -749,8 +785,8 @@ to outside beta users.
      operators
 
 4. Prepare real deployment infrastructure
-   - promote the current in-process durable queue toward dedicated workers
-   - add object-storage-ready artifact backends
+   - move beyond the current detached local workers to a managed queue
+   - move beyond filesystem-backed object storage to remote object storage
    - add observability for queue depth, latency, failure rate, timeout rate,
      storage growth, and provider failures
 
