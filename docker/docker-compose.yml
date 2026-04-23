@@ -1,18 +1,41 @@
+name: atlas-0
+
+x-atlas-env: &atlas-env
+  ATLAS_CONFIG: /app/configs/default.toml
+  ATLAS_API_HOST: 0.0.0.0
+  ATLAS_API_PORT: "8420"
+  ATLAS_API_ACCESS_TOKEN: ${ATLAS_API_ACCESS_TOKEN:?Set ATLAS_API_ACCESS_TOKEN in .env before starting the stack}
+  ATLAS_API_ALLOW_UNAUTHENTICATED_LOOPBACK: "false"
+  ATLAS_API_ENABLE_JOB_LISTING: ${ATLAS_API_ENABLE_JOB_LISTING:-false}
+  ATLAS_UPLOADS_WORKER_MODE: external
+  ATLAS_UPLOADS_STORAGE_DIR: /data/uploads
+  ATLAS_UPLOADS_ARTIFACT_BACKEND: object_store_fs
+  ATLAS_UPLOADS_ARTIFACT_OBJECT_DIR: /data/objects
+  ATLAS_UPLOADS_STRICT_STARTUP_CHECKS: ${ATLAS_UPLOADS_STRICT_STARTUP_CHECKS:-false}
+  ATLAS_VLM_OLLAMA_HOST: http://ollama:11434
+
 services:
-  atlas:
+  atlas-api:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    command:
+      [
+        "uvicorn",
+        "atlas.api.server:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8420",
+      ]
     ports:
       - "8420:8420"   # REST API + WebSocket
-      - "8421:8421"   # Reserved for future Prometheus remote-write endpoint
-    environment:
-      - ATLAS_VLM__OLLAMA_HOST=http://ollama:11434
+    environment: *atlas-env
     depends_on:
       ollama:
         condition: service_healthy
     volumes:
-      - ../configs:/app/configs:ro
+      - atlas_data:/data
       # Shared memory file written by the Rust SLAM pipeline.
       # Mount the host /tmp so both the host Rust binary and this container
       # can access the same mmap file when running run_atlas.py outside Docker.
@@ -29,7 +52,23 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
-    restart: on-failure
+    restart: unless-stopped
+
+  atlas-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["python", "scripts/run_upload_worker.py"]
+    environment: *atlas-env
+    depends_on:
+      atlas-api:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    volumes:
+      - atlas_data:/data
+      - /tmp:/tmp
+    restart: unless-stopped
 
   ollama:
     image: ollama/ollama:latest
@@ -45,4 +84,5 @@ services:
       retries: 5
 
 volumes:
+  atlas_data:
   ollama_data:
