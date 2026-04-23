@@ -159,7 +159,7 @@ impl SurfaceExtractor {
             }
         }
 
-        surfaces.sort_by(|a, b| b.inlier_count.cmp(&a.inlier_count));
+        surfaces.sort_by_key(|surface| std::cmp::Reverse(surface.inlier_count));
         surfaces
     }
 
