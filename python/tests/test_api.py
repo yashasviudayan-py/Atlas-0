@@ -138,6 +138,21 @@ def test_product_privacy_is_public() -> None:
     assert data["artifact_backend"] == _upload_cfg.artifact_backend
 
 
+def test_product_upload_guidance_is_public() -> None:
+    response = client.get("/product/upload-guidance")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["max_upload_bytes"] == _upload_cfg.max_upload_bytes
+    assert data["max_video_duration_seconds"] == _upload_cfg.max_video_duration_seconds
+    assert data["recommended_duration_seconds"] == {"min": 20, "max": 60}
+    assert "video/" in data["accepted_media_prefixes"]
+    assert ".mp4" in data["accepted_extensions"]
+    assert data["one_room_only"] is True
+    assert data["checklist"]
+    assert data["retry_guidance"]
+
+
 def test_product_waitlist_is_public() -> None:
     response = client.post(
         "/product/waitlist",

@@ -20,6 +20,7 @@ const state = {
   showLowConfidence: false,
   accessPolicy: null,
   privacyPolicy: null,
+  uploadGuidance: null,
   operatorSettings: null,
   reportViewEvents: new Set(),
 };
@@ -52,6 +53,9 @@ const recentList = document.getElementById('upload-list');
 const recentEmpty = document.getElementById('upload-empty');
 const accessBanner = document.getElementById('access-banner');
 const accessHelp = document.getElementById('access-help');
+const uploadGuidanceCopy = document.getElementById('upload-guidance-copy');
+const uploadDurationPill = document.getElementById('upload-duration-pill');
+const uploadSizePill = document.getElementById('upload-size-pill');
 const privacyPolicy = document.getElementById('privacy-policy');
 const operatorPolicy = document.getElementById('operator-policy');
 const operatorQueue = document.getElementById('operator-queue');
@@ -792,6 +796,27 @@ function renderReleaseGates(releaseGates) {
   `;
 }
 
+function applyUploadGuidance(guidance) {
+  if (!guidance) {
+    return;
+  }
+
+  const recommended = guidance.recommended_duration_seconds || {};
+  const minSeconds = Number(recommended.min || 20);
+  const maxSeconds = Number(recommended.max || guidance.max_video_duration_seconds || 60);
+  if (uploadDurationPill) {
+    uploadDurationPill.textContent = `${minSeconds}-${maxSeconds} seconds`;
+  }
+  if (uploadSizePill) {
+    uploadSizePill.textContent = `${formatBytes(guidance.max_upload_bytes || 0)} max`;
+  }
+  if (uploadGuidanceCopy) {
+    const checklist = Array.isArray(guidance.checklist) ? guidance.checklist : [];
+    uploadGuidanceCopy.textContent = checklist[1]
+      || 'Record one bright, steady room walkthrough before uploading.';
+  }
+}
+
 function renderAccessPanels(errorMessage = '') {
   const access = state.accessPolicy;
   const privacy = state.privacyPolicy;
@@ -1011,6 +1036,13 @@ async function bootstrapApp() {
     state.privacyPolicy = await api.fetchPrivacyPolicy();
   } catch {
     state.privacyPolicy = null;
+  }
+  try {
+    state.uploadGuidance = await api.fetchUploadGuidance();
+    uploadView.setGuidance(state.uploadGuidance);
+    applyUploadGuidance(state.uploadGuidance);
+  } catch {
+    state.uploadGuidance = null;
   }
   await refreshOperatorState();
   await bootstrapJobs();

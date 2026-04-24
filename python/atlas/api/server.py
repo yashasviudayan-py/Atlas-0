@@ -293,6 +293,19 @@ class PrivacyPolicyResponse(BaseModel):
     artifact_backend: str = "local_fs"
 
 
+class UploadGuidanceResponse(BaseModel):
+    """Public upload limits and capture guidance for the hosted frontend."""
+
+    max_upload_bytes: int
+    max_video_duration_seconds: float
+    recommended_duration_seconds: dict[str, int]
+    accepted_extensions: list[str]
+    accepted_media_prefixes: list[str]
+    one_room_only: bool
+    checklist: list[str]
+    retry_guidance: list[str]
+
+
 class ProductEventRequest(BaseModel):
     """One lightweight public product analytics event."""
 
@@ -602,6 +615,12 @@ def operator_access() -> OperatorAccessResponse:
 def product_privacy() -> PrivacyPolicyResponse:
     """Expose user-visible privacy and deletion controls."""
     return PrivacyPolicyResponse(**_public_privacy_descriptor())
+
+
+@app.get("/product/upload-guidance", response_model=UploadGuidanceResponse)
+def product_upload_guidance() -> UploadGuidanceResponse:
+    """Expose upload limits and capture guidance before a user submits a scan."""
+    return UploadGuidanceResponse(**_public_upload_guidance_descriptor())
 
 
 @app.post("/product/events", status_code=204)
@@ -2392,6 +2411,28 @@ def _public_privacy_descriptor() -> dict[str, Any]:
             " review, and debugging, and it exposes delete controls in the product."
         ),
         "details": details,
+    }
+
+
+def _public_upload_guidance_descriptor() -> dict[str, Any]:
+    """Return public upload constraints and capture coaching for first-run UX."""
+    return {
+        "max_upload_bytes": _upload_cfg.max_upload_bytes,
+        "max_video_duration_seconds": _upload_cfg.max_video_duration_seconds,
+        "recommended_duration_seconds": {"min": 20, "max": 60},
+        "accepted_extensions": [".mp4", ".mov", ".webm", ".jpg", ".jpeg", ".png", ".heic"],
+        "accepted_media_prefixes": ["video/", "image/"],
+        "one_room_only": True,
+        "checklist": [
+            "Scan one room only.",
+            "Move slowly enough that shelves, tables, and corners stay in frame.",
+            "Keep the room bright and avoid pointing directly at windows or lamps.",
+            "Avoid scanning documents, screens, or private photos when possible.",
+        ],
+        "retry_guidance": [
+            "Rescan if the video is dark, blurry, very short, or mostly pointed at the floor.",
+            "Use the same room label for before/after comparisons.",
+        ],
     }
 
 
