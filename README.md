@@ -202,6 +202,18 @@ The Compose stack uses:
 Use the `Authorization: Bearer <ATLAS_API_ACCESS_TOKEN>` header for private
 upload/report endpoints when loopback auth is disabled.
 
+Before exposing a hosted beta environment, run the deployment preflight:
+
+```bash
+python scripts/check_deployment.py
+```
+
+For stricter hosting gates, warnings can be treated as failures:
+
+```bash
+python scripts/check_deployment.py --strict-warnings
+```
+
 ## Core API Surface
 
 | Method | Endpoint | Purpose |
@@ -229,13 +241,15 @@ cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test --all
 env RUSTFLAGS='-D warnings' cargo test --all
-ruff check python/ scripts/run_upload_worker.py
+ruff check python/ scripts/check_deployment.py scripts/run_upload_worker.py
 ruff format --check python/
 pytest python/tests/ -v
 node --check frontend/js/api.js
 node --check frontend/js/app.js
 node --check frontend/js/upload.js
+python -m py_compile scripts/check_deployment.py
 python -m py_compile scripts/run_upload_worker.py
+python scripts/check_deployment.py
 python scripts/benchmark.py --iterations 1 --skip-vlm
 ```
 
