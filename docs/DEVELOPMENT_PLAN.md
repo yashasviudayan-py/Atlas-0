@@ -764,6 +764,33 @@ deployment. The next infrastructure jump is a managed queue plus remote object
 storage such as S3/R2/GCS, with structured tracing around provider latency,
 queue age, and artifact lifecycle events.
 
+### April 24 Production Tightening Slice
+
+Today focuses on smaller loose ends that make a hosted beta less brittle:
+
+1. Public upload guidance
+   - The API now exposes upload limits, accepted media families, capture
+     checklist items, and retry guidance through `/product/upload-guidance`.
+   - The frontend uses that contract to show the real hosted upload limit and
+     reject obviously oversized files before they consume queue capacity.
+
+2. Deployment preflight
+   - `scripts/check_deployment.py` gives operators a repeatable readiness
+     command backed by the same startup checks as the API.
+   - CI now compiles and runs the preflight so deployment regressions surface
+     before a push becomes another red workflow.
+
+3. Beta UX tightening
+   - First-run capture copy now comes from backend guidance instead of drifting
+     away from runtime limits.
+   - Upload errors are faster and more specific for files that exceed the
+     configured hosted limit.
+
+Remaining production gap: the preflight still validates the current single-host
+runtime. A fully hosted production path still needs remote object storage,
+managed queue workers, structured tracing, and environment-specific secret
+management.
+
 1. Close the truth gap
    - build a 50-100 scan labeled evaluation set across clean rooms, cluttered
      rooms, difficult lighting, and intentionally adversarial cases
