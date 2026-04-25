@@ -791,6 +791,32 @@ runtime. A fully hosted production path still needs remote object storage,
 managed queue workers, structured tracing, and environment-specific secret
 management.
 
+### April 25 Public-Face And Convenience Slice
+
+Today focuses on the places beta users see before they ever run a scan:
+
+1. README production introduction
+   - The public README hero has been rebuilt as a cleaner product banner with
+     one clear promise instead of overlapping title treatments.
+   - The intro now explains the input, output, and share value in a compact
+     GitHub-friendly layout.
+
+2. Product trust copy
+   - The README now leads with decision support, evidence, confidence, and
+     limitations instead of broad spatial-reasoning language.
+   - The duplicated title/intro pattern has been removed so the page feels more
+     intentional and less like stitched-together launch copy.
+
+3. Upload guidance fallback
+   - If `/product/upload-guidance` is unavailable, the frontend no longer leaves
+     the upload size pill stuck on a loading state.
+   - The UI falls back to honest guidance while server-side upload validation
+     remains the source of truth.
+
+Remaining production gap: the public face is stronger, but beta acquisition
+still needs a hosted landing/waitlist path, a polished sample walkthrough, and
+real conversion analytics tied to scan completion and report sharing.
+
 1. Close the truth gap
    - build a 50-100 scan labeled evaluation set across clean rooms, cluttered
      rooms, difficult lighting, and intentionally adversarial cases
