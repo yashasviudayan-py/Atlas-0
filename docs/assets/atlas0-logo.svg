@@ -1,81 +1,83 @@
 <svg width="1200" height="520" viewBox="0 0 1200 520" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">ATLAS-0 room safety scan</title>
-  <desc id="desc">A polished product hero for ATLAS-0, showing a home safety scan workflow from upload to evidence-backed report.</desc>
+  <title id="title">ATLAS-0 room safety reports</title>
+  <desc id="desc">A polished ATLAS-0 product hero showing a room safety scan that turns a walkthrough into an evidence-backed hazard report.</desc>
   <defs>
-    <linearGradient id="canvas" x1="0" y1="0" x2="1200" y2="520" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#091014"/>
-      <stop offset="0.48" stop-color="#11120F"/>
-      <stop offset="1" stop-color="#14100B"/>
+    <linearGradient id="page" x1="0" y1="0" x2="1200" y2="520" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#071111"/>
+      <stop offset="0.58" stop-color="#10100D"/>
+      <stop offset="1" stop-color="#17120B"/>
     </linearGradient>
-    <linearGradient id="rim" x1="54" y1="54" x2="1146" y2="466" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#0FA997"/>
-      <stop offset="0.58" stop-color="#836F4B"/>
-      <stop offset="1" stop-color="#F08A24"/>
+    <linearGradient id="panel" x1="112" y1="72" x2="1088" y2="448" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0C1918"/>
+      <stop offset="0.54" stop-color="#111411"/>
+      <stop offset="1" stop-color="#1C150D"/>
     </linearGradient>
-    <linearGradient id="mark" x1="122" y1="154" x2="286" y2="318" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FCF6EA"/>
-      <stop offset="0.54" stop-color="#FFFDF6"/>
-      <stop offset="1" stop-color="#F5B351"/>
+    <linearGradient id="rim" x1="112" y1="72" x2="1088" y2="448" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#18B8A7"/>
+      <stop offset="0.52" stop-color="#315D50"/>
+      <stop offset="1" stop-color="#D8822D"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="156" y1="156" x2="316" y2="316" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF9EE"/>
+      <stop offset="0.72" stop-color="#FFF7E8"/>
+      <stop offset="1" stop-color="#F5B655"/>
     </linearGradient>
     <linearGradient id="teal" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#15B8A6"/>
-      <stop offset="1" stop-color="#08776D"/>
+      <stop stop-color="#19C6B4"/>
+      <stop offset="1" stop-color="#08786E"/>
     </linearGradient>
-    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#000000" flood-opacity="0.38"/>
+    <filter id="drop" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000000" flood-opacity="0.38"/>
     </filter>
   </defs>
 
-  <rect width="1200" height="520" rx="42" fill="url(#canvas)"/>
-  <rect x="28" y="28" width="1144" height="464" rx="34" stroke="url(#rim)" stroke-opacity="0.78" stroke-width="2"/>
-  <path d="M0 0H1200V144C1038 120 898 119 740 144C562 172 384 174 208 140C123 124 55 101 0 74V0Z" fill="#0D1A1B" opacity="0.72"/>
-  <path d="M930 94C1019 79 1097 91 1164 129V492H752C808 420 836 338 836 247C836 168 868 105 930 94Z" fill="#21160D" opacity="0.78"/>
+  <rect width="1200" height="520" rx="44" fill="url(#page)"/>
+  <rect x="64" y="52" width="1072" height="416" rx="38" fill="url(#panel)"/>
+  <rect x="65" y="53" width="1070" height="414" rx="37" stroke="url(#rim)" stroke-opacity="0.82" stroke-width="2"/>
 
-  <g opacity="0.26">
-    <path d="M78 377H530" stroke="#FFFFFF" stroke-opacity="0.16"/>
-    <path d="M82 419H474" stroke="#FFFFFF" stroke-opacity="0.12"/>
-    <path d="M768 114H1094" stroke="#FFFFFF" stroke-opacity="0.14"/>
-    <path d="M792 158H1124" stroke="#FFFFFF" stroke-opacity="0.1"/>
-    <circle cx="1046" cy="346" r="92" stroke="#FFFFFF" stroke-opacity="0.1"/>
-    <circle cx="1046" cy="346" r="47" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <path d="M64 52H1136V190C997 164 850 164 696 188C515 216 341 210 174 169C132 159 95 145 64 128V52Z" fill="#0D2020" opacity="0.58"/>
+  <path d="M1000 99C1070 124 1112 184 1136 255V468H820C868 411 891 348 891 280C891 186 929 116 1000 99Z" fill="#2A170A" opacity="0.48"/>
+  <circle cx="965" cy="286" r="118" stroke="#FFF2DD" stroke-opacity="0.055" stroke-width="2"/>
+  <circle cx="965" cy="286" r="58" stroke="#FFF2DD" stroke-opacity="0.06" stroke-width="2"/>
+  <path d="M721 151H1018" stroke="#FFFFFF" stroke-opacity="0.08"/>
+  <path d="M740 198H1062" stroke="#FFFFFF" stroke-opacity="0.07"/>
+
+  <g filter="url(#drop)">
+    <rect x="142" y="146" width="188" height="188" rx="44" fill="url(#tile)"/>
+    <rect x="142" y="146" width="188" height="188" rx="44" stroke="#12A99A" stroke-width="7"/>
+    <rect x="154" y="158" width="164" height="164" rx="34" stroke="#F3C584" stroke-opacity="0.62" stroke-width="3"/>
+    <path d="M184 242L236 193L288 242" stroke="#171312" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M203 237V283C203 291 209 297 217 297H274C282 297 288 291 288 283V237" stroke="#171312" stroke-width="14" stroke-linecap="round"/>
+    <path d="M257 247C274 236 294 232 310 236" stroke="#0CA292" stroke-width="14" stroke-linecap="round"/>
+    <path d="M266 273C281 264 296 261 310 264" stroke="#E98224" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="245" cy="294" r="11" fill="#0CA292"/>
   </g>
 
-  <g filter="url(#softShadow)">
-    <rect x="94" y="132" width="226" height="226" rx="46" fill="url(#mark)"/>
-    <rect x="94" y="132" width="226" height="226" rx="46" stroke="#0EA091" stroke-width="8"/>
-    <rect x="104" y="142" width="206" height="206" rx="38" stroke="#F5A33C" stroke-opacity="0.48" stroke-width="2"/>
-    <path d="M151 252L207 198L264 252" stroke="#181313" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M173 245V298C173 307 180 314 189 314H247C256 314 263 307 263 298V246" stroke="#181313" stroke-width="15" stroke-linecap="round"/>
-    <path d="M231 260C249 248 271 244 291 248" stroke="#0A9E90" stroke-width="15" stroke-linecap="round"/>
-    <path d="M241 288C258 277 277 274 294 278" stroke="#E88425" stroke-width="15" stroke-linecap="round"/>
-    <circle cx="220" cy="304" r="12" fill="#0A9E90"/>
+  <g font-family="Aptos Display, Segoe UI, Arial, sans-serif">
+    <rect x="382" y="142" width="183" height="35" rx="17.5" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.14"/>
+    <text x="407" y="165" fill="#E9DED0" font-size="15" font-weight="800">ROOM SAFETY SCAN</text>
+    <text x="380" y="256" fill="#FFFFFF" font-size="86" font-weight="900">ATLAS-0</text>
+    <text x="383" y="307" fill="#F2E9DF" font-size="29" font-weight="800">Turn a walkthrough into a hazard report.</text>
+    <text x="385" y="344" fill="#B5AAA0" font-size="20">Evidence frames, confidence signals, fix-first actions, and PDF export.</text>
   </g>
 
-  <g font-family="Space Grotesk, Segoe UI, Arial, sans-serif">
-    <rect x="374" y="128" width="186" height="34" rx="17" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.16"/>
-    <text x="397" y="151" fill="#E8DDD0" font-size="15" font-weight="800">ROOM SAFETY SCAN</text>
-    <text x="374" y="244" fill="#FFFFFF" font-size="104" font-weight="900">ATLAS-0</text>
-    <text x="380" y="294" fill="#E9E2D8" font-size="29" font-weight="700">Upload a walkthrough. Get a hazard report.</text>
-    <text x="381" y="330" fill="#AFA49A" font-size="20">Evidence frames, confidence signals, fix-first recommendations, and PDF export.</text>
-  </g>
+  <g font-family="Aptos, Segoe UI, Arial, sans-serif">
+    <rect x="142" y="372" width="270" height="62" rx="22" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.13"/>
+    <circle cx="180" cy="403" r="16" fill="url(#teal)"/>
+    <path d="M172 403L178 409L190 395" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="207" y="396" fill="#FFFFFF" font-size="18" font-weight="850">Ranked risks</text>
+    <text x="207" y="420" fill="#AFA49A" font-size="15">Top hazards first</text>
 
-  <g font-family="Space Grotesk, Segoe UI, Arial, sans-serif">
-    <rect x="94" y="392" width="294" height="62" rx="24" fill="#FFFFFF" fill-opacity="0.075" stroke="#FFFFFF" stroke-opacity="0.14"/>
-    <circle cx="130" cy="423" r="15" fill="url(#teal)"/>
-    <path d="M122 423L128 429L139 416" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="158" y="417" fill="#FFFFFF" font-size="18" font-weight="800">Report-first MVP</text>
-    <text x="158" y="441" fill="#AFA49A" font-size="15">Built for beta feedback, not demo theater.</text>
+    <rect x="466" y="372" width="270" height="62" rx="22" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.13"/>
+    <circle cx="504" cy="403" r="16" fill="#E98224"/>
+    <path d="M497 403H511M504 396V410" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+    <text x="531" y="396" fill="#FFFFFF" font-size="18" font-weight="850">Evidence frames</text>
+    <text x="531" y="420" fill="#AFA49A" font-size="15">Show what it saw</text>
 
-    <rect x="418" y="392" width="300" height="62" rx="24" fill="#FFFFFF" fill-opacity="0.075" stroke="#FFFFFF" stroke-opacity="0.14"/>
-    <circle cx="454" cy="423" r="15" fill="#F08A24"/>
-    <path d="M446 423H462M454 415V431" stroke="white" stroke-width="4" stroke-linecap="round"/>
-    <text x="482" y="417" fill="#FFFFFF" font-size="18" font-weight="800">Evidence-backed</text>
-    <text x="482" y="441" fill="#AFA49A" font-size="15">Every finding should show why it exists.</text>
-
-    <rect x="748" y="392" width="358" height="62" rx="24" fill="#FFFFFF" fill-opacity="0.075" stroke="#FFFFFF" stroke-opacity="0.14"/>
-    <circle cx="784" cy="423" r="15" fill="#C56F43"/>
-    <path d="M777 426L784 417L791 426" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="812" y="417" fill="#FFFFFF" font-size="18" font-weight="800">Honest about uncertainty</text>
-    <text x="812" y="441" fill="#AFA49A" font-size="15">Decision support, not safety certification.</text>
+    <rect x="790" y="372" width="270" height="62" rx="22" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.13"/>
+    <circle cx="828" cy="403" r="16" fill="#C96F3A"/>
+    <path d="M820 406L828 397L836 406" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="855" y="396" fill="#FFFFFF" font-size="18" font-weight="850">Honest confidence</text>
+    <text x="855" y="420" fill="#AFA49A" font-size="15">No fake certainty</text>
   </g>
 </svg>

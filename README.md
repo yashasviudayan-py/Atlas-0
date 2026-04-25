@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/atlas0-logo.svg" alt="ATLAS-0 room safety scan hero" width="100%" />
+  <img src="docs/assets/atlas0-logo.svg" alt="ATLAS-0 room safety scan hero" width="940" />
 </p>
 
 <p align="center">
