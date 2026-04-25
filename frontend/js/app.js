@@ -797,21 +797,19 @@ function renderReleaseGates(releaseGates) {
 }
 
 function applyUploadGuidance(guidance) {
-  if (!guidance) {
-    return;
-  }
-
-  const recommended = guidance.recommended_duration_seconds || {};
+  const recommended = guidance?.recommended_duration_seconds || {};
   const minSeconds = Number(recommended.min || 20);
-  const maxSeconds = Number(recommended.max || guidance.max_video_duration_seconds || 60);
+  const maxSeconds = Number(recommended.max || guidance?.max_video_duration_seconds || 60);
   if (uploadDurationPill) {
     uploadDurationPill.textContent = `${minSeconds}-${maxSeconds} seconds`;
   }
   if (uploadSizePill) {
-    uploadSizePill.textContent = `${formatBytes(guidance.max_upload_bytes || 0)} max`;
+    uploadSizePill.textContent = guidance?.max_upload_bytes
+      ? `${formatBytes(guidance.max_upload_bytes)} max`
+      : 'Limit checked on upload';
   }
   if (uploadGuidanceCopy) {
-    const checklist = Array.isArray(guidance.checklist) ? guidance.checklist : [];
+    const checklist = Array.isArray(guidance?.checklist) ? guidance.checklist : [];
     uploadGuidanceCopy.textContent = checklist[1]
       || 'Record one bright, steady room walkthrough before uploading.';
   }
@@ -1043,6 +1041,7 @@ async function bootstrapApp() {
     applyUploadGuidance(state.uploadGuidance);
   } catch {
     state.uploadGuidance = null;
+    applyUploadGuidance(null);
   }
   await refreshOperatorState();
   await bootstrapJobs();
