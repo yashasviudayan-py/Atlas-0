@@ -1,14 +1,18 @@
 <p align="center">
-  <img src="docs/assets/atlas0-logo.svg" alt="ATLAS-0 hero" width="920" />
+  <img src="docs/assets/atlas0-logo.svg" alt="ATLAS-0 room safety scan hero" width="100%" />
 </p>
 
 <p align="center">
-  <a href="docs/DEVELOPMENT_PLAN.md">
-    <img src="https://img.shields.io/badge/status-upload--first%20MVP-0c8074" alt="Status: upload-first MVP" />
+  <a href="https://github.com/yashasviudayan-py/Atlas-0/actions/workflows/ci.yml">
+    <img src="https://github.com/yashasviudayan-py/Atlas-0/actions/workflows/ci.yml/badge.svg" alt="CI status" />
   </a>
   <a href="docs/DEVELOPMENT_PLAN.md">
-    <img src="https://img.shields.io/badge/product-home%20safety%20scan-d67f30" alt="Product: home safety scan" />
+    <img src="https://img.shields.io/badge/status-beta%20MVP-0c8074" alt="Status: beta MVP" />
   </a>
+  <a href="docs/DEVELOPMENT_PLAN.md">
+    <img src="https://img.shields.io/badge/product-room%20safety%20scan-d67f30" alt="Product: room safety scan" />
+  </a>
+  <img src="https://img.shields.io/badge/deploy-preflight-125d69" alt="Deployment preflight" />
   <img src="https://img.shields.io/badge/python-ruff%20%7C%20pytest-3776AB?logo=python&logoColor=white" alt="Python checks" />
   <img src="https://img.shields.io/badge/rust-fmt%20%7C%20clippy%20%7C%20test-000000?logo=rust" alt="Rust checks" />
   <a href="LICENSE">
@@ -16,23 +20,42 @@
   </a>
 </p>
 
+<h3 align="center">Upload one room walkthrough. Get the hazards, evidence, and next actions in one report.</h3>
+
 <p align="center">
-  <strong>Scan your room. Catch what could fall, tip, or break.</strong><br/>
-  <sub>ATLAS-0 is an upload-first room safety product built around trustworthy reports, not demo theater.</sub>
+  <strong>ATLAS-0</strong> is a report-first room safety scanner for renters,
+  parents, pet owners, and anyone who wants a practical second look before
+  something falls, tips, spills, or blocks a path.
 </p>
 
-ATLAS-0 is now being built as an upload-first room safety product, not a broad
-"general spatial reasoning engine."
+<table>
+  <tr>
+    <td width="33%">
+      <strong>Input</strong><br/>
+      A 20-60 second phone walkthrough of a real room.
+    </td>
+    <td width="33%">
+      <strong>Output</strong><br/>
+      Ranked hazards with evidence frames, approximate locations, confidence,
+      and fix-first recommendations.
+    </td>
+    <td width="33%">
+      <strong>Share</strong><br/>
+      A downloadable PDF report you can send to a landlord, partner,
+      contractor, or care team.
+    </td>
+  </tr>
+</table>
 
-The current wedge is simple:
-
-**Upload a 20-60 second phone walkthrough of a room and get back a hazard
-report with top risks, evidence frames, approximate locations, confidence
-signals, recommendations, and a downloadable PDF.**
+> Current promise: decision support, not safety certification. ATLAS-0 is
+> intentionally honest about confidence, scan quality, and where the pipeline is
+> still approximate.
 
 ## Current Standing
 
-ATLAS-0 has real engineering underneath it, but it is still an early product.
+ATLAS-0 has moved from broad spatial demo toward a focused self-hosted beta:
+upload a room scan, wait for analysis, review a report, export evidence, and
+use feedback loops to improve the next scan.
 
 What is strong today:
 - Upload jobs persist to disk instead of living only in memory.
