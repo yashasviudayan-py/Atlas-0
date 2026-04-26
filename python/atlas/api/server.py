@@ -108,6 +108,29 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+_BASE_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
+_PRIVATE_CACHE_PREFIXES = ("/upload", "/jobs", "/reports")
+
+
+@app.middleware("http")
+async def _add_production_headers(request: Request, call_next: Any) -> Response:
+    """Apply browser hardening headers to every HTTP response."""
+    response = await call_next(request)
+    for header, value in _BASE_SECURITY_HEADERS.items():
+        response.headers.setdefault(header, value)
+
+    path = request.url.path
+    if path in _PRIVATE_CACHE_PREFIXES or path.startswith(("/jobs/", "/reports/")):
+        response.headers.setdefault("Cache-Control", "no-store")
+        response.headers.setdefault("Pragma", "no-cache")
+    return response
+
+
 # ── Static frontend ───────────────────────────────────────────────────────────
 # Serve the Three.js AR overlay frontend from the repo's frontend/ directory.
 # The mount is optional: if the directory doesn't exist (e.g. stripped Docker

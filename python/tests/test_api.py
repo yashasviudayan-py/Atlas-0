@@ -110,6 +110,23 @@ def test_health_check():
     assert "worker_mode" in data
 
 
+def test_security_headers_are_set() -> None:
+    response = client.get("/health")
+
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["permissions-policy"] == "camera=(), microphone=(), geolocation=()"
+
+
+def test_private_routes_disable_browser_caching() -> None:
+    response = client.get("/jobs/missing")
+
+    assert response.status_code == 404
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+
+
 def test_spatial_query_empty():
     response = client.post("/query", json={"query": "where is the cup?"})
     assert response.status_code == 200
