@@ -7,6 +7,7 @@ import os
 import time
 from pathlib import Path
 
+import pytest
 from atlas.api.upload_store import UploadStore
 
 
@@ -96,6 +97,36 @@ def test_upload_store_delete_job_removes_artifacts(tmp_path: Path) -> None:
 
     assert store.delete_job("job-006") is True
     assert not (tmp_path / "job-006").exists()
+
+
+def test_upload_store_rejects_unsafe_job_ids(tmp_path: Path) -> None:
+    root = tmp_path / "uploads"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "sentinel.txt").write_text("keep", encoding="utf-8")
+    store = UploadStore(root)
+    store.create_job({"job_id": "safe-job"})
+
+    for unsafe_job_id in ("..", ".", "../outside", "safe/job", "safe\\job"):
+        with pytest.raises(ValueError, match="job_id"):
+            store.delete_job(unsafe_job_id)
+
+    assert outside.exists()
+    assert (outside / "sentinel.txt").read_text(encoding="utf-8") == "keep"
+    assert store.job_dir("safe-job").exists()
+
+
+def test_upload_store_rejects_unsafe_artifact_paths(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path)
+    store.create_job({"job_id": "job-safe"})
+    store.save_report_pdf("job-safe", b"pdf")
+
+    for unsafe_path in ("../escape.pdf", "/tmp/escape.pdf", "evidence/../report.pdf"):
+        with pytest.raises(ValueError, match="artifact path"):
+            store.artifact_pointer("job-safe", unsafe_path, kind="report_pdf")
+
+    with pytest.raises(ValueError, match="evidence_id"):
+        store.save_evidence_image("job-safe", "../escape", b"jpeg")
 
 
 def test_upload_store_delete_job_removes_object_store_artifacts(tmp_path: Path) -> None:

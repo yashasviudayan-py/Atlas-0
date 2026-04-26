@@ -867,6 +867,48 @@ def test_export_eval_candidate_persists_review_ready_case() -> None:
     assert candidates[0]["top_hazard_code"] == "edge_placement"
 
 
+def test_export_eval_candidate_rejects_unsafe_label() -> None:
+    _upload_jobs["jobevalbad"] = {
+        "job_id": "jobevalbad",
+        "filename": "office.mp4",
+        "status": "complete",
+        "stage": "complete",
+        "progress": 1.0,
+        "objects": [],
+        "risks": [
+            {
+                "hazard_code": "edge_placement",
+                "object_id": "track-01",
+                "object_label": "box",
+                "severity": "medium",
+                "confidence": 0.8,
+            }
+        ],
+        "fix_first": [],
+        "summary": {"filename": "office.mp4", "hazard_count": 1, "object_count": 1},
+        "recommendations": [],
+        "evidence_frames": [],
+        "scan_quality": {"status": "good", "score": 0.73, "usable": True, "warnings": []},
+        "trust_notes": [],
+        "scene_source": "estimated_multiview",
+        "finding_feedback": [{"hazard_code": "edge_placement", "verdict": "useful"}],
+        "feedback_summary": {"useful": 1, "wrong": 0, "duplicate": 0},
+        "evaluation_summary": {"reviewed_findings": 1},
+        "human_evaluation": {"status": "confirmed"},
+        "report_url": "/reports/jobevalbad.pdf",
+        "error": None,
+    }
+    server_mod._ensure_job_derived_fields(_upload_jobs["jobevalbad"])
+
+    response = client.post(
+        "/jobs/jobevalbad/eval-candidate",
+        json={"label": "../escape"},
+    )
+
+    assert response.status_code == 400
+    assert "candidate_id" in response.json()["detail"]
+
+
 def test_delete_upload_job_removes_persisted_artifacts() -> None:
     _upload_jobs["jobdel01"] = {
         "job_id": "jobdel01",
@@ -896,6 +938,13 @@ def test_delete_upload_job_removes_persisted_artifacts() -> None:
     assert response.status_code == 204
     assert "jobdel01" not in _upload_jobs
     assert not _upload_store.job_dir("jobdel01").exists()
+
+
+def test_delete_upload_job_rejects_unsafe_job_id() -> None:
+    response = client.delete("/jobs/%2E%2E")
+
+    assert response.status_code == 400
+    assert "job_id" in response.json()["detail"]
 
 
 def test_upload_rejects_when_queue_depth_is_full() -> None:

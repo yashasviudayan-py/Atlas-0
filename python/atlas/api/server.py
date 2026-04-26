@@ -64,7 +64,7 @@ from atlas.api.upload_analysis import (
     analyze_uploaded_video,
     build_finding_replays,
 )
-from atlas.api.upload_store import UploadStore
+from atlas.api.upload_store import UploadStore, validate_storage_id
 from atlas.utils.config import load_config
 from atlas.utils.video import ExtractedFrame, probe_video_metadata
 from atlas.vlm.inference import SemanticLabel, VLMConfig, VLMEngine
@@ -2165,6 +2165,14 @@ def _extract_access_token(request: Request) -> str | None:
     return header_token or None
 
 
+def _storage_route_id(value: str, label: str) -> str:
+    """Validate a route parameter before using it as a storage identifier."""
+    try:
+        return validate_storage_id(value, label)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 def _require_private_access(request: Request) -> None:
     """Enforce private-beta access for upload/report endpoints."""
     configured_token = _api_cfg.access_token
@@ -4042,6 +4050,7 @@ def get_upload_job(job_id: str, request: Request) -> UploadJobStatus:
         HTTPException: 404 if the job is not found.
     """
     _require_private_access(request)
+    job_id = _storage_route_id(job_id, "job_id")
     _refresh_upload_jobs_from_disk()
     if job_id not in _upload_jobs:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
@@ -4056,6 +4065,7 @@ def record_job_follow_up(
 ) -> UploadJobStatus:
     """Store a persistent follow-up state for one completed report finding."""
     _require_private_access(request)
+    job_id = _storage_route_id(job_id, "job_id")
     _refresh_upload_jobs_from_disk()
     job = _upload_jobs.get(job_id)
     if job is None:
@@ -4119,6 +4129,7 @@ def record_job_feedback(
 ) -> UploadJobStatus:
     """Store user feedback for one finding in a completed upload report."""
     _require_private_access(request)
+    job_id = _storage_route_id(job_id, "job_id")
     _refresh_upload_jobs_from_disk()
     job = _upload_jobs.get(job_id)
     if job is None:
@@ -4185,6 +4196,7 @@ def record_job_evaluation(
 ) -> UploadJobStatus:
     """Store one human review verdict for a completed report."""
     _require_private_access(request)
+    job_id = _storage_route_id(job_id, "job_id")
     _refresh_upload_jobs_from_disk()
     job = _upload_jobs.get(job_id)
     if job is None:
@@ -4238,6 +4250,7 @@ def export_eval_candidate(
 ) -> UploadJobStatus:
     """Export one reviewed completed report into the persisted eval-candidate store."""
     _require_private_access(request)
+    job_id = _storage_route_id(job_id, "job_id")
     _refresh_upload_jobs_from_disk()
     job = _upload_jobs.get(job_id)
     if job is None:
@@ -4266,6 +4279,7 @@ def export_eval_candidate(
             status_code=400,
             detail="Eval candidate label must be 80 characters or fewer.",
         )
+    label = _storage_route_id(label, "candidate_id")
 
     summary = dict(job.get("summary") or {})
     evaluation = dict(job.get("evaluation_summary") or {})
@@ -4306,6 +4320,8 @@ def export_eval_candidate(
 def download_evidence(job_id: str, evidence_id: str, request: Request) -> Response:
     """Download one persisted evidence crop for a completed report."""
     _require_private_access(request)
+    job_id = _storage_route_id(job_id, "job_id")
+    evidence_id = _storage_route_id(evidence_id, "evidence_id")
     _refresh_upload_jobs_from_disk()
     if job_id not in _upload_jobs:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
@@ -4332,6 +4348,8 @@ async def download_sample_evidence(evidence_id: str) -> Response:
 def download_finding_replay(job_id: str, replay_id: str, request: Request) -> Response:
     """Download one persisted finding replay for a completed report."""
     _require_private_access(request)
+    job_id = _storage_route_id(job_id, "job_id")
+    replay_id = _storage_route_id(replay_id, "replay_id")
     _refresh_upload_jobs_from_disk()
     if job_id not in _upload_jobs:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
@@ -4358,6 +4376,7 @@ async def download_sample_replay(replay_id: str) -> Response:
 def delete_upload_job(job_id: str, request: Request) -> Response:
     """Delete one persisted upload job and its artifacts."""
     _require_private_access(request)
+    job_id = _storage_route_id(job_id, "job_id")
     _refresh_upload_jobs_from_disk()
     cancelled = _upload_cancelled_jobs()
     cancelled.add(job_id)
@@ -4377,6 +4396,7 @@ def delete_upload_job(job_id: str, request: Request) -> Response:
 def download_report(job_id: str, request: Request) -> Response:
     """Download a generated PDF report for a completed scan job."""
     _require_private_access(request)
+    job_id = _storage_route_id(job_id, "job_id")
     _refresh_upload_jobs_from_disk()
     job = _upload_jobs.get(job_id)
     if job is None:

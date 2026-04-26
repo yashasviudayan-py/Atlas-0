@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -14,6 +15,33 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 _ARTIFACT_BACKEND = "local_fs"
+_SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+
+
+def validate_storage_id(value: str, label: str = "identifier") -> str:
+    """Return a path-safe storage identifier or raise ``ValueError``.
+
+    UploadStore identifiers are used as filesystem path segments.  Keeping this
+    validation centralized prevents directory traversal and accidental writes
+    outside the configured upload/artifact roots.
+    """
+    token = str(value or "").strip()
+    if token in {"", ".", ".."} or not _SAFE_SEGMENT_RE.fullmatch(token):
+        msg = f"{label} must be a safe path segment."
+        raise ValueError(msg)
+    return token
+
+
+def _safe_relative_path(relative_path: str | Path) -> Path:
+    """Return a safe relative artifact path or raise ``ValueError``."""
+    path = Path(relative_path)
+    if path.is_absolute() or not path.parts:
+        raise ValueError("artifact path must be relative.")
+    if any(part in {"", ".", ".."} for part in path.parts):
+        raise ValueError("artifact path must not contain dot segments.")
+    for part in path.parts:
+        validate_storage_id(part, "artifact path segment")
+    return path
 
 
 class UploadStore:
@@ -49,7 +77,7 @@ class UploadStore:
 
     def job_dir(self, job_id: str) -> Path:
         """Return the directory holding all files for one upload job."""
-        return self.root_dir / job_id
+        return self.root_dir / validate_storage_id(job_id, "job_id")
 
     def object_dir(self) -> Path:
         """Return the root directory for filesystem-backed object artifacts."""
@@ -59,9 +87,10 @@ class UploadStore:
 
     def artifact_job_dir(self, job_id: str) -> Path:
         """Return the directory holding persisted binary artifacts for one job."""
+        safe_job_id = validate_storage_id(job_id, "job_id")
         if self._artifact_backend == "object_store_fs":
-            return self.object_dir() / "jobs" / job_id
-        return self.job_dir(job_id)
+            return self.object_dir() / "jobs" / safe_job_id
+        return self.job_dir(safe_job_id)
 
     def manifest_path(self, job_id: str) -> Path:
         """Return the JSON manifest path for one upload job."""
@@ -89,11 +118,13 @@ class UploadStore:
 
     def evidence_path(self, job_id: str, evidence_id: str, suffix: str = ".jpg") -> Path:
         """Return the persisted path for one evidence artifact."""
-        return self.evidence_dir(job_id) / f"{evidence_id}{suffix}"
+        safe_evidence_id = validate_storage_id(evidence_id, "evidence_id")
+        return self.evidence_dir(job_id) / f"{safe_evidence_id}{suffix}"
 
     def replay_path(self, job_id: str, replay_id: str, suffix: str = ".gif") -> Path:
         """Return the persisted path for one finding replay artifact."""
-        return self.replay_dir(job_id) / f"{replay_id}{suffix}"
+        safe_replay_id = validate_storage_id(replay_id, "replay_id")
+        return self.replay_dir(job_id) / f"{safe_replay_id}{suffix}"
 
     def job_claim_path(self, job_id: str) -> Path:
         """Return the durable claim file for one queued upload job."""
@@ -107,7 +138,8 @@ class UploadStore:
 
     def worker_record_path(self, worker_id: str) -> Path:
         """Return the durable heartbeat record path for one detached worker."""
-        return self.worker_dir() / f"{worker_id}.json"
+        safe_worker_id = validate_storage_id(worker_id, "worker_id")
+        return self.worker_dir() / f"{safe_worker_id}.json"
 
     def product_events_path(self) -> Path:
         """Return the JSONL file holding product analytics events."""
@@ -125,7 +157,8 @@ class UploadStore:
 
     def eval_candidate_path(self, candidate_id: str) -> Path:
         """Return the persisted JSON path for one eval candidate."""
-        return self.eval_candidates_dir() / f"{candidate_id}.json"
+        safe_candidate_id = validate_storage_id(candidate_id, "candidate_id")
+        return self.eval_candidates_dir() / f"{safe_candidate_id}.json"
 
     def create_job(self, job: dict[str, Any]) -> None:
         """Create the job directory and write its initial manifest."""
@@ -431,7 +464,7 @@ class UploadStore:
         url: str | None = None,
     ) -> dict[str, Any]:
         """Build one artifact pointer using storage-key semantics."""
-        rel_path = Path(relative_path)
+        rel_path = _safe_relative_path(relative_path)
         full_path = self._storage_path(job_id, rel_path)
         size_bytes = full_path.stat().st_size if full_path.exists() else 0
         storage_key = f"jobs/{job_id}/{rel_path.as_posix()}"
@@ -604,7 +637,7 @@ class UploadStore:
 
     def _storage_path(self, job_id: str, relative_path: str | Path) -> Path:
         """Resolve one logical job-relative artifact path to its storage path."""
-        rel_path = Path(relative_path)
+        rel_path = _safe_relative_path(relative_path)
         if rel_path.name.startswith("queued-input.") or rel_path.name == "worker-claim.json":
             return self.job_dir(job_id) / rel_path
         return self.artifact_job_dir(job_id) / rel_path
