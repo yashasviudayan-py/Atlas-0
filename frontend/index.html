@@ -7,6 +7,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script>
+    (() => {
+      try {
+        const theme = localStorage.getItem('atlas0.theme');
+        document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';
+        if (localStorage.getItem('atlas0.reducedMotion') === 'true') {
+          document.documentElement.dataset.reducedMotion = 'true';
+        }
+      } catch {}
+    })();
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
 
@@ -29,6 +40,15 @@
       --rose-wash: rgba(217, 139, 123, 0.12);
       --danger: #c84b43;
       --danger-wash: rgba(200, 75, 67, 0.12);
+      --app-bg:
+        radial-gradient(circle at top left, rgba(214, 127, 48, 0.20), transparent 26%),
+        radial-gradient(circle at top right, rgba(12, 128, 116, 0.16), transparent 22%),
+        radial-gradient(circle at 50% 120%, rgba(217, 139, 123, 0.10), transparent 30%),
+        linear-gradient(180deg, #fcf6ec 0%, #f4ede2 100%);
+      --body-noise:
+        linear-gradient(rgba(255,255,255,0.18), rgba(255,255,255,0.18)),
+        radial-gradient(circle at 1px 1px, rgba(79, 53, 40, 0.08) 1px, transparent 0);
+      --body-glow: radial-gradient(circle, rgba(255,255,255,0.4), rgba(255,255,255,0));
       --shadow: 0 18px 60px rgba(41, 25, 15, 0.10);
       --shadow-soft: 0 12px 34px rgba(41, 25, 15, 0.08);
       --radius-xl: 28px;
@@ -39,15 +59,52 @@
       --font-mono: 'IBM Plex Mono', monospace;
     }
 
+    :root[data-theme="dark"] {
+      --bg: #091210;
+      --bg-soft: rgba(10, 18, 16, 0.86);
+      --panel: rgba(18, 24, 21, 0.92);
+      --panel-strong: #171d19;
+      --ink: #fff9f0;
+      --ink-soft: #d8cfc4;
+      --ink-muted: #9d9288;
+      --line: rgba(255, 247, 235, 0.12);
+      --line-strong: rgba(255, 247, 235, 0.22);
+      --accent: #22b9a9;
+      --accent-strong: #74dacc;
+      --accent-wash: rgba(34, 185, 169, 0.16);
+      --gold: #f39a37;
+      --gold-wash: rgba(243, 154, 55, 0.16);
+      --rose: #ef9e8e;
+      --rose-wash: rgba(239, 158, 142, 0.15);
+      --danger: #f06d63;
+      --danger-wash: rgba(240, 109, 99, 0.16);
+      --app-bg:
+        radial-gradient(circle at 12% 0%, rgba(34, 185, 169, 0.22), transparent 26%),
+        radial-gradient(circle at 100% 8%, rgba(243, 154, 55, 0.20), transparent 24%),
+        radial-gradient(circle at 50% 120%, rgba(239, 158, 142, 0.14), transparent 30%),
+        linear-gradient(180deg, #08100f 0%, #11120f 100%);
+      --body-noise:
+        linear-gradient(rgba(255,255,255,0.02), rgba(255,255,255,0.02)),
+        radial-gradient(circle at 1px 1px, rgba(255, 247, 235, 0.08) 1px, transparent 0);
+      --body-glow: radial-gradient(circle, rgba(34, 185, 169, 0.18), rgba(34, 185, 169, 0));
+      --shadow: 0 18px 60px rgba(0, 0, 0, 0.34);
+      --shadow-soft: 0 12px 34px rgba(0, 0, 0, 0.24);
+    }
+
+    :root[data-reduced-motion="true"] *,
+    :root[data-reduced-motion="true"] *::before,
+    :root[data-reduced-motion="true"] *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+    }
+
     html, body {
       margin: 0;
       min-height: 100%;
       scroll-behavior: smooth;
-      background:
-        radial-gradient(circle at top left, rgba(214, 127, 48, 0.20), transparent 26%),
-        radial-gradient(circle at top right, rgba(12, 128, 116, 0.16), transparent 22%),
-        radial-gradient(circle at 50% 120%, rgba(217, 139, 123, 0.10), transparent 30%),
-        linear-gradient(180deg, #fcf6ec 0%, #f4ede2 100%);
+      background: var(--app-bg);
       color: var(--ink);
       font-family: var(--font-sans);
     }
@@ -56,9 +113,7 @@
       content: '';
       position: fixed;
       inset: 0;
-      background:
-        linear-gradient(rgba(255,255,255,0.18), rgba(255,255,255,0.18)),
-        radial-gradient(circle at 1px 1px, rgba(79, 53, 40, 0.08) 1px, transparent 0);
+      background: var(--body-noise);
       background-size: auto, 24px 24px;
       pointer-events: none;
       opacity: 0.38;
@@ -72,7 +127,7 @@
       width: 360px;
       height: 360px;
       border-radius: 999px;
-      background: radial-gradient(circle, rgba(255,255,255,0.4), rgba(255,255,255,0));
+      background: var(--body-glow);
       filter: blur(12px);
       pointer-events: none;
       opacity: 0.72;
@@ -214,6 +269,27 @@
       border-radius: 999px;
       background: var(--accent);
       box-shadow: 0 0 0 4px rgba(12, 128, 116, 0.08);
+    }
+
+    .settings-icon {
+      width: 38px;
+      height: 38px;
+      flex: 0 0 auto;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--accent-wash), var(--gold-wash));
+      border: 1px solid var(--line);
+    }
+
+    .settings-icon svg {
+      width: 18px;
+      height: 18px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
     .main {
@@ -391,6 +467,16 @@
       color: var(--ink-soft);
       font-size: 0.82rem;
       line-height: 1.5;
+    }
+
+    :root[data-theme="dark"] .hero,
+    :root[data-theme="dark"] .hero-side,
+    :root[data-theme="dark"] .hero-step,
+    :root[data-theme="dark"] .hero-metric,
+    :root[data-theme="dark"] .soft-badge,
+    :root[data-theme="dark"] .feedback-btn,
+    :root[data-theme="dark"] .toggle-pill {
+      background-color: rgba(23, 29, 25, 0.78);
     }
 
     .view {
@@ -1150,6 +1236,11 @@
       color: var(--ink);
     }
 
+    :root[data-theme="dark"] .feedback-btn:hover,
+    :root[data-theme="dark"] .toggle-pill:hover {
+      background: var(--panel-strong);
+    }
+
     .feedback-btn.active {
       color: var(--accent-strong);
       border-color: rgba(12, 128, 116, 0.28);
@@ -1165,6 +1256,223 @@
       color: var(--ink-soft);
       font-size: 0.9rem;
       line-height: 1.5;
+    }
+
+    .settings-hero {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      background:
+        radial-gradient(circle at top right, var(--accent-wash), transparent 34%),
+        linear-gradient(135deg, var(--panel), var(--bg-soft));
+    }
+
+    .settings-hero h3 {
+      margin: 6px 0 8px;
+      font-size: clamp(1.7rem, 3vw, 2.45rem);
+      letter-spacing: -0.05em;
+    }
+
+    .settings-hero p {
+      margin: 0;
+      max-width: 68ch;
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+
+    .settings-badge,
+    .settings-status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 36px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      color: var(--ink-soft);
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      white-space: nowrap;
+    }
+
+    .settings-grid,
+    .settings-details-grid {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .settings-card {
+      display: grid;
+      gap: 18px;
+      min-height: 210px;
+    }
+
+    .section-head.compact {
+      margin-bottom: 0;
+    }
+
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: linear-gradient(135deg, var(--bg-soft), var(--panel-strong));
+      cursor: pointer;
+    }
+
+    .switch-row strong,
+    .switch-row small {
+      display: block;
+    }
+
+    .switch-row small {
+      margin-top: 4px;
+      color: var(--ink-muted);
+      line-height: 1.45;
+    }
+
+    .switch-input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .switch-track {
+      position: relative;
+      width: 58px;
+      height: 34px;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      border: 1px solid var(--line-strong);
+      background: rgba(42, 33, 27, 0.12);
+      transition: background 0.16s ease, border-color 0.16s ease;
+    }
+
+    .switch-track span {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      background: var(--panel-strong);
+      box-shadow: var(--shadow-soft);
+      transition: transform 0.16s ease;
+    }
+
+    .switch-input:checked + .switch-track {
+      border-color: rgba(12, 128, 116, 0.36);
+      background: linear-gradient(135deg, var(--accent), var(--gold));
+    }
+
+    .switch-input:checked + .switch-track span {
+      transform: translateX(24px);
+    }
+
+    .switch-input:focus-visible + .switch-track {
+      outline: 3px solid var(--accent-wash);
+      outline-offset: 3px;
+    }
+
+    .settings-action-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-top: auto;
+    }
+
+    .settings-details {
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .settings-details summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 20px 22px;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .settings-details summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .settings-details summary::after {
+      content: '+';
+      width: 32px;
+      height: 32px;
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--accent-strong);
+      background: var(--accent-wash);
+      font-family: var(--font-mono);
+    }
+
+    .settings-details[open] summary::after {
+      content: '-';
+    }
+
+    .settings-details summary span,
+    .settings-details summary small {
+      display: block;
+    }
+
+    .settings-details summary span {
+      color: var(--ink);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .settings-details summary small {
+      margin-top: 4px;
+      color: var(--ink-muted);
+    }
+
+    .settings-detail-body {
+      display: grid;
+      gap: 14px;
+      padding: 0 22px 22px;
+      color: var(--ink-soft);
+      line-height: 1.62;
+    }
+
+    .settings-detail-body p {
+      margin: 0;
+    }
+
+    .settings-list {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    .settings-list li + li {
+      margin-top: 8px;
+    }
+
+    .app-footer {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 16px 20px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: var(--bg-soft);
+      color: var(--ink-muted);
+      font-size: 0.88rem;
+      box-shadow: var(--shadow-soft);
     }
 
     .evaluation-controls {
@@ -1305,9 +1613,11 @@
       transform: translateY(-1px);
     }
 
-    .button-link.disabled {
+    .button-link.disabled,
+    .button-link:disabled {
       opacity: 0.45;
       pointer-events: none;
+      cursor: not-allowed;
     }
 
     .scene-stage {
@@ -1483,6 +1793,8 @@
       #app,
       .scene-shell,
       .panel-grid,
+      .settings-grid,
+      .settings-details-grid,
       .insight-grid,
       .report-columns,
       .evidence-columns {
@@ -1508,6 +1820,11 @@
       }
 
       .hero {
+        flex-direction: column;
+      }
+
+      .settings-hero,
+      .app-footer {
         flex-direction: column;
       }
 
@@ -1586,6 +1903,18 @@
             <span>Inspect spatial context as a secondary view</span>
           </span>
           <span class="tip">Scene</span>
+        </button>
+        <button class="nav-btn settings-nav" data-view="settings" type="button" aria-label="Open settings">
+          <span>
+            <strong>Settings</strong>
+            <span>Theme, comfort, privacy, and product notes</span>
+          </span>
+          <span class="settings-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"></path>
+              <path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.04.04a2.1 2.1 0 0 1-2.97 2.97l-.04-.04a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.09 1.65V21.4a2.1 2.1 0 0 1-4.2 0v-.06a1.8 1.8 0 0 0-1.09-1.65 1.8 1.8 0 0 0-1.98.36l-.04.04a2.1 2.1 0 1 1-2.97-2.97l.04-.04A1.8 1.8 0 0 0 3.8 15a1.8 1.8 0 0 0-1.65-1.09H2.1a2.1 2.1 0 0 1 0-4.2h.06A1.8 1.8 0 0 0 3.8 8.62a1.8 1.8 0 0 0-.36-1.98l-.04-.04A2.1 2.1 0 1 1 6.37 3.63l.04.04a1.8 1.8 0 0 0 1.98.36A1.8 1.8 0 0 0 9.48 2.4V2.1a2.1 2.1 0 0 1 4.2 0v.3a1.8 1.8 0 0 0 1.09 1.65 1.8 1.8 0 0 0 1.98-.36l.04-.04a2.1 2.1 0 1 1 2.97 2.97l-.04.04a1.8 1.8 0 0 0-.36 1.98 1.8 1.8 0 0 0 1.65 1.09h.29a2.1 2.1 0 0 1 0 4.2h-.29A1.8 1.8 0 0 0 19.4 15Z"></path>
+            </svg>
+          </span>
         </button>
       </nav>
 
@@ -2079,6 +2408,118 @@
           </aside>
         </div>
       </section>
+
+      <section id="view-settings" class="view" aria-label="Settings view">
+        <section class="settings-hero panel">
+          <div>
+            <p class="eyebrow">Settings</p>
+            <h3>Make ATLAS-0 feel right for this browser.</h3>
+            <p>These preferences stay local to your device. They tune the interface, report visibility, and quick-access beta controls without changing the underlying scan.</p>
+          </div>
+          <span class="settings-badge">Local preferences</span>
+        </section>
+
+        <section class="settings-grid">
+          <article class="settings-card panel">
+            <div class="section-head compact">
+              <div>
+                <h3>Appearance</h3>
+                <p>Choose the visual mode that is easiest to read while reviewing a room report.</p>
+              </div>
+            </div>
+            <label class="switch-row" for="theme-toggle">
+              <span>
+                <strong>Dark mode</strong>
+                <small id="theme-status">Using light mode</small>
+              </span>
+              <input id="theme-toggle" class="switch-input" type="checkbox" />
+              <span class="switch-track" aria-hidden="true"><span></span></span>
+            </label>
+          </article>
+
+          <article class="settings-card panel">
+            <div class="section-head compact">
+              <div>
+                <h3>Comfort</h3>
+                <p>Quiet the interface down when you want less motion during report review.</p>
+              </div>
+            </div>
+            <label class="switch-row" for="motion-toggle">
+              <span>
+                <strong>Reduce motion</strong>
+                <small id="motion-status">Animations are on</small>
+              </span>
+              <input id="motion-toggle" class="switch-input" type="checkbox" />
+              <span class="switch-track" aria-hidden="true"><span></span></span>
+            </label>
+          </article>
+
+          <article class="settings-card panel">
+            <div class="section-head compact">
+              <div>
+                <h3>Report defaults</h3>
+                <p>Decide whether lower-confidence findings should appear by default in future report views.</p>
+              </div>
+            </div>
+            <label class="switch-row" for="settings-low-confidence-toggle">
+              <span>
+                <strong>Show lower-confidence findings</strong>
+                <small>Useful for curious review; keep off for cleaner action lists.</small>
+              </span>
+              <input id="settings-low-confidence-toggle" class="switch-input" type="checkbox" />
+              <span class="switch-track" aria-hidden="true"><span></span></span>
+            </label>
+          </article>
+
+          <article class="settings-card panel">
+            <div class="section-head compact">
+              <div>
+                <h3>Privacy shortcut</h3>
+                <p>Manage the private-beta token stored in this browser.</p>
+              </div>
+            </div>
+            <div class="settings-action-row">
+              <span id="settings-token-status" class="settings-status">Checking token status</span>
+              <button id="settings-token-clear" class="button-link ghost" type="button">Clear saved token</button>
+            </div>
+          </article>
+        </section>
+
+        <section class="settings-details-grid">
+          <details class="settings-details panel" open>
+            <summary>
+              <span>About ATLAS-0</span>
+              <small>What this product is and is not</small>
+            </summary>
+            <div class="settings-detail-body">
+              <p>ATLAS-0 is a report-first room safety scan: upload a 20-60 second walkthrough and get hazards, evidence frames, confidence signals, recommendations, and a PDF report.</p>
+              <p>It is decision support, not a safety certification. The honest product promise is to help people notice fixable room risks faster.</p>
+            </div>
+          </details>
+
+          <details class="settings-details panel">
+            <summary>
+              <span>Fun things to try</span>
+              <small>Daily-use ideas for beta users</small>
+            </summary>
+            <div class="settings-detail-body">
+              <ul class="settings-list">
+                <li>Run a quick toddler-proofing pass before guests arrive.</li>
+                <li>Try a pet safety scan for loose cords, unstable objects, and climbable surfaces.</li>
+                <li>Do a before-and-after rescan after fixing one room and compare the weekend fix list.</li>
+                <li>Use it as a renter move-in checklist with evidence frames you can keep.</li>
+                <li>Load the sample report when showing ATLAS-0 to a friend.</li>
+              </ul>
+              <button id="settings-sample-btn" class="button-link" type="button">Open sample report</button>
+            </div>
+          </details>
+        </section>
+      </section>
+
+      <footer class="app-footer">
+        <span>&copy; 2026 ATLAS-0.</span>
+        <span>Room safety reports for decision support, not safety certification.</span>
+      </footer>
     </main>
   </div>
 
