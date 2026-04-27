@@ -6,10 +6,29 @@ import * as api from './api.js';
 import { SceneViewer } from './scene_viewer.js';
 import { UploadView } from './upload.js';
 
+const THEME_STORAGE_KEY = 'atlas0.theme';
+const MOTION_STORAGE_KEY = 'atlas0.reducedMotion';
+const LOW_CONFIDENCE_STORAGE_KEY = 'atlas0.showLowConfidenceDefault';
+
+function readStoredPreference(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPreference(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {}
+}
+
 const VIEW_LABELS = {
   scan: 'Scan',
   report: 'Report',
   scene: 'Scene',
+  settings: 'Settings',
 };
 
 const state = {
@@ -17,7 +36,7 @@ const state = {
   activeJobId: null,
   activeSampleKey: null,
   jobs: new Map(),
-  showLowConfidence: false,
+  showLowConfidence: readStoredPreference(LOW_CONFIDENCE_STORAGE_KEY) === 'true',
   accessPolicy: null,
   privacyPolicy: null,
   uploadGuidance: null,
@@ -86,6 +105,9 @@ const reportEvalCard = document.getElementById('report-eval-card');
 const weekendFixList = document.getElementById('weekend-fix-list');
 const roomWinsList = document.getElementById('room-wins-list');
 const lowConfidenceToggle = /** @type {HTMLInputElement} */ (document.getElementById('low-confidence-toggle'));
+const settingsLowConfidenceToggle = /** @type {HTMLInputElement} */ (
+  document.getElementById('settings-low-confidence-toggle')
+);
 const findingToggleNote = document.getElementById('finding-toggle-note');
 const shareLinkNote = document.getElementById('share-link-note');
 const reportHeadline = document.getElementById('report-headline');
@@ -97,6 +119,13 @@ const trustNotes = document.getElementById('trust-notes');
 const exportPdfBtn = /** @type {HTMLAnchorElement} */ (document.getElementById('export-pdf-btn'));
 const copyShareBtn = /** @type {HTMLButtonElement} */ (document.getElementById('copy-share-btn'));
 const deleteJobBtn = /** @type {HTMLButtonElement} */ (document.getElementById('delete-job-btn'));
+const themeToggle = /** @type {HTMLInputElement} */ (document.getElementById('theme-toggle'));
+const themeStatus = document.getElementById('theme-status');
+const motionToggle = /** @type {HTMLInputElement} */ (document.getElementById('motion-toggle'));
+const motionStatus = document.getElementById('motion-status');
+const settingsTokenStatus = document.getElementById('settings-token-status');
+const settingsTokenClear = /** @type {HTMLButtonElement} */ (document.getElementById('settings-token-clear'));
+const settingsSampleBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-sample-btn'));
 
 const sceneCanvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene-canvas'));
 const sceneEmpty = document.getElementById('scene-empty');
@@ -185,6 +214,78 @@ async function trackProductEvent(eventName, extra = {}) {
   try {
     await api.logProductEvent({ event_name: eventName, ...extra });
   } catch {}
+}
+
+function applyThemePreference(theme) {
+  const nextTheme = theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = nextTheme;
+  writeStoredPreference(THEME_STORAGE_KEY, nextTheme);
+
+  if (themeToggle) {
+    themeToggle.checked = nextTheme === 'dark';
+  }
+  if (themeStatus) {
+    themeStatus.textContent = nextTheme === 'dark' ? 'Using dark mode' : 'Using light mode';
+  }
+}
+
+function applyMotionPreference(reduced) {
+  const enabled = Boolean(reduced);
+  if (enabled) {
+    document.documentElement.dataset.reducedMotion = 'true';
+  } else {
+    delete document.documentElement.dataset.reducedMotion;
+  }
+  writeStoredPreference(MOTION_STORAGE_KEY, enabled ? 'true' : 'false');
+
+  if (motionToggle) {
+    motionToggle.checked = enabled;
+  }
+  if (motionStatus) {
+    motionStatus.textContent = enabled ? 'Animations are reduced' : 'Animations are on';
+  }
+}
+
+function syncLowConfidenceControls() {
+  if (lowConfidenceToggle) {
+    lowConfidenceToggle.checked = state.showLowConfidence;
+  }
+  if (settingsLowConfidenceToggle) {
+    settingsLowConfidenceToggle.checked = state.showLowConfidence;
+  }
+}
+
+function setLowConfidenceVisibility(enabled, persist = true) {
+  state.showLowConfidence = Boolean(enabled);
+  if (persist) {
+    writeStoredPreference(LOW_CONFIDENCE_STORAGE_KEY, state.showLowConfidence ? 'true' : 'false');
+  }
+  syncLowConfidenceControls();
+  renderReport(activeJob());
+}
+
+function syncSettingsAccessStatus() {
+  const tokenStored = Boolean(api.getAccessToken());
+  if (settingsTokenStatus) {
+    settingsTokenStatus.textContent = tokenStored
+      ? 'Private-beta token stored locally'
+      : 'No private-beta token stored';
+  }
+  if (settingsTokenClear) {
+    settingsTokenClear.disabled = !tokenStored;
+  }
+}
+
+async function loadSampleReport() {
+  try {
+    const sample = await api.fetchSampleReport();
+    upsertJob(sample);
+    setActiveJob(sample.job_id);
+    switchView('report');
+    showToast('Sample report loaded.');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not load the sample report.', 3600);
+  }
 }
 
 function switchView(id) {
@@ -347,6 +448,7 @@ function renderProcessing(job) {
 }
 
 function renderReport(job) {
+  syncLowConfidenceControls();
   if (!job || job.status !== 'complete') {
     reportHero.classList.add('empty');
     reportHeadline.textContent = 'No report yet';
@@ -822,6 +924,7 @@ function renderAccessPanels(errorMessage = '') {
   const tokenStored = Boolean(api.getAccessToken());
 
   accessTokenClear.disabled = !tokenStored;
+  syncSettingsAccessStatus();
 
   if (!privacy) {
     privacyPolicy.innerHTML = emptyMarkup('Privacy defaults are unavailable right now.');
@@ -1082,17 +1185,7 @@ jumpButtons.forEach((button) => {
 });
 
 sampleButtons.forEach((button) => {
-  button.addEventListener('click', async () => {
-    try {
-      const sample = await api.fetchSampleReport();
-      upsertJob(sample);
-      setActiveJob(sample.job_id);
-      switchView('report');
-      showToast('Sample report loaded.');
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Could not load the sample report.', 3600);
-    }
-  });
+  button.addEventListener('click', loadSampleReport);
 });
 
 document.getElementById('scene-refresh-btn')?.addEventListener('click', () => {
@@ -1115,13 +1208,37 @@ const uploadView = new UploadView({
 });
 
 uploadView.init();
+applyThemePreference(readStoredPreference(THEME_STORAGE_KEY) || document.documentElement.dataset.theme || 'light');
+applyMotionPreference(readStoredPreference(MOTION_STORAGE_KEY) === 'true');
+syncLowConfidenceControls();
+syncSettingsAccessStatus();
 bootstrapApp();
 pollHealth();
 setInterval(pollHealth, 6000);
 
 lowConfidenceToggle?.addEventListener('change', (event) => {
-  state.showLowConfidence = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
-  renderReport(activeJob());
+  setLowConfidenceVisibility(/** @type {HTMLInputElement} */ (event.currentTarget).checked);
+});
+
+settingsLowConfidenceToggle?.addEventListener('change', (event) => {
+  setLowConfidenceVisibility(/** @type {HTMLInputElement} */ (event.currentTarget).checked);
+});
+
+themeToggle?.addEventListener('change', (event) => {
+  const enabled = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
+  applyThemePreference(enabled ? 'dark' : 'light');
+  trackProductEvent('settings_theme_changed', { theme: enabled ? 'dark' : 'light' });
+});
+
+motionToggle?.addEventListener('change', (event) => {
+  const enabled = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
+  applyMotionPreference(enabled);
+  trackProductEvent('settings_motion_changed', { reduced_motion: enabled });
+});
+
+settingsSampleBtn?.addEventListener('click', () => {
+  trackProductEvent('settings_sample_opened');
+  loadSampleReport();
 });
 
 accessTokenSave?.addEventListener('click', async () => {
@@ -1145,20 +1262,32 @@ accessTokenSave?.addEventListener('click', async () => {
       upsertJob(await api.fetchSampleReport());
     } catch {}
   }
+  syncSettingsAccessStatus();
   showToast(state.operatorSettings ? 'Access token saved.' : 'Token saved, but access is still blocked.', 3200);
 });
 
-accessTokenClear?.addEventListener('click', async () => {
+async function clearStoredAccessToken() {
   api.clearAccessToken();
   accessTokenInput.value = '';
   state.operatorSettings = null;
   state.jobs.clear();
   state.activeJobId = null;
+  state.activeSampleKey = null;
   renderAccessPanels();
   renderUploads();
   renderProcessing(null);
   renderReport(null);
+  syncSettingsAccessStatus();
+  switchView('scan');
   showToast('Stored access token cleared.');
+}
+
+accessTokenClear?.addEventListener('click', async () => {
+  await clearStoredAccessToken();
+});
+
+settingsTokenClear?.addEventListener('click', async () => {
+  await clearStoredAccessToken();
 });
 
 operatorPruneBtn?.addEventListener('click', async () => {
