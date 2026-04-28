@@ -563,6 +563,97 @@
       font-size: 0.7rem;
     }
 
+    .mission-card {
+      position: relative;
+      overflow: hidden;
+      display: grid;
+      gap: 14px;
+      padding: 18px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(12, 128, 116, 0.18);
+      background:
+        radial-gradient(circle at top right, rgba(214, 127, 48, 0.18), transparent 34%),
+        linear-gradient(135deg, rgba(12, 128, 116, 0.11), rgba(255,255,255,0.72));
+      box-shadow: var(--shadow-soft);
+    }
+
+    .mission-card::after {
+      content: '';
+      position: absolute;
+      right: -38px;
+      top: -42px;
+      width: 140px;
+      height: 140px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(255,255,255,0.48), rgba(255,255,255,0));
+      pointer-events: none;
+    }
+
+    .mission-card h4,
+    .mission-card p,
+    .mission-card .actions,
+    .mission-steps {
+      position: relative;
+      z-index: 1;
+    }
+
+    .mission-card h4 {
+      margin: 0;
+      font-size: clamp(1.2rem, 2vw, 1.55rem);
+      letter-spacing: -0.04em;
+    }
+
+    .mission-card p {
+      margin: 0;
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+
+    .mission-steps {
+      display: grid;
+      gap: 8px;
+    }
+
+    .mission-step {
+      display: flex;
+      gap: 9px;
+      align-items: flex-start;
+      color: var(--ink-soft);
+      font-size: 0.9rem;
+      line-height: 1.45;
+    }
+
+    .mission-step::before {
+      content: '';
+      width: 9px;
+      height: 9px;
+      margin-top: 0.45em;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px var(--accent-wash);
+    }
+
+    .mission-progress {
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+    }
+
+    .mission-progress.complete {
+      color: var(--accent-strong);
+    }
+
+    :root[data-theme="dark"] .mission-card {
+      background:
+        radial-gradient(circle at top right, rgba(243, 154, 55, 0.18), transparent 34%),
+        linear-gradient(135deg, rgba(34, 185, 169, 0.14), var(--panel));
+    }
+
+    :root[data-theme="dark"] .mission-card::after {
+      background: radial-gradient(circle, rgba(34, 185, 169, 0.16), rgba(34, 185, 169, 0));
+    }
+
     .operator-grid,
     .policy-list {
       display: grid;
@@ -2005,6 +2096,17 @@
               <div class="actions" style="margin-bottom: 12px;">
                 <button class="button-link ghost" type="button" data-load-sample="walkthrough">Open the built-in sample report</button>
               </div>
+              <article class="mission-card" aria-labelledby="daily-mission-title">
+                <span class="guide-kicker">Daily safety mission</span>
+                <h4 id="daily-mission-title">Loading today’s room challenge...</h4>
+                <p id="daily-mission-copy">Pick one small scan goal and make the room a little easier to trust.</p>
+                <div id="daily-mission-steps" class="mission-steps"></div>
+                <div class="actions">
+                  <button id="daily-mission-start" class="button-link" type="button">Use this mission</button>
+                  <button id="daily-mission-complete" class="button-link ghost" type="button">Mark tried today</button>
+                </div>
+                <p id="daily-mission-progress" class="mission-progress">No missions tried yet.</p>
+              </article>
               <div class="guide-grid">
                 <article class="guide-card">
                   <span class="guide-kicker">Record</span>
@@ -2508,6 +2610,7 @@
                 <li>Try a pet safety scan for loose cords, unstable objects, and climbable surfaces.</li>
                 <li>Do a before-and-after rescan after fixing one room and compare the weekend fix list.</li>
                 <li>Use it as a renter move-in checklist with evidence frames you can keep.</li>
+                <li>Try the daily safety mission when you want a quick, low-pressure reason to scan again.</li>
                 <li>Load the sample report when showing ATLAS-0 to a friend.</li>
               </ul>
               <button id="settings-sample-btn" class="button-link" type="button">Open sample report</button>
