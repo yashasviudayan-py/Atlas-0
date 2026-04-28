@@ -9,6 +9,55 @@ import { UploadView } from './upload.js';
 const THEME_STORAGE_KEY = 'atlas0.theme';
 const MOTION_STORAGE_KEY = 'atlas0.reducedMotion';
 const LOW_CONFIDENCE_STORAGE_KEY = 'atlas0.showLowConfidenceDefault';
+const MISSION_STORAGE_KEY = 'atlas0.dailySafetyMission';
+
+const SAFETY_MISSIONS = [
+  {
+    id: 'cord-safari',
+    title: 'Cable safari',
+    audienceMode: 'pet',
+    roomLabel: 'Cable safari',
+    copy: 'Hunt for tempting cords, charger loops, and low wires that pets or feet can catch.',
+    uploadHint: 'Record low shelves, desk corners, chargers, and floor paths where cords cross walking space.',
+    steps: ['Start at floor height near outlets.', 'Pause on desks, TV stands, and charging corners.', 'Look for one cord you can route or tuck away.'],
+  },
+  {
+    id: 'toddler-reach-test',
+    title: 'Toddler reach test',
+    audienceMode: 'toddler',
+    roomLabel: 'Toddler reach test',
+    copy: 'Scan everything below counter height and ask, “what could a small hand pull, climb, or tip?”',
+    uploadHint: 'Keep low tables, shelves, handles, cords, and climbable furniture in frame for a steady moment.',
+    steps: ['Walk the room from a lower angle.', 'Pause on reachable drawers, cords, and unstable furniture.', 'Fix or move one easy object after the report.'],
+  },
+  {
+    id: 'renter-move-in-pass',
+    title: 'Move-in receipt',
+    audienceMode: 'renter',
+    roomLabel: 'Move-in receipt',
+    copy: 'Make a quick evidence-backed room note before moving furniture, boxes, or pets through the space.',
+    uploadHint: 'Record walls, floors, corners, fixtures, and any existing hazards you may want documented.',
+    steps: ['Scan each wall and corner slowly.', 'Capture fixtures, floor edges, and existing damage.', 'Download the PDF if the report finds anything worth saving.'],
+  },
+  {
+    id: 'fall-zone-five',
+    title: 'Five-minute fall zone',
+    audienceMode: 'general',
+    roomLabel: 'Fall zone',
+    copy: 'Find one thing that could fall, tip, slide, or break if bumped during a busy day.',
+    uploadHint: 'Record shelves, counters, tall furniture, and narrow walk paths where bumps are likely.',
+    steps: ['Start with the tallest furniture.', 'Pause on shelves and counter edges.', 'Pick one quick stabilization fix.'],
+  },
+  {
+    id: 'guest-ready-scan',
+    title: 'Guest-ready sweep',
+    audienceMode: 'general',
+    roomLabel: 'Guest-ready sweep',
+    copy: 'Before people come over, check the obvious trip paths and fragile surfaces once.',
+    uploadHint: 'Record doorways, rug edges, coffee tables, walk paths, and anything fragile near elbows or bags.',
+    steps: ['Walk the path a guest would take.', 'Pause on rugs, low tables, and doorways.', 'Remove one trip or bump hazard before guests arrive.'],
+  },
+];
 
 function readStoredPreference(key) {
   try {
@@ -126,6 +175,12 @@ const motionStatus = document.getElementById('motion-status');
 const settingsTokenStatus = document.getElementById('settings-token-status');
 const settingsTokenClear = /** @type {HTMLButtonElement} */ (document.getElementById('settings-token-clear'));
 const settingsSampleBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-sample-btn'));
+const dailyMissionTitle = document.getElementById('daily-mission-title');
+const dailyMissionCopy = document.getElementById('daily-mission-copy');
+const dailyMissionSteps = document.getElementById('daily-mission-steps');
+const dailyMissionProgress = document.getElementById('daily-mission-progress');
+const dailyMissionStart = /** @type {HTMLButtonElement} */ (document.getElementById('daily-mission-start'));
+const dailyMissionComplete = /** @type {HTMLButtonElement} */ (document.getElementById('daily-mission-complete'));
 
 const sceneCanvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene-canvas'));
 const sceneEmpty = document.getElementById('scene-empty');
@@ -286,6 +341,119 @@ async function loadSampleReport() {
   } catch (error) {
     showToast(error instanceof Error ? error.message : 'Could not load the sample report.', 3600);
   }
+}
+
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function dailyMissionForDate(date = new Date()) {
+  const dayNumber = Math.floor(new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() / 86_400_000);
+  return SAFETY_MISSIONS[dayNumber % SAFETY_MISSIONS.length];
+}
+
+function dailyMissionStreak(completedDates, fromDate = new Date()) {
+  const completed = new Set(completedDates);
+  let streak = 0;
+  const cursor = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
+  while (completed.has(localDateKey(cursor))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+function readDailyMissionState() {
+  const raw = readStoredPreference(MISSION_STORAGE_KEY);
+  if (!raw) {
+    return { completedDates: [] };
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      completedDates: Array.isArray(parsed.completedDates) ? parsed.completedDates.slice(-45) : [],
+      lastMissionId: typeof parsed.lastMissionId === 'string' ? parsed.lastMissionId : null,
+    };
+  } catch {
+    return { completedDates: [] };
+  }
+}
+
+function writeDailyMissionState(nextState) {
+  writeStoredPreference(MISSION_STORAGE_KEY, JSON.stringify({
+    completedDates: Array.isArray(nextState.completedDates) ? nextState.completedDates.slice(-45) : [],
+    lastMissionId: nextState.lastMissionId || null,
+  }));
+}
+
+function renderDailyMission() {
+  if (!dailyMissionTitle || !dailyMissionCopy || !dailyMissionSteps || !dailyMissionProgress) {
+    return;
+  }
+
+  const mission = dailyMissionForDate();
+  const today = localDateKey();
+  const missionState = readDailyMissionState();
+  const completedToday = missionState.completedDates.includes(today);
+  const totalCompleted = missionState.completedDates.length;
+  const streak = completedToday ? dailyMissionStreak(missionState.completedDates) : 0;
+
+  dailyMissionTitle.textContent = mission.title;
+  dailyMissionCopy.textContent = mission.copy;
+  dailyMissionSteps.innerHTML = mission.steps.map((step) => (
+    `<div class="mission-step">${escapeHtml(step)}</div>`
+  )).join('');
+  dailyMissionProgress.classList.toggle('complete', completedToday);
+  dailyMissionProgress.textContent = completedToday
+    ? `Mission tried today. ${streak}-day streak, ${totalCompleted} total mission${totalCompleted === 1 ? '' : 's'} logged on this browser.`
+    : totalCompleted
+      ? `${totalCompleted} mission${totalCompleted === 1 ? '' : 's'} logged on this browser. Try today’s one for a tiny streak.`
+      : 'No missions tried yet. Start with one small room win.';
+
+  if (dailyMissionComplete) {
+    dailyMissionComplete.disabled = completedToday;
+    dailyMissionComplete.textContent = completedToday ? 'Tried today' : 'Mark tried today';
+  }
+}
+
+function startDailyMission() {
+  const mission = dailyMissionForDate();
+  if (roomLabelInput && !roomLabelInput.value.trim()) {
+    roomLabelInput.value = mission.roomLabel;
+  }
+  if (audienceModeInput) {
+    audienceModeInput.value = mission.audienceMode;
+  }
+  if (uploadGuidanceCopy) {
+    uploadGuidanceCopy.textContent = mission.uploadHint;
+  }
+  trackProductEvent('daily_mission_started', {
+    mission_id: mission.id,
+    audience_mode: mission.audienceMode,
+  });
+  switchView('scan');
+  showToast(`${mission.title} loaded. Record one room when you are ready.`);
+}
+
+function completeDailyMission() {
+  const mission = dailyMissionForDate();
+  const today = localDateKey();
+  const missionState = readDailyMissionState();
+  const completedDates = new Set(missionState.completedDates);
+  completedDates.add(today);
+  writeDailyMissionState({
+    completedDates: [...completedDates].sort(),
+    lastMissionId: mission.id,
+  });
+  renderDailyMission();
+  trackProductEvent('daily_mission_completed', {
+    mission_id: mission.id,
+    completion_count: completedDates.size,
+  });
+  showToast('Mission logged locally. Tiny room win counted.');
 }
 
 function switchView(id) {
@@ -1188,6 +1356,9 @@ sampleButtons.forEach((button) => {
   button.addEventListener('click', loadSampleReport);
 });
 
+dailyMissionStart?.addEventListener('click', startDailyMission);
+dailyMissionComplete?.addEventListener('click', completeDailyMission);
+
 document.getElementById('scene-refresh-btn')?.addEventListener('click', () => {
   ensureScene();
   sceneViewer.refresh();
@@ -1212,6 +1383,7 @@ applyThemePreference(readStoredPreference(THEME_STORAGE_KEY) || document.documen
 applyMotionPreference(readStoredPreference(MOTION_STORAGE_KEY) === 'true');
 syncLowConfidenceControls();
 syncSettingsAccessStatus();
+renderDailyMission();
 bootstrapApp();
 pollHealth();
 setInterval(pollHealth, 6000);
