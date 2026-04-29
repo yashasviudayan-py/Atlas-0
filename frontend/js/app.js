@@ -10,6 +10,7 @@ const THEME_STORAGE_KEY = 'atlas0.theme';
 const MOTION_STORAGE_KEY = 'atlas0.reducedMotion';
 const LOW_CONFIDENCE_STORAGE_KEY = 'atlas0.showLowConfidenceDefault';
 const MISSION_STORAGE_KEY = 'atlas0.dailySafetyMission';
+const FIX_CHECKLIST_STORAGE_KEY = 'atlas0.fixChecklist';
 
 const SAFETY_MISSIONS = [
   {
@@ -147,12 +148,14 @@ const summarySeverity = document.getElementById('summary-severity');
 const summaryConfidence = document.getElementById('summary-confidence');
 const summaryCoverage = document.getElementById('summary-coverage');
 const summarySource = document.getElementById('summary-source');
+const roomScorecard = document.getElementById('room-scorecard');
 const fixFirstList = document.getElementById('fix-first-list');
 const scanQualityCard = document.getElementById('scan-quality-card');
 const reportPostureCard = document.getElementById('report-posture-card');
 const reportEvalCard = document.getElementById('report-eval-card');
 const weekendFixList = document.getElementById('weekend-fix-list');
 const roomWinsList = document.getElementById('room-wins-list');
+const fixChecklistList = document.getElementById('fix-checklist-list');
 const lowConfidenceToggle = /** @type {HTMLInputElement} */ (document.getElementById('low-confidence-toggle'));
 const settingsLowConfidenceToggle = /** @type {HTMLInputElement} */ (
   document.getElementById('settings-low-confidence-toggle')
@@ -164,6 +167,7 @@ const reportSubhead = document.getElementById('report-subhead');
 const reportHazards = document.getElementById('risk-report-list');
 const reportRecommendations = document.getElementById('rec-list');
 const reportEvidence = document.getElementById('evidence-grid');
+const evidenceTimeline = document.getElementById('evidence-timeline');
 const trustNotes = document.getElementById('trust-notes');
 const exportPdfBtn = /** @type {HTMLAnchorElement} */ (document.getElementById('export-pdf-btn'));
 const copyShareBtn = /** @type {HTMLButtonElement} */ (document.getElementById('copy-share-btn'));
@@ -638,9 +642,12 @@ function renderReport(job) {
     reportEvalCard.innerHTML = emptyMarkup('Feedback and review coverage will appear here after a completed scan.');
     weekendFixList.innerHTML = emptyMarkup('Weekend-friendly fixes will appear here after a completed scan.');
     roomWinsList.innerHTML = emptyMarkup('Positive scan signals will appear here after a completed scan.');
+    roomScorecard.innerHTML = emptyMarkup('Room scorecard will appear after a completed scan.');
+    fixChecklistList.innerHTML = emptyMarkup('Checklist items will appear after a completed scan.');
     reportHazards.innerHTML = emptyMarkup('Hazards will appear here once ATLAS-0 has something evidence-backed to show.');
     reportRecommendations.innerHTML = emptyMarkup('Recommendations will appear here after a completed scan.');
     reportEvidence.innerHTML = emptyMarkup('Evidence frames will appear here after a completed scan.');
+    evidenceTimeline.innerHTML = '';
     trustNotes.innerHTML = emptyMarkup('Trust notes will appear here after a completed scan.');
     findingToggleNote.textContent = 'Low-confidence findings stay hidden until a report is ready.';
     shareLinkNote.textContent = 'Share links open the exact report view. Hosted environments still respect token protection.';
@@ -699,6 +706,8 @@ function renderReport(job) {
   findingToggleNote.textContent = hiddenCount > 0 && !state.showLowConfidence
     ? `${hiddenCount} lower-confidence finding${hiddenCount === 1 ? '' : 's'} hidden to keep the report focused.`
     : 'Showing every finding, including weak or approximate ones.';
+
+  roomScorecard.innerHTML = renderRoomScorecard(job, summary, visibleHazards, fixFirst, recommendations, comparison, scanQuality);
 
   fixFirstList.innerHTML = fixFirst.length
     ? fixFirst.map((action, index) => `
@@ -832,9 +841,12 @@ function renderReport(job) {
       `).join('')
     : emptyMarkup('No actions were generated for this scan.');
 
+  fixChecklistList.innerHTML = renderFixChecklist(job, fixFirst, recommendations, visibleHazards);
+
+  evidenceTimeline.innerHTML = renderEvidenceTimeline(evidence);
   reportEvidence.innerHTML = evidence.length
-    ? evidence.map((frame) => `
-        <article class="evidence-card">
+    ? evidence.map((frame, index) => `
+        <article class="evidence-card" data-evidence-card="${index}">
           <img src="${api.withAccessToken(frame.image_url || '')}" alt="${escapeHtml(frame.caption || 'Evidence frame')}" />
           <div class="evidence-copy">
             <strong>${escapeHtml(frame.caption || 'Evidence frame')}</strong>
@@ -866,6 +878,8 @@ function renderReport(job) {
     attachFeedbackHandlers(job.job_id);
     attachEvaluationHandlers(job.job_id);
   }
+  attachFixChecklistHandlers(job.job_id);
+  attachEvidenceTimelineHandlers();
 }
 
 function renderHeroBadges(summary, roomLabel, comparison, resolution, isSample) {
@@ -892,6 +906,159 @@ function renderHeroBadges(summary, roomLabel, comparison, resolution, isSample) 
     badges.push(`${delta > 0 ? '+' : ''}${delta} vs last scan`);
   }
   return badges.map((badge) => `<span class="soft-badge">${escapeHtml(badge)}</span>`).join('');
+}
+
+function renderRoomScorecard(job, summary, hazards, fixFirst, recommendations, comparison, scanQuality) {
+  const score = typeof summary.room_score === 'number' ? Math.round(summary.room_score) : null;
+  const scoreLabel = score === null ? 'Pending' : `${score}/100`;
+  const topRisk = hazards[0]?.hazard_title || hazards[0]?.object_label || summary.top_hazard_label || 'No top risk yet';
+  const quickWin = fixFirst[0]?.title || recommendations[0]?.title || 'Review the report and pick one small fix';
+  const confidence = summary.confidence_label || (scanQuality.status ? `${capitalize(scanQuality.status)} scan` : 'Unknown');
+  const delta = comparison && typeof comparison.score_delta === 'number'
+    ? `${comparison.score_delta > 0 ? '+' : ''}${comparison.score_delta} vs last scan`
+    : 'First saved baseline';
+
+  return `
+    <div class="section-head compact">
+      <div>
+        <h3>Room safety scorecard</h3>
+        <p>A shareable, human-readable summary of what changed, what matters, and what to do first.</p>
+      </div>
+      <span class="pill">${escapeHtml(job.is_sample ? 'Sample scorecard' : 'Share-ready')}</span>
+    </div>
+    <div class="scorecard-grid">
+      <article class="score-tile">
+        <span>Room score</span>
+        <strong>${escapeHtml(scoreLabel)}</strong>
+        <p>${escapeHtml(summary.room_score_summary || summary.room_score_band || 'Score appears after a completed scan.')}</p>
+      </article>
+      <article class="score-tile">
+        <span>Progress</span>
+        <strong>${escapeHtml(delta)}</strong>
+        <p>${escapeHtml(comparison?.summary || 'Reuse the same room label to compare before and after scans.')}</p>
+      </article>
+      <article class="score-tile">
+        <span>Top risk</span>
+        <strong>${escapeHtml(topRisk)}</strong>
+        <p>${escapeHtml(summary.top_severity ? `${capitalize(summary.top_severity)} severity` : 'No high-confidence severity yet.')}</p>
+      </article>
+      <article class="score-tile">
+        <span>Confidence</span>
+        <strong>${escapeHtml(confidence)}</strong>
+        <p>${escapeHtml(scanQuality.capture_summary || summary.coverage_summary || 'Trust notes explain where the scan is weaker.')}</p>
+      </article>
+    </div>
+    <article class="room-win-card">
+      <div>
+        <span>Quick win</span>
+        <p>${escapeHtml(quickWin)}</p>
+      </div>
+      <button class="button-link ghost" type="button" data-share-room-win="true">Copy room win</button>
+    </article>
+  `;
+}
+
+function checklistStorageKey(jobId) {
+  return `${FIX_CHECKLIST_STORAGE_KEY}.${jobId}`;
+}
+
+function readChecklistState(jobId) {
+  const raw = readStoredPreference(checklistStorageKey(jobId));
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeChecklistState(jobId, nextState) {
+  writeStoredPreference(checklistStorageKey(jobId), JSON.stringify(nextState));
+}
+
+function checklistItemId(item, index) {
+  return `${index}:${String(item.title || item.hazard_title || item.object_label || item.action || 'item')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 48)}`;
+}
+
+function renderFixChecklist(job, fixFirst, recommendations, hazards) {
+  const items = [
+    ...fixFirst.map((item) => ({
+      title: item.title || 'Fix first',
+      action: item.action || item.why || '',
+      source: 'Priority',
+    })),
+    ...recommendations.map((item) => ({
+      title: item.title || 'Recommendation',
+      action: item.action || item.why || '',
+      source: 'Recommendation',
+    })),
+  ];
+
+  if (!items.length && hazards.length) {
+    items.push(...hazards.slice(0, 3).map((risk) => ({
+      title: risk.hazard_title || risk.object_label || 'Review finding',
+      action: risk.what_to_do_next || risk.recommendation || risk.why_it_matters || 'Review this finding before rescanning.',
+      source: 'Finding',
+    })));
+  }
+
+  if (!items.length) {
+    return emptyMarkup('No checklist items were generated for this report.');
+  }
+
+  const checklistState = readChecklistState(job.job_id);
+  return items.slice(0, 6).map((item, index) => {
+    const itemId = checklistItemId(item, index);
+    const checked = Boolean(checklistState[itemId]);
+    return `
+      <label class="fix-check-item ${checked ? 'done' : ''}" data-checklist-item="${escapeHtml(itemId)}">
+        <input type="checkbox" ${checked ? 'checked' : ''} />
+        <span class="fix-check-copy">
+          <strong>${escapeHtml(item.title)}</strong>
+          <span>${escapeHtml(item.action || 'Mark this once you have reviewed or fixed it.')}</span>
+          <span class="report-card-meta">${escapeHtml(item.source)}</span>
+        </span>
+      </label>
+    `;
+  }).join('');
+}
+
+function renderEvidenceTimeline(evidence) {
+  if (!evidence.length) {
+    return '';
+  }
+  return evidence.map((frame, index) => {
+    const label = typeof frame.timestamp_s === 'number'
+      ? `${frame.timestamp_s.toFixed(1)}s`
+      : typeof frame.frame_index === 'number'
+        ? `Frame ${frame.frame_index}`
+        : `Frame ${index + 1}`;
+    return `
+      <button class="timeline-marker" type="button" data-evidence-target="${index}">
+        <span class="timeline-dot"></span>
+        <span>${escapeHtml(label)}</span>
+      </button>
+    `;
+  }).join('');
+}
+
+function buildRoomWinShareText(job) {
+  const summary = job.summary || {};
+  const comparison = job.room_comparison || null;
+  const roomLabel = job.room_label || summary.room_label || 'Room';
+  const score = typeof summary.room_score === 'number' ? `${summary.room_score}/100` : 'screened';
+  const delta = comparison && typeof comparison.score_delta === 'number'
+    ? ` (${comparison.score_delta > 0 ? '+' : ''}${comparison.score_delta} vs last scan)`
+    : '';
+  const topFix = (job.fix_first || [])[0]?.title || (job.recommendations || [])[0]?.title || summary.top_hazard_label || 'one practical next step';
+  return `ATLAS-0 room win: ${roomLabel} scored ${score}${delta}. Quick win: ${topFix}.`;
 }
 
 function renderReplayPreview(risk) {
@@ -1555,6 +1722,59 @@ exportPdfBtn?.addEventListener('click', () => {
   });
 });
 
+function attachFixChecklistHandlers(jobId) {
+  fixChecklistList.querySelectorAll('[data-checklist-item] input').forEach((input) => {
+    input.addEventListener('change', (event) => {
+      const checkbox = /** @type {HTMLInputElement} */ (event.currentTarget);
+      const item = checkbox.closest('[data-checklist-item]');
+      const itemId = item?.dataset.checklistItem;
+      if (!itemId) {
+        return;
+      }
+      const nextState = readChecklistState(jobId);
+      nextState[itemId] = checkbox.checked;
+      writeChecklistState(jobId, nextState);
+      item.classList.toggle('done', checkbox.checked);
+      trackProductEvent('fix_checklist_toggled', {
+        job_id: jobId,
+        item_id: itemId,
+        checked: checkbox.checked,
+      });
+    });
+  });
+}
+
+function attachEvidenceTimelineHandlers() {
+  evidenceTimeline.querySelectorAll('[data-evidence-target]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const target = reportEvidence.querySelector(`[data-evidence-card="${button.dataset.evidenceTarget}"]`);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  });
+}
+
+document.addEventListener('click', async (event) => {
+  const button = event.target instanceof Element ? event.target.closest('[data-share-room-win]') : null;
+  if (!button) {
+    return;
+  }
+  const job = activeJob();
+  if (!job || job.status !== 'complete') {
+    return;
+  }
+  try {
+    await copyText(buildRoomWinShareText(job));
+    await trackProductEvent('room_win_copied', {
+      job_id: job.job_id,
+      sample_key: job.sample_key || null,
+      audience_mode: job.audience_mode || 'general',
+    });
+    showToast('Room win copied.');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not copy room win.', 3600);
+  }
+});
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -1664,6 +1884,12 @@ function renderScanQuality(scanQuality) {
       <span>${escapeHtml(`${metrics.frame_count || 0} sampled frame(s)`)}</span>
       <span>${escapeHtml(`${Math.round((metrics.motion_coverage || 0) * 100)}% motion coverage`)}</span>
       <span>${escapeHtml(`${Math.round((metrics.saliency_coverage || 0) * 100)}% object coverage`)}</span>
+    </div>
+    <div class="quality-copy">
+      <strong>Coach tip</strong>
+      <span>${escapeHtml(scanQuality.rescan_recommended
+        ? 'For a stronger follow-up scan, move slower near shelves and counters, include the full room perimeter, and add light before rescanning.'
+        : 'This scan is usable. A before/after rescan with the same room label will make progress easier to see.')}</span>
     </div>
     ${warnings.length ? `<ul class="quality-warning-list">${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>` : '<div class="empty-card">No major scan-quality warnings were detected.</div>'}
     ${scanQuality.rejection_reasons?.length ? `<ul class="quality-warning-list">${scanQuality.rejection_reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>` : ''}
