@@ -545,6 +545,39 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
+    .sample-gallery {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .sample-card {
+      display: grid;
+      gap: 8px;
+      padding: 14px;
+      border: 1px solid rgba(79, 53, 40, 0.1);
+      border-radius: var(--radius-md);
+      background: rgba(255,255,255,0.68);
+      color: var(--ink-soft);
+      text-align: left;
+      font: inherit;
+      cursor: pointer;
+      box-shadow: var(--shadow-soft);
+      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+    }
+
+    .sample-card:hover {
+      transform: translateY(-1px);
+      border-color: rgba(12, 128, 116, 0.24);
+      background: var(--panel-strong);
+    }
+
+    .sample-card strong {
+      color: var(--ink);
+      font-size: 0.98rem;
+      letter-spacing: -0.02em;
+    }
+
     .guide-card {
       display: grid;
       gap: 8px;
@@ -1090,6 +1123,61 @@
       max-width: 60ch;
     }
 
+    .scorecard-panel {
+      display: grid;
+      gap: 16px;
+      background:
+        radial-gradient(circle at top right, rgba(12, 128, 116, 0.13), transparent 35%),
+        linear-gradient(135deg, var(--panel), var(--bg-soft));
+    }
+
+    .scorecard-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .score-tile,
+    .room-win-card {
+      display: grid;
+      gap: 8px;
+      padding: 16px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .score-tile span,
+    .room-win-card span {
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .score-tile strong {
+      font-size: clamp(1.25rem, 2.5vw, 2rem);
+      letter-spacing: -0.05em;
+      line-height: 1.05;
+    }
+
+    .score-tile p,
+    .room-win-card p {
+      margin: 0;
+      color: var(--ink-soft);
+      line-height: 1.5;
+    }
+
+    .room-win-card {
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      background:
+        linear-gradient(135deg, rgba(214, 127, 48, 0.12), rgba(12, 128, 116, 0.10)),
+        var(--panel-strong);
+    }
+
     .report-columns,
     .evidence-columns {
       display: grid;
@@ -1127,6 +1215,44 @@
       color: var(--ink-muted);
       font-family: var(--font-mono);
       font-size: 0.74rem;
+    }
+
+    .fix-checklist {
+      display: grid;
+      gap: 10px;
+    }
+
+    .fix-check-item {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 12px;
+      align-items: flex-start;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: rgba(255,255,255,0.68);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .fix-check-item input {
+      margin-top: 4px;
+      accent-color: var(--accent);
+    }
+
+    .fix-check-item.done {
+      border-color: rgba(12, 128, 116, 0.26);
+      background: var(--accent-wash);
+    }
+
+    .fix-check-copy {
+      display: grid;
+      gap: 5px;
+      color: var(--ink-soft);
+      line-height: 1.45;
+    }
+
+    .fix-check-copy strong {
+      color: var(--ink);
     }
 
     .report-copy-block {
@@ -1581,6 +1707,43 @@
       line-height: 1.5;
     }
 
+    .evidence-timeline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .timeline-marker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      color: var(--ink-soft);
+      font: inherit;
+      font-size: 0.86rem;
+      cursor: pointer;
+      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+    }
+
+    .timeline-marker:hover {
+      transform: translateY(-1px);
+      border-color: rgba(12, 128, 116, 0.28);
+      background: var(--accent-wash);
+      color: var(--ink);
+    }
+
+    .timeline-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--gold);
+      box-shadow: 0 0 0 4px var(--gold-wash);
+    }
+
     .evidence-card {
       overflow: hidden;
       display: grid;
@@ -1924,7 +2087,9 @@
       }
 
       .hero-metric-band,
-      .guide-grid {
+      .guide-grid,
+      .sample-gallery,
+      .scorecard-grid {
         grid-template-columns: 1fr;
       }
 
@@ -1934,6 +2099,10 @@
 
       .stats-grid {
         grid-template-columns: 1fr 1fr;
+      }
+
+      .room-win-card {
+        grid-template-columns: 1fr;
       }
 
       .scene-stage {
@@ -2124,6 +2293,23 @@
                   <p>If coverage, blur, or lighting is poor, the report now says so instead of pretending the scan was stronger than it was.</p>
                 </article>
               </div>
+              <div class="sample-gallery" aria-label="Sample walkthrough ideas">
+                <button class="sample-card" type="button" data-load-sample="walkthrough">
+                  <span class="guide-kicker">Sample</span>
+                  <strong>Toddler-proofing pass</strong>
+                  <span>See how reachable hazards and quick fixes read in a polished report.</span>
+                </button>
+                <button class="sample-card" type="button" data-load-sample="walkthrough">
+                  <span class="guide-kicker">Sample</span>
+                  <strong>Pet safety sweep</strong>
+                  <span>Preview cord, edge, and floor-level risk language before uploading.</span>
+                </button>
+                <button class="sample-card" type="button" data-load-sample="walkthrough">
+                  <span class="guide-kicker">Sample</span>
+                  <strong>Move-in receipt</strong>
+                  <span>Use the sample report as a model for renter-friendly evidence notes.</span>
+                </button>
+              </div>
             </div>
 
             <div class="field-stack" style="margin-bottom: 14px;">
@@ -2284,6 +2470,10 @@
           </div>
         </section>
 
+        <section id="room-scorecard" class="scorecard-panel panel" aria-label="Room safety scorecard">
+          <div class="empty-card">Room scorecard will appear after a completed scan.</div>
+        </section>
+
         <section class="stats-grid" aria-label="Report summary">
           <article class="stat-card">
             <span class="mono-label">Objects</span>
@@ -2412,6 +2602,19 @@
           <span id="share-link-note" class="finding-toggle-note">Share links open the exact report view. Hosted environments still respect token protection.</span>
         </section>
 
+        <section class="panel">
+          <div class="section-head">
+            <div>
+              <h3>Fix checklist</h3>
+              <p>Turn the report into a small action list you can check off before rescanning the room.</p>
+            </div>
+            <span class="pill">Local progress</span>
+          </div>
+          <div id="fix-checklist-list" class="fix-checklist">
+            <div class="empty-card">Checklist items will appear after a completed scan.</div>
+          </div>
+        </section>
+
         <section class="report-columns">
           <section class="panel">
             <div class="section-head">
@@ -2443,9 +2646,10 @@
             <div class="section-head">
               <div>
                 <h3>Evidence frames</h3>
-                <p>Visual support for what the report is claiming.</p>
+                <p>Visual support for what the report is claiming. Use the timeline markers to jump to the strongest frames.</p>
               </div>
             </div>
+            <div id="evidence-timeline" class="evidence-timeline"></div>
             <div id="evidence-grid" class="stack">
               <div class="empty-card">Evidence frames will appear after a completed scan.</div>
             </div>
