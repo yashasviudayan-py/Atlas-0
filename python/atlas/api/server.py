@@ -1410,8 +1410,20 @@ def _feedback_counts(events: list[dict[str, Any]]) -> dict[str, int]:
 
 
 _PUBLIC_PRODUCT_EVENTS = {
+    "beta_invite_copied",
+    "capture_coach_checked",
+    "capture_mode_changed",
     "cta_start_scan",
+    "daily_mission_completed",
+    "daily_mission_started",
+    "fix_checklist_toggled",
+    "fix_plan_copied",
     "sample_report_opened",
+    "room_win_copied",
+    "same_room_rescan_started",
+    "settings_motion_changed",
+    "settings_sample_opened",
+    "settings_theme_changed",
     "upload_started",
     "upload_completed",
     "report_viewed",
@@ -1566,11 +1578,23 @@ def _compare_job_to_benchmark(job: dict[str, Any], label: str) -> dict[str, Any]
         return None
 
     risks = list(job.get("risks") or [])
+    objects = list(job.get("objects") or [])
     summary = dict(job.get("summary") or {})
     hazard_codes = [str(risk.get("hazard_code", "")) for risk in risks]
     missing_codes = [
         code for code in expected.get("required_hazard_codes", []) if code not in hazard_codes
     ]
+    multiframe_supported = sum(1 for obj in objects if bool(obj.get("multi_frame_support")))
+    grounding_values = [
+        float(obj.get("grounding_confidence", 0.0) or 0.0)
+        for obj in objects
+        if obj.get("grounding_confidence") is not None
+    ]
+    avg_grounding_confidence = (
+        round(sum(grounding_values) / len(grounding_values), 2) if grounding_values else 0.0
+    )
+    min_multiframe_supported = int(expected.get("min_multiframe_supported_objects", 0) or 0)
+    min_avg_grounding = float(expected.get("min_avg_grounding_confidence", 0.0) or 0.0)
     matched = (
         str(job.get("scene_source", "")) == str(expected.get("scene_source", ""))
         and int(summary.get("object_count", 0) or 0)
@@ -1578,6 +1602,8 @@ def _compare_job_to_benchmark(job: dict[str, Any], label: str) -> dict[str, Any]
         and int(summary.get("hazard_count", 0) or 0)
         >= int(expected.get("min_hazard_count", 0) or 0)
         and (hazard_codes[0] if hazard_codes else None) == expected.get("top_hazard_code")
+        and multiframe_supported >= min_multiframe_supported
+        and avg_grounding_confidence >= min_avg_grounding
         and not missing_codes
     )
     return {
@@ -1588,6 +1614,10 @@ def _compare_job_to_benchmark(job: dict[str, Any], label: str) -> dict[str, Any]
         "expected_top_hazard_code": expected.get("top_hazard_code"),
         "expected_min_object_count": expected.get("min_object_count"),
         "expected_min_hazard_count": expected.get("min_hazard_count"),
+        "multiframe_supported_objects": multiframe_supported,
+        "expected_min_multiframe_supported_objects": min_multiframe_supported,
+        "avg_grounding_confidence": avg_grounding_confidence,
+        "expected_min_avg_grounding_confidence": min_avg_grounding,
     }
 
 
@@ -1799,6 +1829,13 @@ def _aggregate_product_metrics() -> dict[str, Any]:
         "waitlist_signups": len(waitlist_entries),
         "sample_report_opens": event_counts.get("sample_report_opened", 0),
         "share_events": event_counts.get("report_share_copied", 0),
+        "beta_invite_events": event_counts.get("beta_invite_copied", 0),
+        "room_win_events": event_counts.get("room_win_copied", 0),
+        "fix_plan_events": event_counts.get("fix_plan_copied", 0),
+        "daily_mission_events": event_counts.get("daily_mission_started", 0),
+        "daily_mission_completed_events": event_counts.get("daily_mission_completed", 0),
+        "capture_coach_events": event_counts.get("capture_coach_checked", 0),
+        "same_room_rescan_events": event_counts.get("same_room_rescan_started", 0),
         "pdf_download_events": event_counts.get("report_pdf_downloaded", 0),
         "upload_start_events": event_counts.get("upload_started", 0),
         "upload_completed_events": event_counts.get("upload_completed", 0),

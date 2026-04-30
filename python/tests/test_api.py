@@ -195,6 +195,16 @@ def test_product_event_is_public() -> None:
     assert events[0]["surface"] == "hero"
 
 
+def test_product_event_accepts_beta_loop_events() -> None:
+    response = client.post(
+        "/product/events",
+        json={"event_name": "fix_plan_copied", "surface": "report_action_loop"},
+    )
+
+    assert response.status_code == 204
+    assert _upload_store.load_product_events()[0]["event_name"] == "fix_plan_copied"
+
+
 def test_job_listing_requires_token_when_configured() -> None:
     _api_cfg.enable_job_listing = True
     _api_cfg.access_token = "secret-token"
@@ -224,6 +234,9 @@ def test_operator_settings_require_token_when_configured() -> None:
     assert authenticated.json()["providers"]["primary_provider"] in {"ollama", "claude", "openai"}
     assert "upload_success_rate" in authenticated.json()["product"]
     assert "waitlist_signups" in authenticated.json()["product"]
+    assert "beta_invite_events" in authenticated.json()["product"]
+    assert "capture_coach_events" in authenticated.json()["product"]
+    assert "same_room_rescan_events" in authenticated.json()["product"]
     assert "reviewed_jobs" in authenticated.json()["evaluation"]
     assert "saved_eval_candidates" in authenticated.json()["evaluation"]
     assert "release_gates" in authenticated.json()["evaluation"]

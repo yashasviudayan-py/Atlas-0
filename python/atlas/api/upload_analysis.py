@@ -891,6 +891,9 @@ def _match_score(track: list[Observation], obs: Observation) -> float:
 
     label_match = 0.45 if last.label.label == obs.label.label else 0.0
     material_match = 0.15 if last.label.material == obs.label.material else 0.0
+    bbox_overlap = _bbox_iou(last.bbox_norm, obs.bbox_norm)
+    bbox_score = min(0.14, bbox_overlap * 0.14)
+    center_score = max(0.0, 0.08 - _bbox_center_distance(last.bbox_norm, obs.bbox_norm) * 0.12)
 
     color_distance = (
         math.sqrt(sum((a - b) ** 2 for a, b in zip(last.mean_rgb, obs.mean_rgb, strict=True)))
@@ -903,7 +906,60 @@ def _match_score(track: list[Observation], obs: Observation) -> float:
 
     area_score = max(0.0, 0.1 - abs(last.area_ratio - obs.area_ratio) * 0.6)
     gap_penalty = max(0.0, 0.08 - abs(last.frame_index - obs.frame_index - 1) * 0.04)
-    return label_match + material_match + color_score + position_score + area_score + gap_penalty
+    return (
+        label_match
+        + material_match
+        + bbox_score
+        + center_score
+        + color_score
+        + position_score
+        + area_score
+        + gap_penalty
+    )
+
+
+def _bbox_center_distance(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> float:
+    """Return normalized center distance between two image-space boxes."""
+    first_center = ((first[0] + first[2]) / 2.0, (first[1] + first[3]) / 2.0)
+    second_center = ((second[0] + second[2]) / 2.0, (second[1] + second[3]) / 2.0)
+    return math.dist(first_center, second_center)
+
+
+def _bbox_iou(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> float:
+    """Return intersection-over-union for two normalized image-space boxes."""
+    x0 = max(first[0], second[0])
+    y0 = max(first[1], second[1])
+    x1 = min(first[2], second[2])
+    y1 = min(first[3], second[3])
+    intersection = max(0.0, x1 - x0) * max(0.0, y1 - y0)
+    first_area = max(0.0, first[2] - first[0]) * max(0.0, first[3] - first[1])
+    second_area = max(0.0, second[2] - second[0]) * max(0.0, second[3] - second[1])
+    union = first_area + second_area - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+def _track_bbox_stability(track: list[Observation]) -> float:
+    """Estimate whether a track remains visually coherent across frames."""
+    if len(track) <= 1:
+        return 0.0
+
+    center_distances = [
+        _bbox_center_distance(previous.bbox_norm, current.bbox_norm)
+        for previous, current in pairwise(track)
+    ]
+    area_changes = [
+        abs(previous.area_ratio - current.area_ratio) / max(previous.area_ratio, 0.001)
+        for previous, current in pairwise(track)
+    ]
+    center_stability = 1.0 - min(1.0, float(np.mean(center_distances)) * 2.5)
+    area_stability = 1.0 - min(1.0, float(np.mean(area_changes)) * 0.9)
+    return round(max(0.0, (center_stability + area_stability) / 2.0), 3)
 
 
 def _build_objects_from_tracks(tracks: list[list[Observation]]) -> list[dict[str, Any]]:
@@ -917,6 +973,10 @@ def _build_objects_from_tracks(tracks: list[list[Observation]]) -> list[dict[str
         variance = (
             float(np.mean(np.linalg.norm(positions - centroid, axis=1))) if len(track) > 1 else 0.0
         )
+        frame_indices = [obs.frame_index for obs in track]
+        frame_span = max(frame_indices) - min(frame_indices) + 1
+        bbox_stability = _track_bbox_stability(track)
+        multi_frame_support = len(track) >= 2 and frame_span >= 2
         height_m = float(
             np.mean(
                 [
@@ -939,10 +999,28 @@ def _build_objects_from_tracks(tracks: list[list[Observation]]) -> list[dict[str
                 ]
             )
         )
-        grounding_confidence = max(0.25, min(0.94, 0.42 + len(track) * 0.11 - variance * 0.2))
+        grounding_confidence = max(
+            0.25,
+            min(
+                0.94,
+                0.38
+                + len(track) * 0.09
+                + frame_span * 0.035
+                + bbox_stability * 0.12
+                - variance * 0.18,
+            ),
+        )
         evidence_ids = [obs.observation_id for obs in track[:4]]
         redacted_count = sum(1 for obs in track if bool(obs.safety.get("redacted")))
         text_heavy_count = sum(1 for obs in track if bool(obs.safety.get("text_heavy")))
+        localization_method = (
+            "multi_frame_track_fusion" if multi_frame_support else "single_frame_estimate"
+        )
+        support_summary = (
+            f"{len(track)} observations across {frame_span} frame(s)"
+            if multi_frame_support
+            else "single observation estimate"
+        )
 
         objects.append(
             {
@@ -965,7 +1043,16 @@ def _build_objects_from_tracks(tracks: list[list[Observation]]) -> list[dict[str
                     )
                 ),
                 "observation_count": len(track),
+                "frame_span": frame_span,
+                "first_frame_index": min(frame_indices),
+                "last_frame_index": max(frame_indices),
+                "first_timestamp_s": round(min(obs.timestamp_s for obs in track), 2),
+                "last_timestamp_s": round(max(obs.timestamp_s for obs in track), 2),
+                "multi_frame_support": multi_frame_support,
+                "localization_method": localization_method,
+                "support_summary": support_summary,
                 "grounding_confidence": round(grounding_confidence, 2),
+                "bbox_stability": bbox_stability,
                 "position_variance": round(variance, 3),
                 "estimated_height_m": round(height_m, 3),
                 "estimated_width_m": round(width_m, 3),

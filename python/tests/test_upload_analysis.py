@@ -194,3 +194,47 @@ def test_analyze_frame_samples_carries_audience_mode_into_summary() -> None:
 
     assert result.summary["audience_mode"] == "toddler"
     assert result.summary["audience_label"] == "Toddler mode"
+
+
+def test_analyze_frame_samples_exposes_multiframe_grounding_metadata() -> None:
+    frames: list[ExtractedFrame] = []
+    for index, x_offset in enumerate((0, 3, 6, 9)):
+        image = Image.new("RGB", (240, 180), color="#f6efe6")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((58 + x_offset, 28, 146 + x_offset, 154), fill="#70503d")
+        draw.rectangle((74 + x_offset, 44, 130 + x_offset, 140), fill="#f39a37")
+        buf = io.BytesIO()
+        image.save(buf, format="JPEG")
+        frames.append(
+            ExtractedFrame(
+                index=index,
+                timestamp_s=index * 0.8,
+                image_bytes=buf.getvalue(),
+            )
+        )
+
+    async def fake_labeler(_content: bytes, _hint: str) -> SemanticLabel:
+        return SemanticLabel(
+            label="Glass vase",
+            material="glass",
+            mass_kg=1.2,
+            fragility=0.9,
+            friction=0.42,
+            confidence=0.86,
+        )
+
+    result = asyncio.run(
+        analyze_frame_samples(
+            frames,
+            filename="living-room.mp4",
+            scan_kind="video",
+            labeler=fake_labeler,
+            audience_mode="general",
+        )
+    )
+
+    multiframe_objects = [obj for obj in result.objects if obj.get("multi_frame_support")]
+    assert multiframe_objects
+    assert multiframe_objects[0]["localization_method"] == "multi_frame_track_fusion"
+    assert multiframe_objects[0]["frame_span"] >= 2
+    assert "bbox_stability" in multiframe_objects[0]

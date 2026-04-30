@@ -252,6 +252,7 @@ def _build_hazard(
     grounded_confidence = float(obj.get("grounding_confidence", obj.get("confidence", 0.4)))
     report_confidence = _clamp((float(obj.get("confidence", 0.4)) + grounded_confidence) / 2.0)
     observation_count = int(obj.get("observation_count", 1))
+    frame_span = int(obj.get("frame_span", observation_count) or observation_count)
     evidence_ids = list(obj.get("evidence_ids", []))[:3]
     mode_priority_bonus = float(_AUDIENCE_PRIORITY_BOOSTS.get(mode, {}).get(code, 0.0))
     priority_score = _clamp(score * 0.58 + report_confidence * 0.27 + 0.15 + mode_priority_bonus)
@@ -296,12 +297,15 @@ def _build_hazard(
             "signals": [_format_signal(signal) for signal in signals],
             "rule_hits": _signal_rule_hits(signals),
             "support_summary": (
-                f"{observation_count} supporting observation"
+                obj.get("support_summary")
+                or f"{observation_count} supporting observation"
                 f"{'' if observation_count == 1 else 's'} across the scan"
             ),
             "grounding_confidence": round(grounded_confidence, 2),
             "grounding_confidence_label": confidence_bucket(grounded_confidence),
             "evidence_ids": evidence_ids,
+            "localization_method": obj.get("localization_method", "single_frame_estimate"),
+            "multi_frame_support": bool(obj.get("multi_frame_support", False)),
             "audience_mode": mode,
             "audience_label": audience_mode_label(mode),
             "mode_focus": mode_focus,
@@ -310,6 +314,9 @@ def _build_hazard(
                 "estimated_height_m": round(float(obj.get("estimated_height_m", 0.0)), 2),
                 "estimated_width_m": round(float(obj.get("estimated_width_m", 0.0)), 2),
                 "observation_count": observation_count,
+                "frame_span": frame_span,
+                "position_variance": round(float(obj.get("position_variance", 0.0)), 3),
+                "bbox_stability": round(float(obj.get("bbox_stability", 0.0)), 3),
                 "location_label": obj.get("location_label", "scan area"),
                 "text_redacted_observation_count": int(
                     obj.get("text_redacted_observation_count", 0) or 0
