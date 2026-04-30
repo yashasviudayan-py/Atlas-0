@@ -1,0 +1,12 @@
+{
+  "name": "atlas-0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:frontend": "node frontend/tests/browser_smoke.mjs",
+    "test:frontend:required": "ATLAS0_REQUIRE_BROWSER_TESTS=1 node frontend/tests/browser_smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.52.0"
+  }
+}

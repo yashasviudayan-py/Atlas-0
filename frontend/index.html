@@ -677,6 +677,175 @@
       color: var(--accent-strong);
     }
 
+    .capture-coach,
+    .report-loop,
+    .beta-card {
+      position: relative;
+      overflow: hidden;
+      display: grid;
+      gap: 16px;
+      padding: 18px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(79, 53, 40, 0.1);
+      background:
+        radial-gradient(circle at top left, rgba(12, 128, 116, 0.12), transparent 30%),
+        linear-gradient(135deg, rgba(255,255,255,0.74), rgba(255,255,255,0.56));
+      box-shadow: var(--shadow-soft);
+    }
+
+    .coach-head,
+    .report-loop-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .coach-head h4,
+    .report-loop-head h3,
+    .beta-card h4 {
+      margin: 0;
+      font-size: clamp(1.15rem, 2vw, 1.5rem);
+      letter-spacing: -0.04em;
+    }
+
+    .coach-head p,
+    .report-loop-head p,
+    .beta-card p {
+      margin: 6px 0 0;
+      color: var(--ink-soft);
+      line-height: 1.58;
+    }
+
+    .coach-meter {
+      min-width: 136px;
+      display: grid;
+      gap: 8px;
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      text-align: right;
+    }
+
+    .coach-meter-track {
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(32, 25, 22, 0.08);
+    }
+
+    .coach-meter-fill {
+      display: block;
+      width: 0;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--gold));
+      transition: width 0.18s ease;
+    }
+
+    .coach-grid,
+    .report-loop-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      position: relative;
+      z-index: 1;
+    }
+
+    .coach-route,
+    .coach-checks,
+    .loop-step {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .coach-route ol,
+    .coach-checks ul {
+      margin: 0;
+      padding-left: 20px;
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+
+    .coach-check {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+
+    .coach-check input {
+      margin-top: 4px;
+      accent-color: var(--accent);
+    }
+
+    .coach-prompt {
+      position: relative;
+      z-index: 1;
+      padding: 13px 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(214, 127, 48, 0.2);
+      background: var(--gold-wash);
+      color: var(--ink-soft);
+      line-height: 1.58;
+    }
+
+    .loop-step {
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: flex-start;
+    }
+
+    .loop-step.done {
+      border-color: rgba(12, 128, 116, 0.28);
+      background: var(--accent-wash);
+    }
+
+    .loop-index {
+      width: 34px;
+      height: 34px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent-wash), var(--gold-wash));
+      color: var(--ink);
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+    }
+
+    .loop-step strong,
+    .coach-route strong,
+    .coach-checks strong {
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+
+    .loop-step p {
+      margin: 4px 0 0;
+      color: var(--ink-soft);
+      line-height: 1.5;
+    }
+
+    .report-loop-actions,
+    .beta-share-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .beta-card {
+      background:
+        radial-gradient(circle at top right, rgba(214, 127, 48, 0.16), transparent 34%),
+        linear-gradient(135deg, var(--panel), var(--bg-soft));
+    }
+
     :root[data-theme="dark"] .mission-card {
       background:
         radial-gradient(circle at top right, rgba(243, 154, 55, 0.18), transparent 34%),
@@ -1751,11 +1920,41 @@
       transition: transform 0.16s ease, border-color 0.16s ease;
     }
 
+    .evidence-frame-shell {
+      position: relative;
+      overflow: hidden;
+      min-height: 180px;
+      background: #e7e0d4;
+    }
+
     .evidence-card img {
       width: 100%;
       height: 100%;
       object-fit: cover;
       background: #e7e0d4;
+    }
+
+    .evidence-frame-overlay {
+      position: absolute;
+      inset: 14px;
+      border: 2px solid rgba(34, 185, 169, 0.86);
+      border-radius: 18px;
+      box-shadow: 0 0 0 999px rgba(8, 16, 15, 0.18);
+      pointer-events: none;
+    }
+
+    .evidence-frame-label {
+      position: absolute;
+      left: 14px;
+      bottom: 14px;
+      max-width: calc(100% - 28px);
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(8, 16, 15, 0.78);
+      color: #fff9f0;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      pointer-events: none;
     }
 
     .evidence-card:hover {
@@ -2089,6 +2288,8 @@
       .hero-metric-band,
       .guide-grid,
       .sample-gallery,
+      .coach-grid,
+      .report-loop-grid,
       .scorecard-grid {
         grid-template-columns: 1fr;
       }
@@ -2103,6 +2304,16 @@
 
       .room-win-card {
         grid-template-columns: 1fr;
+      }
+
+      .coach-head,
+      .report-loop-head {
+        flex-direction: column;
+      }
+
+      .coach-meter {
+        width: 100%;
+        text-align: left;
       }
 
       .scene-stage {
@@ -2276,6 +2487,30 @@
                 </div>
                 <p id="daily-mission-progress" class="mission-progress">No missions tried yet.</p>
               </article>
+              <article class="capture-coach" aria-labelledby="capture-coach-title">
+                <div class="coach-head">
+                  <div>
+                    <span class="guide-kicker">Guided capture coach</span>
+                    <h4 id="capture-coach-title">General room safety pass</h4>
+                    <p id="capture-coach-copy">Pick a report mode and ATLAS-0 will show the exact walkthrough route to capture.</p>
+                  </div>
+                  <div class="coach-meter" aria-label="Capture readiness">
+                    <span id="capture-coach-status">0 of 5 ready</span>
+                    <span class="coach-meter-track" aria-hidden="true"><span id="capture-coach-meter" class="coach-meter-fill"></span></span>
+                  </div>
+                </div>
+                <div class="coach-grid">
+                  <div class="coach-route">
+                    <strong>Walkthrough route</strong>
+                    <ol id="capture-coach-route"></ol>
+                  </div>
+                  <div class="coach-checks">
+                    <strong>Before upload checklist</strong>
+                    <ul id="capture-coach-checks"></ul>
+                  </div>
+                </div>
+                <div id="capture-coach-prompt" class="coach-prompt">Try the one quick fix rule after the report.</div>
+              </article>
               <div class="guide-grid">
                 <article class="guide-card">
                   <span class="guide-kicker">Record</span>
@@ -2401,6 +2636,18 @@
           <div id="upload-list" class="upload-list"></div>
         </section>
 
+        <section class="beta-card">
+          <div>
+            <span class="guide-kicker">Word-of-mouth loop</span>
+            <h4>Make ATLAS-0 easy to explain in one sentence.</h4>
+            <p id="beta-share-copy">Upload one room walkthrough, get a hazard report with evidence frames and practical fixes.</p>
+          </div>
+          <div class="beta-share-row">
+            <button id="copy-beta-invite-btn" class="button-link ghost" type="button">Copy beta invite</button>
+            <button class="button-link ghost" type="button" data-load-sample="walkthrough">Open sample for a friend</button>
+          </div>
+        </section>
+
         <section class="insight-grid">
           <section class="panel">
             <div class="section-head">
@@ -2472,6 +2719,10 @@
 
         <section id="room-scorecard" class="scorecard-panel panel" aria-label="Room safety scorecard">
           <div class="empty-card">Room scorecard will appear after a completed scan.</div>
+        </section>
+
+        <section id="report-action-loop" class="report-loop panel" aria-label="Fix, rescan, and share loop">
+          <div class="empty-card">The fix-and-rescan loop will appear after a completed scan.</div>
         </section>
 
         <section class="stats-grid" aria-label="Report summary">
@@ -2818,6 +3069,22 @@
                 <li>Load the sample report when showing ATLAS-0 to a friend.</li>
               </ul>
               <button id="settings-sample-btn" class="button-link" type="button">Open sample report</button>
+            </div>
+          </details>
+
+          <details class="settings-details panel">
+            <summary>
+              <span>Production readiness lens</span>
+              <small>What operators should watch before opening the beta wider</small>
+            </summary>
+            <div class="settings-detail-body">
+              <p>ATLAS-0 is strongest when the product loop stays narrow: one room, one report, one fix, one rescan. The operator panels above should stay healthy before inviting more beta users.</p>
+              <ul class="settings-list">
+                <li>Upload success rate should stay high before increasing traffic.</li>
+                <li>Report usefulness and wrong/duplicate feedback should be reviewed every beta batch.</li>
+                <li>Object-store artifacts, worker health, and retention cleanup should be checked before hosted demos.</li>
+                <li>Low-confidence findings should remain hidden by default unless users ask for the rawer review mode.</li>
+              </ul>
             </div>
           </details>
         </section>

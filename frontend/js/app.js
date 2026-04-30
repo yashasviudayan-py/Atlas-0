@@ -3,6 +3,12 @@
  */
 
 import * as api from './api.js';
+import {
+  BETA_SHARE_PROMPTS,
+  CAPTURE_COACH_MODES,
+  REPORT_DECISION_STEPS,
+  SAFETY_MISSIONS,
+} from './product_playbooks.js';
 import { SceneViewer } from './scene_viewer.js';
 import { UploadView } from './upload.js';
 
@@ -11,54 +17,7 @@ const MOTION_STORAGE_KEY = 'atlas0.reducedMotion';
 const LOW_CONFIDENCE_STORAGE_KEY = 'atlas0.showLowConfidenceDefault';
 const MISSION_STORAGE_KEY = 'atlas0.dailySafetyMission';
 const FIX_CHECKLIST_STORAGE_KEY = 'atlas0.fixChecklist';
-
-const SAFETY_MISSIONS = [
-  {
-    id: 'cord-safari',
-    title: 'Cable safari',
-    audienceMode: 'pet',
-    roomLabel: 'Cable safari',
-    copy: 'Hunt for tempting cords, charger loops, and low wires that pets or feet can catch.',
-    uploadHint: 'Record low shelves, desk corners, chargers, and floor paths where cords cross walking space.',
-    steps: ['Start at floor height near outlets.', 'Pause on desks, TV stands, and charging corners.', 'Look for one cord you can route or tuck away.'],
-  },
-  {
-    id: 'toddler-reach-test',
-    title: 'Toddler reach test',
-    audienceMode: 'toddler',
-    roomLabel: 'Toddler reach test',
-    copy: 'Scan everything below counter height and ask, “what could a small hand pull, climb, or tip?”',
-    uploadHint: 'Keep low tables, shelves, handles, cords, and climbable furniture in frame for a steady moment.',
-    steps: ['Walk the room from a lower angle.', 'Pause on reachable drawers, cords, and unstable furniture.', 'Fix or move one easy object after the report.'],
-  },
-  {
-    id: 'renter-move-in-pass',
-    title: 'Move-in receipt',
-    audienceMode: 'renter',
-    roomLabel: 'Move-in receipt',
-    copy: 'Make a quick evidence-backed room note before moving furniture, boxes, or pets through the space.',
-    uploadHint: 'Record walls, floors, corners, fixtures, and any existing hazards you may want documented.',
-    steps: ['Scan each wall and corner slowly.', 'Capture fixtures, floor edges, and existing damage.', 'Download the PDF if the report finds anything worth saving.'],
-  },
-  {
-    id: 'fall-zone-five',
-    title: 'Five-minute fall zone',
-    audienceMode: 'general',
-    roomLabel: 'Fall zone',
-    copy: 'Find one thing that could fall, tip, slide, or break if bumped during a busy day.',
-    uploadHint: 'Record shelves, counters, tall furniture, and narrow walk paths where bumps are likely.',
-    steps: ['Start with the tallest furniture.', 'Pause on shelves and counter edges.', 'Pick one quick stabilization fix.'],
-  },
-  {
-    id: 'guest-ready-scan',
-    title: 'Guest-ready sweep',
-    audienceMode: 'general',
-    roomLabel: 'Guest-ready sweep',
-    copy: 'Before people come over, check the obvious trip paths and fragile surfaces once.',
-    uploadHint: 'Record doorways, rug edges, coffee tables, walk paths, and anything fragile near elbows or bags.',
-    steps: ['Walk the path a guest would take.', 'Pause on rugs, low tables, and doorways.', 'Remove one trip or bump hazard before guests arrive.'],
-  },
-];
+const CAPTURE_COACH_STORAGE_KEY = 'atlas0.captureCoach';
 
 function readStoredPreference(key) {
   try {
@@ -149,6 +108,7 @@ const summaryConfidence = document.getElementById('summary-confidence');
 const summaryCoverage = document.getElementById('summary-coverage');
 const summarySource = document.getElementById('summary-source');
 const roomScorecard = document.getElementById('room-scorecard');
+const reportActionLoop = document.getElementById('report-action-loop');
 const fixFirstList = document.getElementById('fix-first-list');
 const scanQualityCard = document.getElementById('scan-quality-card');
 const reportPostureCard = document.getElementById('report-posture-card');
@@ -185,6 +145,15 @@ const dailyMissionSteps = document.getElementById('daily-mission-steps');
 const dailyMissionProgress = document.getElementById('daily-mission-progress');
 const dailyMissionStart = /** @type {HTMLButtonElement} */ (document.getElementById('daily-mission-start'));
 const dailyMissionComplete = /** @type {HTMLButtonElement} */ (document.getElementById('daily-mission-complete'));
+const captureCoachTitle = document.getElementById('capture-coach-title');
+const captureCoachCopy = document.getElementById('capture-coach-copy');
+const captureCoachRoute = document.getElementById('capture-coach-route');
+const captureCoachChecks = document.getElementById('capture-coach-checks');
+const captureCoachPrompt = document.getElementById('capture-coach-prompt');
+const captureCoachStatus = document.getElementById('capture-coach-status');
+const captureCoachMeter = document.getElementById('capture-coach-meter');
+const betaShareCopy = document.getElementById('beta-share-copy');
+const copyBetaInviteBtn = /** @type {HTMLButtonElement} */ (document.getElementById('copy-beta-invite-btn'));
 
 const sceneCanvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene-canvas'));
 const sceneEmpty = document.getElementById('scene-empty');
@@ -431,6 +400,7 @@ function startDailyMission() {
   if (audienceModeInput) {
     audienceModeInput.value = mission.audienceMode;
   }
+  renderCaptureCoach();
   if (uploadGuidanceCopy) {
     uploadGuidanceCopy.textContent = mission.uploadHint;
   }
@@ -458,6 +428,80 @@ function completeDailyMission() {
     completion_count: completedDates.size,
   });
   showToast('Mission logged locally. Tiny room win counted.');
+}
+
+function selectedAudienceMode() {
+  const mode = audienceModeInput?.value || 'general';
+  return CAPTURE_COACH_MODES[mode] ? mode : 'general';
+}
+
+function captureCoachStorageKey(mode = selectedAudienceMode()) {
+  return `${CAPTURE_COACH_STORAGE_KEY}.${localDateKey()}.${mode}`;
+}
+
+function readCaptureCoachState(mode = selectedAudienceMode()) {
+  const raw = readStoredPreference(captureCoachStorageKey(mode));
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCaptureCoachState(mode, nextState) {
+  writeStoredPreference(captureCoachStorageKey(mode), JSON.stringify(nextState));
+}
+
+function renderCaptureCoach() {
+  if (!captureCoachTitle || !captureCoachCopy || !captureCoachRoute || !captureCoachChecks) {
+    return;
+  }
+
+  const mode = selectedAudienceMode();
+  const coach = CAPTURE_COACH_MODES[mode] || CAPTURE_COACH_MODES.general;
+  const coachState = readCaptureCoachState(mode);
+  const checkedCount = coach.checks.filter((check) => coachState[check]).length;
+  const progress = coach.checks.length ? Math.round((checkedCount / coach.checks.length) * 100) : 0;
+
+  captureCoachTitle.textContent = coach.title;
+  captureCoachCopy.textContent = coach.promise;
+  captureCoachRoute.innerHTML = coach.route
+    .map((step) => `<li>${escapeHtml(step)}</li>`)
+    .join('');
+  captureCoachChecks.innerHTML = coach.checks
+    .map((check) => `
+      <li class="coach-check">
+        <input type="checkbox" data-capture-check="${escapeHtml(check)}" ${coachState[check] ? 'checked' : ''} />
+        <span>${escapeHtml(check)}</span>
+      </li>
+    `)
+    .join('');
+  if (captureCoachPrompt) {
+    captureCoachPrompt.textContent = coach.funPrompt;
+  }
+  if (captureCoachStatus) {
+    captureCoachStatus.textContent = `${checkedCount} of ${coach.checks.length} ready`;
+  }
+  if (captureCoachMeter) {
+    captureCoachMeter.style.width = `${progress}%`;
+  }
+}
+
+function updateCaptureCoachCheck(check, enabled) {
+  const mode = selectedAudienceMode();
+  const nextState = readCaptureCoachState(mode);
+  nextState[check] = Boolean(enabled);
+  writeCaptureCoachState(mode, nextState);
+  renderCaptureCoach();
+  trackProductEvent('capture_coach_checked', {
+    audience_mode: mode,
+    check,
+    checked: Boolean(enabled),
+  });
 }
 
 function switchView(id) {
@@ -643,6 +687,7 @@ function renderReport(job) {
     weekendFixList.innerHTML = emptyMarkup('Weekend-friendly fixes will appear here after a completed scan.');
     roomWinsList.innerHTML = emptyMarkup('Positive scan signals will appear here after a completed scan.');
     roomScorecard.innerHTML = emptyMarkup('Room scorecard will appear after a completed scan.');
+    reportActionLoop.innerHTML = emptyMarkup('The fix-and-rescan loop will appear after a completed scan.');
     fixChecklistList.innerHTML = emptyMarkup('Checklist items will appear after a completed scan.');
     reportHazards.innerHTML = emptyMarkup('Hazards will appear here once ATLAS-0 has something evidence-backed to show.');
     reportRecommendations.innerHTML = emptyMarkup('Recommendations will appear here after a completed scan.');
@@ -708,6 +753,7 @@ function renderReport(job) {
     : 'Showing every finding, including weak or approximate ones.';
 
   roomScorecard.innerHTML = renderRoomScorecard(job, summary, visibleHazards, fixFirst, recommendations, comparison, scanQuality);
+  reportActionLoop.innerHTML = renderReportActionLoop(job, summary, visibleHazards, fixFirst, recommendations, evidence, comparison);
 
   fixFirstList.innerHTML = fixFirst.length
     ? fixFirst.map((action, index) => `
@@ -847,7 +893,10 @@ function renderReport(job) {
   reportEvidence.innerHTML = evidence.length
     ? evidence.map((frame, index) => `
         <article class="evidence-card" data-evidence-card="${index}">
-          <img src="${api.withAccessToken(frame.image_url || '')}" alt="${escapeHtml(frame.caption || 'Evidence frame')}" />
+          <div class="evidence-frame-shell">
+            <img src="${api.withAccessToken(frame.image_url || '')}" alt="${escapeHtml(frame.caption || 'Evidence frame')}" />
+            ${renderEvidenceFrameOverlay(frame)}
+          </div>
           <div class="evidence-copy">
             <strong>${escapeHtml(frame.caption || 'Evidence frame')}</strong>
             <span>${Math.round((frame.confidence || 0) * 100)}% label confidence</span>
@@ -958,6 +1007,90 @@ function renderRoomScorecard(job, summary, hazards, fixFirst, recommendations, c
   `;
 }
 
+function buildChecklistItems(fixFirst, recommendations, hazards) {
+  const items = [
+    ...fixFirst.map((item) => ({
+      title: item.title || 'Fix first',
+      action: item.action || item.why || '',
+      source: 'Priority',
+    })),
+    ...recommendations.map((item) => ({
+      title: item.title || 'Recommendation',
+      action: item.action || item.why || '',
+      source: 'Recommendation',
+    })),
+  ];
+
+  if (!items.length && hazards.length) {
+    items.push(...hazards.slice(0, 3).map((risk) => ({
+      title: risk.hazard_title || risk.object_label || 'Review finding',
+      action: risk.what_to_do_next || risk.recommendation || risk.why_it_matters || 'Review this finding before rescanning.',
+      source: 'Finding',
+    })));
+  }
+
+  return items.slice(0, 6);
+}
+
+function checklistProgress(job, fixFirst, recommendations, hazards) {
+  if (!job?.job_id) {
+    return { total: 0, done: 0 };
+  }
+
+  const items = buildChecklistItems(fixFirst, recommendations, hazards);
+  const checklistState = readChecklistState(job.job_id);
+  const done = items.filter((item, index) => checklistState[checklistItemId(item, index)]).length;
+  return { total: items.length, done };
+}
+
+function renderReportActionLoop(job, summary, hazards, fixFirst, recommendations, evidence, comparison) {
+  const progress = checklistProgress(job, fixFirst, recommendations, hazards);
+  const roomLabel = job.room_label || summary.room_label || '';
+  const hasEvidence = evidence.length > 0;
+  const canCompare = Boolean(roomLabel);
+  const completion = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
+  const stepState = {
+    fix: progress.done > 0,
+    verify: hasEvidence,
+    rescan: Boolean(comparison),
+    share: job.status === 'complete',
+  };
+
+  return `
+    <div class="report-loop-head">
+      <div>
+        <span class="guide-kicker">The real product loop</span>
+        <h3>Fix, verify, rescan, and show progress.</h3>
+        <p>${escapeHtml(progress.total
+          ? `${progress.done} of ${progress.total} local checklist item${progress.total === 1 ? '' : 's'} completed.`
+          : 'No checklist items yet, but you can still review evidence and rescan the same room.')}</p>
+      </div>
+      <span class="pill">${escapeHtml(completion ? `${completion}% fixed` : canCompare ? 'Baseline ready' : 'Add room label')}</span>
+    </div>
+    <div class="report-loop-grid">
+      ${REPORT_DECISION_STEPS.map((step, index) => `
+        <article class="loop-step ${stepState[step.id] ? 'done' : ''}">
+          <span class="loop-index">${String(index + 1).padStart(2, '0')}</span>
+          <div>
+            <strong>${escapeHtml(step.title)}</strong>
+            <p>${escapeHtml(step.copy)}</p>
+          </div>
+        </article>
+      `).join('')}
+    </div>
+    <div class="coach-prompt">
+      ${escapeHtml(hasEvidence
+        ? 'Evidence frames are your trust anchor. If the frame does not support the claim, mark it wrong or rescan before acting.'
+        : 'This report has limited visual evidence. Treat it as a prompt to rescan, not as proof.')}
+    </div>
+    <div class="report-loop-actions">
+      <button class="button-link ghost" type="button" data-copy-fix-plan="true">Copy fix plan</button>
+      <button class="button-link ghost" type="button" data-start-rescan="true">Start same-room rescan</button>
+      <button class="button-link ghost" type="button" data-copy-beta-invite="true">Copy beta invite</button>
+    </div>
+  `;
+}
+
 function checklistStorageKey(jobId) {
   return `${FIX_CHECKLIST_STORAGE_KEY}.${jobId}`;
 }
@@ -988,33 +1121,14 @@ function checklistItemId(item, index) {
 }
 
 function renderFixChecklist(job, fixFirst, recommendations, hazards) {
-  const items = [
-    ...fixFirst.map((item) => ({
-      title: item.title || 'Fix first',
-      action: item.action || item.why || '',
-      source: 'Priority',
-    })),
-    ...recommendations.map((item) => ({
-      title: item.title || 'Recommendation',
-      action: item.action || item.why || '',
-      source: 'Recommendation',
-    })),
-  ];
-
-  if (!items.length && hazards.length) {
-    items.push(...hazards.slice(0, 3).map((risk) => ({
-      title: risk.hazard_title || risk.object_label || 'Review finding',
-      action: risk.what_to_do_next || risk.recommendation || risk.why_it_matters || 'Review this finding before rescanning.',
-      source: 'Finding',
-    })));
-  }
+  const items = buildChecklistItems(fixFirst, recommendations, hazards);
 
   if (!items.length) {
     return emptyMarkup('No checklist items were generated for this report.');
   }
 
   const checklistState = readChecklistState(job.job_id);
-  return items.slice(0, 6).map((item, index) => {
+  return items.map((item, index) => {
     const itemId = checklistItemId(item, index);
     const checked = Boolean(checklistState[itemId]);
     return `
@@ -1049,6 +1163,21 @@ function renderEvidenceTimeline(evidence) {
   }).join('');
 }
 
+function renderEvidenceFrameOverlay(frame) {
+  const labelParts = [
+    frame.object_label || frame.hazard_title || 'Evidence',
+    typeof frame.confidence === 'number' ? `${Math.round(frame.confidence * 100)}%` : '',
+  ].filter(Boolean);
+  if (!labelParts.length) {
+    return '';
+  }
+
+  return `
+    <span class="evidence-frame-overlay" aria-hidden="true"></span>
+    <span class="evidence-frame-label">${escapeHtml(labelParts.join(' · '))}</span>
+  `;
+}
+
 function buildRoomWinShareText(job) {
   const summary = job.summary || {};
   const comparison = job.room_comparison || null;
@@ -1059,6 +1188,28 @@ function buildRoomWinShareText(job) {
     : '';
   const topFix = (job.fix_first || [])[0]?.title || (job.recommendations || [])[0]?.title || summary.top_hazard_label || 'one practical next step';
   return `ATLAS-0 room win: ${roomLabel} scored ${score}${delta}. Quick win: ${topFix}.`;
+}
+
+function betaSharePrompt() {
+  const index = Math.floor(Date.now() / 86_400_000) % BETA_SHARE_PROMPTS.length;
+  return BETA_SHARE_PROMPTS[index];
+}
+
+function buildFixPlanText(job) {
+  const summary = job.summary || {};
+  const roomLabel = job.room_label || summary.room_label || 'Room';
+  const actions = buildChecklistItems(job.fix_first || [], job.recommendations || [], job.risks || [])
+    .slice(0, 4)
+    .map((item, index) => `${index + 1}. ${item.title}: ${item.action || 'Review and fix if needed.'}`);
+  const header = `ATLAS-0 fix plan for ${roomLabel}`;
+  return [header, ...actions, `Report: ${reportDeepLink(job)}`].filter(Boolean).join('\n');
+}
+
+async function copyBetaInvite(surface = 'unknown') {
+  const text = betaSharePrompt();
+  await copyText(text);
+  await trackProductEvent('beta_invite_copied', { surface });
+  showToast('Beta invite copied.');
 }
 
 function renderReplayPreview(risk) {
@@ -1403,6 +1554,12 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Waitlist signups', value: String(settings.product.waitlist_signups || 0) },
       { label: 'Sample report opens', value: String(settings.product.sample_report_opens || 0) },
       { label: 'Share events', value: String(settings.product.share_events || 0) },
+      { label: 'Beta invite copies', value: String(settings.product.beta_invite_events || 0) },
+      { label: 'Room win copies', value: String(settings.product.room_win_events || 0) },
+      { label: 'Fix plan copies', value: String(settings.product.fix_plan_events || 0) },
+      { label: 'Daily mission starts', value: String(settings.product.daily_mission_events || 0) },
+      { label: 'Capture coach checks', value: String(settings.product.capture_coach_events || 0) },
+      { label: 'Same-room rescan starts', value: String(settings.product.same_room_rescan_events || 0) },
       { label: 'PDF downloads', value: String(settings.product.pdf_download_events || 0) },
       { label: 'CTA start-scan taps', value: String(settings.product.cta_start_scan_events || 0) },
     ])}
@@ -1526,6 +1683,21 @@ sampleButtons.forEach((button) => {
 dailyMissionStart?.addEventListener('click', startDailyMission);
 dailyMissionComplete?.addEventListener('click', completeDailyMission);
 
+audienceModeInput?.addEventListener('change', () => {
+  renderCaptureCoach();
+  trackProductEvent('capture_mode_changed', { audience_mode: selectedAudienceMode() });
+});
+
+captureCoachChecks?.addEventListener('change', (event) => {
+  const checkbox = event.target instanceof HTMLInputElement
+    ? event.target.closest('[data-capture-check]')
+    : null;
+  if (!checkbox || !(checkbox instanceof HTMLInputElement)) {
+    return;
+  }
+  updateCaptureCoachCheck(checkbox.dataset.captureCheck || '', checkbox.checked);
+});
+
 document.getElementById('scene-refresh-btn')?.addEventListener('click', () => {
   ensureScene();
   sceneViewer.refresh();
@@ -1551,6 +1723,10 @@ applyMotionPreference(readStoredPreference(MOTION_STORAGE_KEY) === 'true');
 syncLowConfidenceControls();
 syncSettingsAccessStatus();
 renderDailyMission();
+renderCaptureCoach();
+if (betaShareCopy) {
+  betaShareCopy.textContent = betaSharePrompt();
+}
 bootstrapApp();
 pollHealth();
 setInterval(pollHealth, 6000);
@@ -1578,6 +1754,14 @@ motionToggle?.addEventListener('change', (event) => {
 settingsSampleBtn?.addEventListener('click', () => {
   trackProductEvent('settings_sample_opened');
   loadSampleReport();
+});
+
+copyBetaInviteBtn?.addEventListener('click', async () => {
+  try {
+    await copyBetaInvite('scan_beta_card');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not copy beta invite.', 3600);
+  }
 });
 
 accessTokenSave?.addEventListener('click', async () => {
@@ -1735,6 +1919,18 @@ function attachFixChecklistHandlers(jobId) {
       nextState[itemId] = checkbox.checked;
       writeChecklistState(jobId, nextState);
       item.classList.toggle('done', checkbox.checked);
+      const job = activeJob();
+      if (job?.job_id === jobId) {
+        reportActionLoop.innerHTML = renderReportActionLoop(
+          job,
+          job.summary || {},
+          state.showLowConfidence ? job.risks || [] : (job.risks || []).filter((risk) => !isLowConfidenceRisk(risk)),
+          job.fix_first || [],
+          job.recommendations || [],
+          job.evidence_frames || [],
+          job.room_comparison || null,
+        );
+      }
       trackProductEvent('fix_checklist_toggled', {
         job_id: jobId,
         item_id: itemId,
@@ -1772,6 +1968,62 @@ document.addEventListener('click', async (event) => {
     showToast('Room win copied.');
   } catch (error) {
     showToast(error instanceof Error ? error.message : 'Could not copy room win.', 3600);
+  }
+});
+
+document.addEventListener('click', async (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) {
+    return;
+  }
+
+  const betaButton = target.closest('[data-copy-beta-invite]');
+  if (betaButton) {
+    try {
+      await copyBetaInvite('report_action_loop');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not copy beta invite.', 3600);
+    }
+    return;
+  }
+
+  const fixPlanButton = target.closest('[data-copy-fix-plan]');
+  if (fixPlanButton) {
+    const job = activeJob();
+    if (!job || job.status !== 'complete') {
+      return;
+    }
+    try {
+      await copyText(buildFixPlanText(job));
+      await trackProductEvent('fix_plan_copied', {
+        job_id: job.job_id,
+        sample_key: job.sample_key || null,
+        audience_mode: job.audience_mode || 'general',
+      });
+      showToast('Fix plan copied.');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not copy fix plan.', 3600);
+    }
+    return;
+  }
+
+  const rescanButton = target.closest('[data-start-rescan]');
+  if (rescanButton) {
+    const job = activeJob();
+    const summary = job?.summary || {};
+    if (roomLabelInput && job) {
+      roomLabelInput.value = job.room_label || summary.room_label || roomLabelInput.value;
+    }
+    if (audienceModeInput && job?.audience_mode) {
+      audienceModeInput.value = job.audience_mode;
+      renderCaptureCoach();
+    }
+    await trackProductEvent('same_room_rescan_started', {
+      job_id: job?.job_id || null,
+      room_labeled: Boolean(roomLabelInput?.value),
+    });
+    switchView('scan');
+    showToast('Same-room rescan is ready. Reuse the room label and upload the follow-up walkthrough.');
   }
 });
 

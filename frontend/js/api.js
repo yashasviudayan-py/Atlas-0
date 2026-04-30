@@ -17,7 +17,7 @@ function authHeaders(headers = {}) {
 
 async function errorMessage(res, fallback) {
   try {
-    const body = await res.json();
+    const body = await res.clone().json();
     if (typeof body?.detail === 'string' && body.detail.trim()) {
       return body.detail.trim();
     }
@@ -51,6 +51,17 @@ export function clearAccessToken() {
 }
 
 export function withAccessToken(url) {
+  if (!url || url.startsWith('data:') || url.startsWith('blob:')) {
+    return url;
+  }
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.origin !== window.location.origin) {
+      return url;
+    }
+  } catch {
+    return url;
+  }
   const token = accessToken().trim();
   if (!token) {
     return url;
