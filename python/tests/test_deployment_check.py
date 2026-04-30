@@ -20,9 +20,29 @@ def test_build_report_exposes_startup_checks() -> None:
     assert any(check["name"] == "storage_root" for check in report["checks"])
 
 
+def test_object_store_exercise_roundtrips_artifacts() -> None:
+    report = check_deployment.exercise_object_store_backend()
+
+    assert report["ready"] is True
+    assert {check["name"] for check in report["checks"]} == {
+        "object_report_roundtrip",
+        "object_evidence_roundtrip",
+        "object_pointer",
+        "object_delete",
+    }
+
+
 def test_main_returns_success_for_default_profile(capsys) -> None:
     exit_code = check_deployment.main([])
 
     output = capsys.readouterr().out
     assert exit_code == 0
     assert "Atlas-0 deployment preflight: READY" in output
+
+
+def test_main_can_exercise_object_store_profile(capsys) -> None:
+    exit_code = check_deployment.main(["--exercise-object-store"])
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Object-store exercise: READY" in output
