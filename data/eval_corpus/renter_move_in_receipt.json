@@ -1,0 +1,19 @@
+{
+  "label": "renter_move_in_receipt",
+  "fixture_name": "renter_move_in_receipt",
+  "scene_source": "estimated_multiview",
+  "audience_mode": "renter",
+  "min_object_count": 4,
+  "min_hazard_count": 2,
+  "min_multiframe_supported_objects": 2,
+  "min_avg_grounding_confidence": 0.55,
+  "required_hazard_codes": [
+    "blocked_path",
+    "fragile_breakable"
+  ],
+  "top_hazard_code": "blocked_path",
+  "notes": [
+    "Renter mode should keep findings evidence-backed and useful as move-in notes.",
+    "Use for fixtures, floor transitions, damage, blocked exits, and unstable furnishings."
+  ]
+}

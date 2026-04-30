@@ -1,0 +1,19 @@
+{
+  "label": "bookshelf_tip_risk",
+  "fixture_name": "bookshelf_tip_risk",
+  "scene_source": "estimated_multiview",
+  "audience_mode": "general",
+  "min_object_count": 3,
+  "min_hazard_count": 2,
+  "min_multiframe_supported_objects": 2,
+  "min_avg_grounding_confidence": 0.58,
+  "required_hazard_codes": [
+    "unsupported_tall_item",
+    "edge_placement"
+  ],
+  "top_hazard_code": "unsupported_tall_item",
+  "notes": [
+    "Tall furniture scans should prioritize anchoring, lean, and top-heavy placement.",
+    "Use for bookcases, cabinets, and tall storage units."
+  ]
+}

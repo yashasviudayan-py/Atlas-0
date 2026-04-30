@@ -1,0 +1,20 @@
+{
+  "label": "kitchen_counter_edges",
+  "fixture_name": "kitchen_counter_edges",
+  "scene_source": "estimated_multiview",
+  "audience_mode": "general",
+  "min_object_count": 4,
+  "min_hazard_count": 3,
+  "min_multiframe_supported_objects": 2,
+  "min_avg_grounding_confidence": 0.56,
+  "required_hazard_codes": [
+    "edge_placement",
+    "fragile_breakable",
+    "spill_risk"
+  ],
+  "top_hazard_code": "edge_placement",
+  "notes": [
+    "Kitchen scans should catch objects near edges, fragile items, and spill-prone surfaces.",
+    "Use for counter walkthroughs with multiple pauses."
+  ]
+}

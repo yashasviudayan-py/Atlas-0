@@ -1,0 +1,20 @@
+{
+  "label": "elder_care_fall_path",
+  "fixture_name": "elder_care_fall_path",
+  "scene_source": "estimated_multiview",
+  "audience_mode": "general",
+  "min_object_count": 4,
+  "min_hazard_count": 3,
+  "min_multiframe_supported_objects": 2,
+  "min_avg_grounding_confidence": 0.58,
+  "required_hazard_codes": [
+    "blocked_path",
+    "edge_placement",
+    "slippery_surface"
+  ],
+  "top_hazard_code": "blocked_path",
+  "notes": [
+    "Fall-path scans should prioritize trip routes, clutter, rugs, and narrow passages.",
+    "Use for hallway, bedroom, and living-room beta scans."
+  ]
+}

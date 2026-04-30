@@ -1,0 +1,19 @@
+{
+  "label": "pet_cord_sweep",
+  "fixture_name": "pet_cord_sweep",
+  "scene_source": "estimated_multiview",
+  "audience_mode": "pet",
+  "min_object_count": 3,
+  "min_hazard_count": 2,
+  "min_multiframe_supported_objects": 2,
+  "min_avg_grounding_confidence": 0.55,
+  "required_hazard_codes": [
+    "cord_entanglement",
+    "edge_placement"
+  ],
+  "top_hazard_code": "cord_entanglement",
+  "notes": [
+    "Pet mode should surface cords, loops, chewable clutter, and low unstable objects.",
+    "Use for floor-level walkthroughs around desks, outlets, and TV stands."
+  ]
+}

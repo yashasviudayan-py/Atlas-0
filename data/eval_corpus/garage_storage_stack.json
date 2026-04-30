@@ -1,0 +1,20 @@
+{
+  "label": "garage_storage_stack",
+  "fixture_name": "garage_storage_stack",
+  "scene_source": "estimated_multiview",
+  "audience_mode": "general",
+  "min_object_count": 4,
+  "min_hazard_count": 3,
+  "min_multiframe_supported_objects": 2,
+  "min_avg_grounding_confidence": 0.55,
+  "required_hazard_codes": [
+    "unsupported_tall_item",
+    "blocked_path",
+    "edge_placement"
+  ],
+  "top_hazard_code": "unsupported_tall_item",
+  "notes": [
+    "Storage scans should catch stacked-object instability and blocked paths.",
+    "Use for garage, closet, and storage-room beta scans."
+  ]
+}

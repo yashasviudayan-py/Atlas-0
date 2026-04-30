@@ -1,0 +1,19 @@
+{
+  "label": "guest_ready_walkpath",
+  "fixture_name": "guest_ready_walkpath",
+  "scene_source": "estimated_multiview",
+  "audience_mode": "general",
+  "min_object_count": 3,
+  "min_hazard_count": 2,
+  "min_multiframe_supported_objects": 2,
+  "min_avg_grounding_confidence": 0.55,
+  "required_hazard_codes": [
+    "blocked_path",
+    "fragile_breakable"
+  ],
+  "top_hazard_code": "blocked_path",
+  "notes": [
+    "Guest-ready scans should produce an easy-to-act-on walkpath and fragile-surface check.",
+    "Use for pre-visit scans that should feel friendly, not alarmist."
+  ]
+}

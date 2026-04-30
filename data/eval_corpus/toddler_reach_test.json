@@ -1,0 +1,20 @@
+{
+  "label": "toddler_reach_test",
+  "fixture_name": "toddler_reach_test",
+  "scene_source": "estimated_multiview",
+  "audience_mode": "toddler",
+  "min_object_count": 3,
+  "min_hazard_count": 3,
+  "min_multiframe_supported_objects": 2,
+  "min_avg_grounding_confidence": 0.55,
+  "required_hazard_codes": [
+    "unsupported_tall_item",
+    "edge_placement",
+    "blocked_path"
+  ],
+  "top_hazard_code": "unsupported_tall_item",
+  "notes": [
+    "Toddler mode should prioritize reachable, climbable, and topple-prone objects.",
+    "Use for beta scans captured from lower camera height."
+  ]
+}
