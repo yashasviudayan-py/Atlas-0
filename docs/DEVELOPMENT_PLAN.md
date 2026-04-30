@@ -936,6 +936,113 @@ Before trying to scale acquisition, ATLAS-0 should meet these bars:
 
 ---
 
+## April 30 Production-Readiness Push
+
+This pass turns the 10x improvement list into concrete product surfaces while
+keeping the wedge narrow: one room, one report, one fix, one rescan.
+
+### Implemented Direction
+
+1. Core loop
+   - foreground the fix -> verify -> rescan -> share loop in the report view
+   - make same-room rescans easier by carrying room label and audience mode
+     back to the scan flow
+
+2. Guided capture
+   - add mode-specific capture coaching for general, toddler, pet, and renter
+     scans
+   - persist a local daily capture-readiness checklist so first-time users know
+     what a good walkthrough should include
+
+3. Interactive reports
+   - keep the local fix checklist as the action layer
+   - add a copyable fix plan so reports can become a small household task list
+
+4. Evidence and uncertainty
+   - add visual focus overlays on evidence frames
+   - keep trust guidance explicit: evidence is the anchor, weak scans should
+     trigger rescans instead of fake certainty
+
+5. Beta growth and learning loop
+   - add copyable beta-invite prompts and a sample-for-a-friend CTA
+   - expand public product analytics events for capture coach, fix-plan copy,
+     room-win copy, daily missions, and same-room rescan starts
+   - surface these events in operator product diagnostics
+
+6. Frontend architecture
+   - move product playbooks out of the main app script into
+     `frontend/js/product_playbooks.js`
+   - keep the large report renderer stable for now, but make future extraction
+     safer by isolating missions, capture modes, report-loop steps, and share
+     prompts
+
+7. Robustness
+   - avoid corrupting `data:` or external evidence URLs when access tokens are
+     stored
+   - preserve readable API error bodies by parsing from a cloned response
+
+### Still The Next Real Production Step
+
+The remaining 10x work is not more decorative UI. The next meaningful
+production step is deeper frontend modularization plus stronger hosted
+validation: browser-level frontend tests, object-store deployment exercises,
+and a larger labeled eval corpus that can prove report quality over time.
+
+---
+
+## Deep Production Milestones
+
+### Status
+
+Implemented as the next production tranche. These changes do not pretend that
+ATLAS-0 now has research-grade SLAM, but they move the project from heuristic
+single-frame posture toward measurable multi-frame support and hosted release
+checks.
+
+### Completed
+
+1. Multi-frame localization
+   - track matching now considers label, material, color, estimated position,
+     bbox overlap, bbox center distance, area consistency, and frame gaps
+   - localized objects now expose `multi_frame_support`, `frame_span`,
+     `localization_method`, `bbox_stability`, `position_variance`, timestamp
+     span, and a human-readable support summary
+   - hazard reasoning now carries localization method, multi-frame support, bbox
+     stability, and position variance so reports can explain grounding quality
+
+2. Labeled eval corpus
+   - expanded the seeded eval corpus beyond the single sample walkthrough into
+     toddler, pet, renter, elder-care, kitchen, bookshelf, guest-ready, and
+     storage scenarios
+   - benchmark comparison now checks multi-frame supported object count and
+     average grounding confidence, not only hazard-code presence
+   - added tests that validate corpus breadth, required fields, audience modes,
+     and grounding expectations
+
+3. Browser-level frontend test path
+   - added a Playwright browser smoke test for the static frontend shell
+   - the test verifies the app renders the scan coach, report loop, settings
+     shell, and footer without horizontal overflow
+   - local default skips cleanly when Playwright is not installed; CI can require
+     it with `ATLAS0_REQUIRE_BROWSER_TESTS=1 npm run test:frontend:required`
+
+4. Object-store deployment exercise
+   - deployment preflight can now run a temporary `object_store_fs` artifact
+     roundtrip
+   - the exercise writes, reads, builds pointers for, and deletes report/evidence
+     artifacts through the object-store abstraction
+   - added tests for the object-store exercise and CLI path
+
+### Remaining Honest Gap
+
+The next leap is real visual tracking / depth estimation quality, not more API
+plumbing. The current multi-frame grounding is still deterministic fusion over
+salient regions and labels. It is now measurable and exposed, but it should
+eventually be replaced or augmented with stronger feature tracking, optical
+flow, depth estimation, or a learned object detector/tracker.
+
+---
+
 ## Non-Negotiable Quality Bar
 
 Before calling the product usable:
