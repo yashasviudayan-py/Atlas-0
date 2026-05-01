@@ -18,6 +18,7 @@ const LOW_CONFIDENCE_STORAGE_KEY = 'atlas0.showLowConfidenceDefault';
 const MISSION_STORAGE_KEY = 'atlas0.dailySafetyMission';
 const FIX_CHECKLIST_STORAGE_KEY = 'atlas0.fixChecklist';
 const CAPTURE_COACH_STORAGE_KEY = 'atlas0.captureCoach';
+const SESSION_STORAGE_KEY = 'atlas0.sessionId';
 
 function readStoredPreference(key) {
   try {
@@ -31,6 +32,25 @@ function writeStoredPreference(key, value) {
   try {
     window.localStorage.setItem(key, value);
   } catch {}
+}
+
+function betaSessionId() {
+  const existing = readStoredPreference(SESSION_STORAGE_KEY);
+  if (existing) {
+    return existing;
+  }
+  const generated = `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  writeStoredPreference(SESSION_STORAGE_KEY, generated);
+  return generated;
+}
+
+function urlAttribution() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    referrer: document.referrer || null,
+    utm_source: params.get('utm_source'),
+    utm_campaign: params.get('utm_campaign'),
+  };
 }
 
 const VIEW_LABELS = {
@@ -51,6 +71,7 @@ const state = {
   uploadGuidance: null,
   operatorSettings: null,
   reportViewEvents: new Set(),
+  uploadCompleteEvents: new Set(),
 };
 
 const navButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
@@ -61,6 +82,9 @@ const jumpButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
 );
 const sampleButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
   document.querySelectorAll('[data-load-sample]')
+);
+const useCaseButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
+  document.querySelectorAll('[data-use-case-mode]')
 );
 const viewElements = document.querySelectorAll('.view');
 const viewLabel = document.getElementById('hdr-view-label');
@@ -84,6 +108,7 @@ const accessHelp = document.getElementById('access-help');
 const uploadGuidanceCopy = document.getElementById('upload-guidance-copy');
 const uploadDurationPill = document.getElementById('upload-duration-pill');
 const uploadSizePill = document.getElementById('upload-size-pill');
+const scanWizardStatus = document.getElementById('scan-wizard-status');
 const privacyPolicy = document.getElementById('privacy-policy');
 const operatorPolicy = document.getElementById('operator-policy');
 const operatorQueue = document.getElementById('operator-queue');
@@ -240,7 +265,16 @@ async function copyText(value) {
 
 async function trackProductEvent(eventName, extra = {}) {
   try {
-    await api.logProductEvent({ event_name: eventName, ...extra });
+    await api.logProductEvent({
+      event_name: eventName,
+      session_id: betaSessionId(),
+      client_ts: new Date().toISOString(),
+      audience_mode: selectedAudienceMode(),
+      room_label: roomLabelInput?.value?.trim() || null,
+      room_labeled: Boolean(roomLabelInput?.value?.trim()),
+      ...urlAttribution(),
+      ...extra,
+    });
   } catch {}
 }
 
@@ -489,6 +523,14 @@ function renderCaptureCoach() {
   if (captureCoachMeter) {
     captureCoachMeter.style.width = `${progress}%`;
   }
+  useCaseButtons.forEach((button) => {
+    button.classList.toggle('active', button.dataset.useCaseMode === mode);
+  });
+  if (scanWizardStatus) {
+    scanWizardStatus.textContent = progress >= 80
+      ? 'Great capture setup. Upload when your walkthrough is ready, then use the report as decision support, not certification.'
+      : `${checkedCount} of ${coach.checks.length} capture checks are ready. Finish the checklist to improve report quality before uploading.`;
+  }
 }
 
 function updateCaptureCoachCheck(check, enabled) {
@@ -502,6 +544,24 @@ function updateCaptureCoachCheck(check, enabled) {
     check,
     checked: Boolean(enabled),
   });
+}
+
+function applyUseCase(mode, label) {
+  if (audienceModeInput && CAPTURE_COACH_MODES[mode]) {
+    audienceModeInput.value = mode;
+  }
+  if (roomLabelInput && label && !roomLabelInput.value.trim()) {
+    roomLabelInput.value = label;
+  }
+  renderCaptureCoach();
+  trackProductEvent('capture_mode_changed', {
+    surface: 'use_case_card',
+    audience_mode: selectedAudienceMode(),
+    room_label: roomLabelInput?.value?.trim() || null,
+    room_labeled: Boolean(roomLabelInput?.value?.trim()),
+  });
+  switchView('scan');
+  showToast(`${CAPTURE_COACH_MODES[selectedAudienceMode()].title} selected.`);
 }
 
 function switchView(id) {
@@ -1563,6 +1623,54 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'PDF downloads', value: String(settings.product.pdf_download_events || 0) },
       { label: 'CTA start-scan taps', value: String(settings.product.cta_start_scan_events || 0) },
     ])}
+    ${renderBetaInbox(settings.beta_inbox)}
+  `;
+}
+
+function renderBetaInbox(inbox) {
+  if (!inbox) {
+    return '<p class="meta-copy">Beta inbox will appear after operator access is available.</p>';
+  }
+  const funnel = inbox.funnel || {};
+  const waitlist = Array.isArray(inbox.recent_waitlist) ? inbox.recent_waitlist : [];
+  const failures = Array.isArray(inbox.failed_uploads) ? inbox.failed_uploads : [];
+  const negative = Array.isArray(inbox.negative_feedback_reports) ? inbox.negative_feedback_reports : [];
+  const reviewNeeded = Array.isArray(inbox.review_needed_reports) ? inbox.review_needed_reports : [];
+  const missed = Array.isArray(inbox.missed_hazard_notes) ? inbox.missed_hazard_notes : [];
+  const readiness = inbox.eval_candidate_readiness || {};
+  return `
+    <p class="subsection-label">Beta inbox</p>
+    <p class="meta-copy">${escapeHtml(inbox.summary || 'Review beta demand, failures, feedback, and eval readiness before inviting more users.')}</p>
+    ${renderPolicyItems([
+      { label: 'CTA to upload', value: String(funnel.cta_start_scan || 0) },
+      { label: 'Upload starts', value: String(funnel.upload_started || 0) },
+      { label: 'Upload completes', value: String(funnel.upload_completed || 0) },
+      { label: 'Report views', value: String(funnel.report_viewed || 0) },
+      { label: 'PDF downloads', value: String(funnel.pdf_downloads || 0) },
+      { label: 'Completion rate', value: `${Math.round((funnel.completion_rate || 0) * 100)}%` },
+      { label: 'Eval-ready reports', value: String(readiness.review_ready_reports || 0) },
+      { label: 'Eval candidates', value: `${readiness.saved_eval_candidates || 0} / ${readiness.target_corpus_size || 0}` },
+    ])}
+    ${waitlist.length ? `<p class="subsection-label">Recent waitlist</p>${renderPolicyItems(waitlist.map((entry) => ({
+      label: entry.email || 'waitlist',
+      value: `${entry.audience_mode || 'general'} · ${entry.use_case || entry.source || 'No use case'}`,
+    })))}` : '<p class="meta-copy">No waitlist submissions yet.</p>'}
+    ${failures.length ? `<p class="subsection-label">Failed uploads</p>${renderPolicyItems(failures.map((job) => ({
+      label: job.filename || job.job_id || 'failed job',
+      value: `${job.stage || 'stage unknown'} · ${job.error || 'Unknown failure'}`,
+    })))}` : '<p class="meta-copy">No failed uploads in the beta inbox.</p>'}
+    ${negative.length ? `<p class="subsection-label">Negative feedback</p>${renderPolicyItems(negative.map((job) => ({
+      label: job.filename || job.job_id || 'report',
+      value: `${job.wrong || 0} wrong · ${job.duplicate || 0} duplicate`,
+    })))}` : '<p class="meta-copy">No wrong/duplicate report feedback yet.</p>'}
+    ${reviewNeeded.length ? `<p class="subsection-label">Review queue</p>${renderPolicyItems(reviewNeeded.map((job) => ({
+      label: job.filename || job.job_id || 'report',
+      value: job.review_ready_for_eval ? 'Ready for eval export' : (job.summary || 'Needs human review'),
+    })))}` : '<p class="meta-copy">No reports currently need review.</p>'}
+    ${missed.length ? `<p class="subsection-label">Missed hazard notes</p>${renderPolicyItems(missed.map((item) => ({
+      label: item.room_label || item.job_id || 'missed hazard',
+      value: item.note || 'No note',
+    })))}` : ''}
   `;
 }
 
@@ -1680,6 +1788,12 @@ sampleButtons.forEach((button) => {
   button.addEventListener('click', loadSampleReport);
 });
 
+useCaseButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    applyUseCase(button.dataset.useCaseMode || 'general', button.dataset.useCaseLabel || '');
+  });
+});
+
 dailyMissionStart?.addEventListener('click', startDailyMission);
 dailyMissionComplete?.addEventListener('click', completeDailyMission);
 
@@ -1708,13 +1822,41 @@ const uploadView = new UploadView({
   fileInput: /** @type {HTMLInputElement} */ (document.getElementById('file-input')),
   roomLabelInput,
   audienceModeInput,
+  onUploadStart: (file, metadata) => {
+    if (scanWizardStatus) {
+      scanWizardStatus.textContent = `Uploading ${file.name}. Keep this tab open while ATLAS-0 builds the report.`;
+    }
+    trackProductEvent('upload_started', {
+      surface: 'guided_scan_wizard',
+      audience_mode: metadata.audienceMode,
+      room_label: metadata.roomLabel || null,
+      room_labeled: Boolean(metadata.roomLabel),
+    });
+  },
   onJobCreated: async (job) => {
     upsertJob(job);
     await refreshOperatorState();
     switchView('scan');
   },
-  onJobUpdate: (job) => upsertJob(job),
-  onJobError: (error) => showToast(error.message, 3600),
+  onJobUpdate: (job) => {
+    upsertJob(job);
+    if (job.status === 'complete' && !state.uploadCompleteEvents.has(job.job_id)) {
+      state.uploadCompleteEvents.add(job.job_id);
+      trackProductEvent('upload_completed', {
+        surface: 'upload_worker',
+        job_id: job.job_id,
+        audience_mode: job.audience_mode || selectedAudienceMode(),
+        room_label: job.room_label || job.summary?.room_label || null,
+        room_labeled: Boolean(job.room_label || job.summary?.room_label),
+      });
+    }
+  },
+  onJobError: (error) => {
+    if (scanWizardStatus) {
+      scanWizardStatus.textContent = error.message;
+    }
+    showToast(error.message, 3600);
+  },
 });
 
 uploadView.init();
@@ -1840,6 +1982,8 @@ waitlistSubmitBtn?.addEventListener('click', async () => {
     const response = await api.submitWaitlist({
       email,
       use_case: useCase || null,
+      source: 'hero_waitlist',
+      audience_mode: selectedAudienceMode(),
     });
     waitlistEmailInput.value = '';
     waitlistUseCaseInput.value = '';

@@ -36,6 +36,8 @@ try {
   await page.locator('text=ATLAS-0').first().waitFor({ timeout: 3000 });
   await page.locator('#view-scan').waitFor({ state: 'attached', timeout: 3000 });
   await page.locator('#capture-coach-title').waitFor({ state: 'attached', timeout: 3000 });
+  await page.locator('.use-case-card').first().waitFor({ state: 'attached', timeout: 3000 });
+  await page.locator('#scan-wizard-status').waitFor({ state: 'attached', timeout: 3000 });
   await page.locator('#report-action-loop').waitFor({ state: 'attached', timeout: 3000 });
   await page.locator('#view-settings').waitFor({ state: 'attached', timeout: 3000 });
   await page.locator('footer.app-footer').waitFor({ timeout: 3000 });

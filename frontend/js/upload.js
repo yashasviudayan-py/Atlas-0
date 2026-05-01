@@ -14,10 +14,11 @@ export class UploadView {
    *   roomLabelInput?: HTMLInputElement | null,
    *   audienceModeInput?: HTMLSelectElement | null,
    *   uploadGuidance?: any,
-   *   onJobCreated?: (job: any) => void,
-   *   onJobUpdate?: (job: any) => void,
-   *   onJobError?: (error: Error) => void,
-   * }} opts
+ *   onJobCreated?: (job: any) => void,
+ *   onJobUpdate?: (job: any) => void,
+ *   onJobError?: (error: Error) => void,
+ *   onUploadStart?: (file: File, metadata: { roomLabel: string, audienceMode: string }) => void,
+ * }} opts
    */
   constructor(opts) {
     this._dropZone = opts.dropZone;
@@ -28,6 +29,7 @@ export class UploadView {
     this._onJobCreated = opts.onJobCreated || (() => {});
     this._onJobUpdate = opts.onJobUpdate || (() => {});
     this._onJobError = opts.onJobError || (() => {});
+    this._onUploadStart = opts.onUploadStart || (() => {});
     this._pollers = new Map();
   }
 
@@ -74,6 +76,7 @@ export class UploadView {
       this._validateFile(file);
       const roomLabel = this._roomLabelInput?.value?.trim() || '';
       const audienceMode = this._audienceModeInput?.value?.trim() || 'general';
+      this._onUploadStart(file, { roomLabel, audienceMode });
       const job = await api.uploadFile(file, { roomLabel, audienceMode });
       await this._onJobCreated(job);
       await this._onJobUpdate(job);

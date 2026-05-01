@@ -551,7 +551,16 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
-    .sample-card {
+    .use-case-grid,
+    .wizard-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .sample-card,
+    .use-case-card,
+    .wizard-step-card {
       display: grid;
       gap: 8px;
       padding: 14px;
@@ -566,16 +575,53 @@
       transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
     }
 
-    .sample-card:hover {
+    .use-case-card {
+      cursor: pointer;
+    }
+
+    .wizard-step-card {
+      cursor: default;
+    }
+
+    .sample-card:hover,
+    .use-case-card:hover,
+    .use-case-card.active {
       transform: translateY(-1px);
       border-color: rgba(12, 128, 116, 0.24);
       background: var(--panel-strong);
     }
 
-    .sample-card strong {
+    .sample-card strong,
+    .use-case-card strong,
+    .wizard-step-card strong {
       color: var(--ink);
       font-size: 0.98rem;
       letter-spacing: -0.02em;
+    }
+
+    .wizard-shell {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 18px;
+      padding: 18px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(12, 128, 116, 0.16);
+      background:
+        radial-gradient(circle at top right, rgba(12, 128, 116, 0.12), transparent 32%),
+        linear-gradient(135deg, rgba(255,255,255,0.74), rgba(214, 127, 48, 0.08));
+      box-shadow: var(--shadow-soft);
+    }
+
+    .wizard-shell h4,
+    .wizard-shell p {
+      margin: 0;
+    }
+
+    .wizard-shell p,
+    .use-case-card span,
+    .wizard-step-card span {
+      color: var(--ink-soft);
+      line-height: 1.5;
     }
 
     .guide-card {
@@ -2288,6 +2334,8 @@
       .hero-metric-band,
       .guide-grid,
       .sample-gallery,
+      .use-case-grid,
+      .wizard-grid,
       .coach-grid,
       .report-loop-grid,
       .scorecard-grid {
@@ -2421,6 +2469,28 @@
             <div class="hero-step"><span class="step-num">01</span><span><strong>Upload</strong> a 20-60s walkthrough</span></div>
             <div class="hero-step"><span class="step-num">02</span><span><strong>Review</strong> hazards with evidence</span></div>
             <div class="hero-step"><span class="step-num">03</span><span><strong>Export</strong> a clean PDF report</span></div>
+          </div>
+          <div class="use-case-grid" aria-label="Choose a beta use case">
+            <button class="use-case-card" type="button" data-use-case-mode="renter" data-use-case-label="Move-in receipt">
+              <span class="guide-kicker">Renter</span>
+              <strong>Move-in receipt</strong>
+              <span>Capture evidence and hazards before the room changes.</span>
+            </button>
+            <button class="use-case-card" type="button" data-use-case-mode="toddler" data-use-case-label="Toddler reach test">
+              <span class="guide-kicker">Parent</span>
+              <strong>Toddler reach test</strong>
+              <span>Prioritize reachable, climbable, pullable hazards.</span>
+            </button>
+            <button class="use-case-card" type="button" data-use-case-mode="pet" data-use-case-label="Pet safety sweep">
+              <span class="guide-kicker">Pet</span>
+              <strong>Cable safari</strong>
+              <span>Look for cords, low clutter, and unstable temptations.</span>
+            </button>
+            <button class="use-case-card" type="button" data-use-case-mode="general" data-use-case-label="Guest-ready sweep">
+              <span class="guide-kicker">Home</span>
+              <strong>Guest-ready sweep</strong>
+              <span>Find trip paths and fragile edge risks before people arrive.</span>
+            </button>
           </div>
         </div>
         <div class="hero-side">
@@ -2563,6 +2633,39 @@
               </select>
               <p class="meta-copy">This changes how ATLAS-0 prioritizes the same room. Use toddler or pet mode when you want the report to weight reachable, floor-level, or bump-prone hazards more heavily.</p>
             </div>
+
+            <section class="wizard-shell" aria-label="Guided scan wizard">
+              <div class="section-head compact">
+                <div>
+                  <span class="guide-kicker">Guided scan wizard</span>
+                  <h4>Four checks before you upload.</h4>
+                  <p id="scan-wizard-status">Choose a use case, confirm the room label, then upload one steady walkthrough. ATLAS-0 will warn before sending files that look unsupported or too large.</p>
+                </div>
+                <span class="pill">Beta-friendly</span>
+              </div>
+              <div class="wizard-grid">
+                <article class="wizard-step-card">
+                  <span class="guide-kicker">01</span>
+                  <strong>Pick the mode</strong>
+                  <span>Use the cards above or the report-mode menu to tune what the report emphasizes.</span>
+                </article>
+                <article class="wizard-step-card">
+                  <span class="guide-kicker">02</span>
+                  <strong>Name the room</strong>
+                  <span>Reuse the same label for before/after rescans and score trends.</span>
+                </article>
+                <article class="wizard-step-card">
+                  <span class="guide-kicker">03</span>
+                  <strong>Record slowly</strong>
+                  <span>Start at the doorway, pause on shelves and edges, and include the floor path.</span>
+                </article>
+                <article class="wizard-step-card">
+                  <span class="guide-kicker">04</span>
+                  <strong>Upload with trust</strong>
+                  <span>Unsupported or oversized files are caught before the backend spends work.</span>
+                </article>
+              </div>
+            </section>
 
             <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Upload a room scan">
               <input id="file-input" type="file" accept="video/mp4,video/quicktime,video/webm,image/*" />
