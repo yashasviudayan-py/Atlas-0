@@ -183,6 +183,37 @@ def test_product_waitlist_is_public() -> None:
     assert _upload_store.load_waitlist_entries()[0]["email"] == "beta@example.com"
 
 
+def test_product_waitlist_deduplicates_email() -> None:
+    first = client.post(
+        "/product/waitlist",
+        json={
+            "email": "Beta@Example.com",
+            "use_case": "renter move-in",
+            "source": "hero_waitlist",
+            "audience_mode": "renter",
+        },
+    )
+    second = client.post(
+        "/product/waitlist",
+        json={
+            "email": "beta@example.com",
+            "use_case": "pet safety",
+            "source": "settings",
+            "audience_mode": "pet",
+        },
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["waitlist_count"] == 1
+    assert "already" in second.json()["message"].lower()
+    entries = _upload_store.load_waitlist_entries()
+    assert len(entries) == 1
+    assert entries[0]["email"] == "beta@example.com"
+    assert entries[0]["source"] == "hero_waitlist"
+    assert entries[0]["audience_mode"] == "renter"
+
+
 def test_product_event_is_public() -> None:
     response = client.post(
         "/product/events",
@@ -193,6 +224,43 @@ def test_product_event_is_public() -> None:
     events = _upload_store.load_product_events()
     assert events[0]["event_name"] == "cta_start_scan"
     assert events[0]["surface"] == "hero"
+
+
+def test_product_event_accepts_attribution_fields() -> None:
+    response = client.post(
+        "/product/events",
+        json={
+            "event_name": "cta_start_scan",
+            "surface": "hero",
+            "session_id": "session-123",
+            "client_ts": "2026-05-01T00:00:00Z",
+            "referrer": "https://example.com/post",
+            "utm_source": "friend",
+            "utm_campaign": "beta",
+            "audience_mode": "pet",
+            "room_label": "Living room",
+            "room_labeled": True,
+        },
+    )
+
+    assert response.status_code == 204
+    event = _upload_store.load_product_events()[0]
+    assert event["session_id"] == "session-123"
+    assert event["utm_source"] == "friend"
+    assert event["utm_campaign"] == "beta"
+    assert event["audience_mode"] == "pet"
+    assert event["room_label"] == "Living room"
+    assert event["room_labeled"] is True
+
+
+def test_product_event_rejects_unknown_event_name() -> None:
+    response = client.post(
+        "/product/events",
+        json={"event_name": "surprise_growth_hack", "surface": "hero"},
+    )
+
+    assert response.status_code == 400
+    assert _upload_store.load_product_events() == []
 
 
 def test_product_event_accepts_beta_loop_events() -> None:
@@ -240,8 +308,64 @@ def test_operator_settings_require_token_when_configured() -> None:
     assert "reviewed_jobs" in authenticated.json()["evaluation"]
     assert "saved_eval_candidates" in authenticated.json()["evaluation"]
     assert "release_gates" in authenticated.json()["evaluation"]
+    assert "beta_inbox" in authenticated.json()
+    assert "funnel" in authenticated.json()["beta_inbox"]
     assert "deployment_ready" in authenticated.json()["system"]
     assert "startup_checks" in authenticated.json()["system"]
+
+
+def test_operator_beta_inbox_summarizes_learning_loop_without_raw_email() -> None:
+    _api_cfg.access_token = "secret-token"
+    _upload_store.append_waitlist_entry(
+        {
+            "email": "person@example.com",
+            "use_case": "pet safety",
+            "source": "hero_waitlist",
+            "audience_mode": "pet",
+            "created_at": "2026-05-01T00:00:00+00:00",
+        }
+    )
+    _upload_store.append_product_event(
+        {
+            "event_name": "cta_start_scan",
+            "surface": "hero",
+            "created_at": "2026-05-01T00:00:00+00:00",
+        }
+    )
+    _upload_jobs["jobwrong"] = {
+        "job_id": "jobwrong",
+        "filename": "room.mp4",
+        "status": "complete",
+        "created_at": "2026-05-01T00:00:00+00:00",
+        "completed_at": "2026-05-01T00:00:10+00:00",
+        "feedback_summary": {"useful": 0, "wrong": 1, "duplicate": 0},
+        "evaluation_summary": {"needs_review": True, "summary": "1 finding needs review."},
+        "human_evaluation": {"missed_hazards": ["Missed a cord near the door."]},
+        "summary": {"room_label": "Living room"},
+    }
+    _upload_jobs["jobfail"] = {
+        "job_id": "jobfail",
+        "filename": "bad.mov",
+        "status": "error",
+        "stage": "analyze",
+        "error": "video decode failed",
+        "created_at": "2026-05-01T00:00:00+00:00",
+        "failed_at": "2026-05-01T00:00:03+00:00",
+    }
+
+    response = client.get(
+        "/operator/settings",
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert response.status_code == 200
+    inbox = response.json()["beta_inbox"]
+    assert inbox["funnel"]["cta_start_scan"] == 1
+    assert inbox["recent_waitlist"][0]["email"] == "pe***@example.com"
+    assert "person@example.com" not in str(inbox)
+    assert inbox["failed_uploads"][0]["job_id"] == "jobfail"
+    assert inbox["negative_feedback_reports"][0]["job_id"] == "jobwrong"
+    assert inbox["missed_hazard_notes"][0]["note"] == "Missed a cord near the door."
 
 
 def test_operator_storage_prune_requires_token_when_configured() -> None:

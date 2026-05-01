@@ -302,6 +302,7 @@ class OperatorSettingsResponse(BaseModel):
     providers: dict[str, Any]
     evaluation: dict[str, Any]
     product: dict[str, Any]
+    beta_inbox: dict[str, Any]
 
 
 class PrivacyPolicyResponse(BaseModel):
@@ -338,6 +339,12 @@ class ProductEventRequest(BaseModel):
     sample_key: str | None = None
     audience_mode: str | None = None
     room_labeled: bool | None = None
+    room_label: str | None = None
+    session_id: str | None = None
+    client_ts: str | None = None
+    referrer: str | None = None
+    utm_source: str | None = None
+    utm_campaign: str | None = None
 
 
 class WaitlistRequest(BaseModel):
@@ -347,6 +354,8 @@ class WaitlistRequest(BaseModel):
     use_case: str | None = None
     name: str | None = None
     notes: str | None = None
+    source: str | None = None
+    audience_mode: str | None = None
 
 
 class WaitlistResponse(BaseModel):
@@ -661,6 +670,12 @@ def record_product_event(payload: ProductEventRequest, request: Request) -> Resp
             "sample_key": str(payload.sample_key or "").strip() or None,
             "audience_mode": normalize_audience_mode(payload.audience_mode),
             "room_labeled": bool(payload.room_labeled),
+            "room_label": _bounded_text(payload.room_label, max_len=80),
+            "session_id": _bounded_text(payload.session_id, max_len=80),
+            "client_ts": _bounded_text(payload.client_ts, max_len=64),
+            "referrer": _bounded_text(payload.referrer, max_len=240),
+            "utm_source": _bounded_text(payload.utm_source, max_len=80),
+            "utm_campaign": _bounded_text(payload.utm_campaign, max_len=120),
             "host": _request_host(request),
             "created_at": _utc_now_iso(),
         }
@@ -675,9 +690,11 @@ def join_waitlist(payload: WaitlistRequest, request: Request) -> WaitlistRespons
     if email is None:
         raise HTTPException(status_code=400, detail="Enter a valid email address.")
 
-    name = " ".join(str(payload.name or "").strip().split())
-    use_case = " ".join(str(payload.use_case or "").strip().split())
-    notes = " ".join(str(payload.notes or "").strip().split())
+    name = _collapsed_text(payload.name) or ""
+    use_case = _collapsed_text(payload.use_case) or ""
+    notes = _collapsed_text(payload.notes) or ""
+    source = _bounded_text(payload.source, max_len=80) or "hero_waitlist"
+    audience_mode = normalize_audience_mode(payload.audience_mode)
     if len(name) > 80:
         raise HTTPException(status_code=400, detail="Name must be 80 characters or fewer.")
     if len(use_case) > 120:
@@ -688,11 +705,44 @@ def join_waitlist(payload: WaitlistRequest, request: Request) -> WaitlistRespons
             detail="Waitlist note must be 280 characters or fewer.",
         )
 
+    existing_entries = _upload_store.load_waitlist_entries()
+    for existing in existing_entries:
+        if str(existing.get("email") or "").lower() == email:
+            _upload_store.append_product_event(
+                {
+                    "event_name": "waitlist_submitted",
+                    "surface": source,
+                    "job_id": None,
+                    "sample_key": None,
+                    "audience_mode": audience_mode,
+                    "room_labeled": False,
+                    "room_label": None,
+                    "session_id": None,
+                    "client_ts": None,
+                    "referrer": None,
+                    "utm_source": None,
+                    "utm_campaign": None,
+                    "host": _request_host(request),
+                    "created_at": _utc_now_iso(),
+                    "deduped": True,
+                }
+            )
+            return WaitlistResponse(
+                accepted=True,
+                waitlist_count=len(existing_entries),
+                message=(
+                    "You're already on the list. We'll use your original signup"
+                    " for the next beta wave."
+                ),
+            )
+
     entry = {
         "email": email,
         "name": name or None,
         "use_case": use_case or None,
         "notes": notes or None,
+        "source": source,
+        "audience_mode": audience_mode,
         "host": _request_host(request),
         "created_at": _utc_now_iso(),
     }
@@ -701,11 +751,17 @@ def join_waitlist(payload: WaitlistRequest, request: Request) -> WaitlistRespons
     _upload_store.append_product_event(
         {
             "event_name": "waitlist_submitted",
-            "surface": "hero_waitlist",
+            "surface": source,
             "job_id": None,
             "sample_key": None,
-            "audience_mode": "general",
+            "audience_mode": audience_mode,
             "room_labeled": False,
+            "room_label": None,
+            "session_id": None,
+            "client_ts": None,
+            "referrer": None,
+            "utm_source": None,
+            "utm_campaign": None,
             "host": _request_host(request),
             "created_at": entry["created_at"],
         }
@@ -759,6 +815,7 @@ def operator_settings(request: Request) -> OperatorSettingsResponse:
         providers=_provider_runtime_summary(),
         evaluation=_aggregate_evaluation_metrics(),
         product=_aggregate_product_metrics(),
+        beta_inbox=_build_beta_inbox(),
     )
 
 
@@ -1439,6 +1496,20 @@ def _normalize_public_event_name(value: str | None) -> str | None:
     return event_name if event_name in _PUBLIC_PRODUCT_EVENTS else None
 
 
+def _bounded_text(value: str | None, *, max_len: int) -> str | None:
+    """Collapse whitespace and keep public product metadata safely bounded."""
+    text = _collapsed_text(value)
+    if not text:
+        return None
+    return text[:max_len]
+
+
+def _collapsed_text(value: str | None) -> str | None:
+    """Collapse whitespace in optional user-provided text."""
+    text = " ".join(str(value or "").strip().split())
+    return text or None
+
+
 def _normalize_waitlist_email(value: str | None) -> str | None:
     """Normalize and lightly validate one waitlist email address."""
     email = str(value or "").strip().lower()
@@ -1857,6 +1928,149 @@ def _provider_runtime_summary() -> dict[str, Any]:
         "primary_model": vlm.model_name
         if vlm.provider == "ollama"
         else (vlm.claude_model if vlm.provider == "claude" else vlm.openai_model),
+    }
+
+
+def _mask_waitlist_email(email: str | None) -> str:
+    """Return a privacy-safe email preview for operator beta triage."""
+    value = str(email or "").strip().lower()
+    local, sep, domain = value.partition("@")
+    if not sep or not local or not domain:
+        return "unknown"
+    visible = local[:2] if len(local) > 2 else local[:1]
+    return f"{visible}***@{domain}"
+
+
+def _job_started_seconds(job: dict[str, Any]) -> float | None:
+    """Return elapsed seconds between a job start and terminal timestamp."""
+    started_at = job.get("started_at") or job.get("created_at")
+    ended_at = job.get("completed_at") or job.get("failed_at") or job.get("updated_at")
+    if not started_at or not ended_at:
+        return None
+    try:
+        start_dt = datetime.fromisoformat(str(started_at))
+        end_dt = datetime.fromisoformat(str(ended_at))
+    except ValueError:
+        return None
+    return max(0.0, (end_dt - start_dt).total_seconds())
+
+
+def _build_beta_inbox() -> dict[str, Any]:
+    """Build the protected operator inbox for beta growth and learning loops."""
+    jobs = list(_upload_jobs.values())
+    product_events = _upload_store.load_product_events()
+    waitlist_entries = _upload_store.load_waitlist_entries()
+    event_counts: dict[str, int] = {}
+    for event in product_events:
+        name = _normalize_public_event_name(event.get("event_name"))
+        if name:
+            event_counts[name] = event_counts.get(name, 0) + 1
+
+    terminal_jobs = [job for job in jobs if str(job.get("status")) in {"complete", "error"}]
+    completed_jobs = [job for job in jobs if str(job.get("status")) == "complete"]
+    failed_jobs = [job for job in jobs if str(job.get("status")) == "error"]
+    negative_reports: list[dict[str, Any]] = []
+    review_needed: list[dict[str, Any]] = []
+    missed_hazard_notes: list[dict[str, Any]] = []
+
+    for job in completed_jobs:
+        feedback = dict(job.get("feedback_summary") or {})
+        wrong = int(feedback.get("wrong", 0) or 0)
+        duplicate = int(feedback.get("duplicate", 0) or 0)
+        room_label = job.get("room_label") or (job.get("summary") or {}).get("room_label")
+        if wrong or duplicate:
+            negative_reports.append(
+                {
+                    "job_id": job.get("job_id"),
+                    "filename": job.get("filename"),
+                    "wrong": wrong,
+                    "duplicate": duplicate,
+                    "room_label": room_label,
+                }
+            )
+
+        evaluation = dict(job.get("evaluation_summary") or {})
+        if bool(evaluation.get("needs_review")) or _review_ready_for_eval(job):
+            review_needed.append(
+                {
+                    "job_id": job.get("job_id"),
+                    "filename": job.get("filename"),
+                    "summary": evaluation.get("summary"),
+                    "review_ready_for_eval": _review_ready_for_eval(job),
+                }
+            )
+
+        human = dict(job.get("human_evaluation") or {})
+        for missed in list(human.get("missed_hazards") or [])[:3]:
+            missed_hazard_notes.append(
+                {
+                    "job_id": job.get("job_id"),
+                    "note": str(missed)[:180],
+                    "room_label": room_label,
+                }
+            )
+
+    durations = [
+        value for value in (_job_started_seconds(job) for job in terminal_jobs) if value is not None
+    ]
+    recent_waitlist = sorted(
+        waitlist_entries,
+        key=lambda entry: str(entry.get("created_at") or ""),
+        reverse=True,
+    )[:8]
+    recent_failures = sorted(
+        failed_jobs,
+        key=lambda job: str(
+            job.get("failed_at") or job.get("updated_at") or job.get("created_at") or ""
+        ),
+        reverse=True,
+    )[:6]
+
+    return {
+        "summary": (
+            "Review failed uploads, negative feedback, waitlist demand, and eval-ready"
+            " reports before inviting the next beta batch."
+        ),
+        "funnel": {
+            "cta_start_scan": event_counts.get("cta_start_scan", 0),
+            "upload_started": event_counts.get("upload_started", 0),
+            "upload_completed": event_counts.get("upload_completed", 0),
+            "report_viewed": event_counts.get("report_viewed", 0),
+            "pdf_downloads": event_counts.get("report_pdf_downloaded", 0),
+            "share_events": event_counts.get("report_share_copied", 0),
+            "waitlist_submitted": event_counts.get("waitlist_submitted", 0),
+            "completion_rate": round(len(completed_jobs) / len(terminal_jobs), 2)
+            if terminal_jobs
+            else 0.0,
+            "avg_terminal_seconds": round(sum(durations) / len(durations), 1) if durations else 0.0,
+        },
+        "recent_waitlist": [
+            {
+                "email": _mask_waitlist_email(entry.get("email")),
+                "use_case": entry.get("use_case"),
+                "source": entry.get("source"),
+                "audience_mode": entry.get("audience_mode"),
+                "created_at": entry.get("created_at"),
+            }
+            for entry in recent_waitlist
+        ],
+        "failed_uploads": [
+            {
+                "job_id": job.get("job_id"),
+                "filename": job.get("filename"),
+                "stage": job.get("stage"),
+                "error": str(job.get("error") or job.get("message") or "Unknown failure")[:180],
+            }
+            for job in recent_failures
+        ],
+        "negative_feedback_reports": negative_reports[:8],
+        "review_needed_reports": review_needed[:10],
+        "missed_hazard_notes": missed_hazard_notes[:10],
+        "eval_candidate_readiness": {
+            "review_ready_reports": sum(1 for job in completed_jobs if _review_ready_for_eval(job)),
+            "saved_eval_candidates": len(_load_eval_candidate_entries()),
+            "target_corpus_size": _evaluation_cfg.target_corpus_size,
+        },
     }
 
 
