@@ -1043,6 +1043,49 @@ flow, depth estimation, or a learned object detector/tracker.
 
 ---
 
+## 10x Beta Growth Pass
+
+### Status
+
+Implemented. This pass focuses on beta adoption and learning loops rather than
+changing the core hazard engine.
+
+### Completed
+
+1. First-run beta funnel
+   - the `/app` hero now includes renter, toddler, pet, and guest-ready use-case
+     cards that tune the report mode and room label
+   - the scan page now includes a guided scan wizard before upload so beta users
+     know what to record, why room labels matter, and how unsupported files are
+     handled
+
+2. Attributed growth events
+   - product events now accept session, client timestamp, referrer, UTM source,
+     UTM campaign, audience mode, and room label metadata
+   - frontend tracking now attaches attribution automatically while keeping the
+     public event allowlist strict
+
+3. Waitlist quality
+   - waitlist submissions now include source and audience mode
+   - duplicate emails no longer create duplicate waitlist rows; users get a
+     friendly "already on the list" response
+
+4. Operator beta inbox
+   - protected operator settings now include a beta inbox with funnel counts,
+     masked recent waitlist demand, failed uploads, negative feedback reports,
+     reports needing review, missed-hazard notes, and eval-candidate readiness
+   - waitlist emails are masked in the inbox so operators can triage demand
+     without exposing raw addresses in the diagnostics UI
+
+5. Frontend retention and trust
+   - upload start/completion events now flow from the guided scan path
+   - the scan wizard reinforces that ATLAS-0 is decision support, not safety
+     certification
+   - browser smoke coverage now checks the first-run use-case cards and scan
+     wizard shell
+
+---
+
 ## Non-Negotiable Quality Bar
 
 Before calling the product usable:
