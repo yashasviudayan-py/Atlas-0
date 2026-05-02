@@ -157,6 +157,8 @@ const trustNotes = document.getElementById('trust-notes');
 const exportPdfBtn = /** @type {HTMLAnchorElement} */ (document.getElementById('export-pdf-btn'));
 const copyShareBtn = /** @type {HTMLButtonElement} */ (document.getElementById('copy-share-btn'));
 const deleteJobBtn = /** @type {HTMLButtonElement} */ (document.getElementById('delete-job-btn'));
+const copyShareCardBtn = /** @type {HTMLButtonElement} */ (document.getElementById('copy-share-card-btn'));
+const shareCardCopy = document.getElementById('share-card-copy');
 const themeToggle = /** @type {HTMLInputElement} */ (document.getElementById('theme-toggle'));
 const themeStatus = document.getElementById('theme-status');
 const motionToggle = /** @type {HTMLInputElement} */ (document.getElementById('motion-toggle'));
@@ -564,6 +566,33 @@ function applyUseCase(mode, label) {
   showToast(`${CAPTURE_COACH_MODES[selectedAudienceMode()].title} selected.`);
 }
 
+function initLandingSectionTracking() {
+  const sections = [...document.querySelectorAll('[data-landing-section]')];
+  if (!sections.length || !('IntersectionObserver' in window)) {
+    return;
+  }
+
+  const seen = new Set();
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) {
+        return;
+      }
+      const section = entry.target.getAttribute('data-landing-section');
+      if (!section || seen.has(section)) {
+        return;
+      }
+      seen.add(section);
+      trackProductEvent('landing_section_viewed', {
+        surface: section,
+      });
+      observer.unobserve(entry.target);
+    });
+  }, { threshold: 0.55 });
+
+  sections.forEach((section) => observer.observe(section));
+}
+
 function switchView(id) {
   state.activeView = id;
   navButtons.forEach((button) => {
@@ -734,6 +763,7 @@ function renderReport(job) {
       <span class="soft-badge">Evidence-backed</span>
       <span class="soft-badge">Shareable PDF</span>
     `;
+    renderShareCardPreview(null);
     summaryObjects.textContent = '0';
     summaryHazards.textContent = '0';
     summarySeverity.textContent = '—';
@@ -760,6 +790,10 @@ function renderReport(job) {
     exportPdfBtn.classList.add('disabled');
     copyShareBtn.classList.add('disabled');
     copyShareBtn.disabled = true;
+    copyShareCardBtn?.classList.add('disabled');
+    if (copyShareCardBtn) {
+      copyShareCardBtn.disabled = true;
+    }
     deleteJobBtn.classList.add('disabled');
     deleteJobBtn.disabled = true;
     return;
@@ -799,6 +833,7 @@ function renderReport(job) {
     : 'Hazard report');
   reportSubhead.textContent = summary.overview || `${roomLabel || job.filename} · ${audienceLabel} · ${summary.confidence_label || 'Approximate grounding'}`;
   reportHeroMeta.innerHTML = renderHeroBadges(summary, roomLabel, comparison, resolution, job.is_sample);
+  renderShareCardPreview(job);
 
   summaryObjects.textContent = String(summary.object_count || 0);
   summaryHazards.textContent = String(summary.hazard_count || 0);
@@ -974,6 +1009,10 @@ function renderReport(job) {
   exportPdfBtn.classList.remove('disabled');
   copyShareBtn.classList.remove('disabled');
   copyShareBtn.disabled = false;
+  copyShareCardBtn?.classList.remove('disabled');
+  if (copyShareCardBtn) {
+    copyShareCardBtn.disabled = false;
+  }
   deleteJobBtn.classList.toggle('disabled', Boolean(job.is_sample));
   deleteJobBtn.disabled = Boolean(job.is_sample);
   const expiryNote = job.expires_at
@@ -1248,6 +1287,55 @@ function buildRoomWinShareText(job) {
     : '';
   const topFix = (job.fix_first || [])[0]?.title || (job.recommendations || [])[0]?.title || summary.top_hazard_label || 'one practical next step';
   return `ATLAS-0 room win: ${roomLabel} scored ${score}${delta}. Quick win: ${topFix}.`;
+}
+
+function buildShareCardText(job) {
+  if (!job || job.status !== 'complete') {
+    return 'ATLAS-0 Room Safety Brief: upload one room walkthrough to get top actions, evidence frames, confidence signals, and a decision-support PDF.';
+  }
+
+  const summary = job.summary || {};
+  const roomLabel = job.room_label || summary.room_label || 'Room';
+  const score = typeof summary.room_score === 'number' ? `${summary.room_score}/100` : 'screened';
+  const topAction = (job.fix_first || [])[0]?.title
+    || (job.recommendations || [])[0]?.title
+    || summary.top_hazard_label
+    || 'review the top finding';
+  const confidence = summary.confidence_label || summary.scan_quality_label || 'approximate confidence';
+  const link = reportDeepLink(job);
+  return [
+    `ATLAS-0 Room Safety Brief for ${roomLabel}`,
+    `Score: ${score}. Top action: ${topAction}.`,
+    `Confidence: ${confidence}. Decision support only, not safety certification.`,
+    link ? `Report: ${link}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function renderShareCardPreview(job) {
+  if (!shareCardCopy) {
+    return;
+  }
+
+  if (!job || job.status !== 'complete') {
+    shareCardCopy.innerHTML = `
+      <strong>No room brief yet</strong>
+      <p>Run a scan or open the sample report to generate a concise summary with score, top action, confidence, and decision-support wording.</p>
+    `;
+    return;
+  }
+
+  const summary = job.summary || {};
+  const roomLabel = job.room_label || summary.room_label || 'Room';
+  const topAction = (job.fix_first || [])[0]?.title
+    || (job.recommendations || [])[0]?.title
+    || summary.top_hazard_label
+    || 'Review the top finding';
+  const score = typeof summary.room_score === 'number' ? `${summary.room_score}/100` : 'Screened';
+  shareCardCopy.innerHTML = `
+    <span class="guide-kicker">ATLAS-0 Room Safety Brief</span>
+    <strong>${escapeHtml(roomLabel)} · ${escapeHtml(score)}</strong>
+    <p>${escapeHtml(topAction)}. ${escapeHtml(summary.confidence_label || 'Approximate grounding')}. Decision support only, not safety certification.</p>
+  `;
 }
 
 function betaSharePrompt() {
@@ -1613,7 +1701,10 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Repeat-scan rooms', value: String(settings.product.repeat_scan_rooms || 0) },
       { label: 'Waitlist signups', value: String(settings.product.waitlist_signups || 0) },
       { label: 'Sample report opens', value: String(settings.product.sample_report_opens || 0) },
+      { label: 'Sample CTA taps', value: String(settings.product.sample_cta_events || 0) },
+      { label: 'Landing sections viewed', value: String(settings.product.landing_section_events || 0) },
       { label: 'Share events', value: String(settings.product.share_events || 0) },
+      { label: 'Share card copies', value: String(settings.product.share_card_events || 0) },
       { label: 'Beta invite copies', value: String(settings.product.beta_invite_events || 0) },
       { label: 'Room win copies', value: String(settings.product.room_win_events || 0) },
       { label: 'Fix plan copies', value: String(settings.product.fix_plan_events || 0) },
@@ -1621,6 +1712,8 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Capture coach checks', value: String(settings.product.capture_coach_events || 0) },
       { label: 'Same-room rescan starts', value: String(settings.product.same_room_rescan_events || 0) },
       { label: 'PDF downloads', value: String(settings.product.pdf_download_events || 0) },
+      { label: 'PDF CTA taps', value: String(settings.product.pdf_export_click_events || 0) },
+      { label: 'Preflight failures', value: String(settings.product.scan_preflight_failed_events || 0) },
       { label: 'CTA start-scan taps', value: String(settings.product.cta_start_scan_events || 0) },
     ])}
     ${renderBetaInbox(settings.beta_inbox)}
@@ -1647,6 +1740,8 @@ function renderBetaInbox(inbox) {
       { label: 'Upload completes', value: String(funnel.upload_completed || 0) },
       { label: 'Report views', value: String(funnel.report_viewed || 0) },
       { label: 'PDF downloads', value: String(funnel.pdf_downloads || 0) },
+      { label: 'Share card copies', value: String(funnel.share_card_copies || 0) },
+      { label: 'Preflight failures', value: String(funnel.scan_preflight_failed || 0) },
       { label: 'Completion rate', value: `${Math.round((funnel.completion_rate || 0) * 100)}%` },
       { label: 'Eval-ready reports', value: String(readiness.review_ready_reports || 0) },
       { label: 'Eval candidates', value: `${readiness.saved_eval_candidates || 0} / ${readiness.target_corpus_size || 0}` },
@@ -1785,7 +1880,13 @@ jumpButtons.forEach((button) => {
 });
 
 sampleButtons.forEach((button) => {
-  button.addEventListener('click', loadSampleReport);
+  button.addEventListener('click', () => {
+    trackProductEvent('sample_cta_clicked', {
+      surface: button.closest('.hero') ? 'hero' : button.closest('.settings-details') ? 'settings' : 'scan_onboarding',
+      sample_key: button.dataset.loadSample || 'walkthrough',
+    });
+    loadSampleReport();
+  });
 });
 
 useCaseButtons.forEach((button) => {
@@ -1857,6 +1958,14 @@ const uploadView = new UploadView({
     }
     showToast(error.message, 3600);
   },
+  onPreflightFailed: (file, error) => {
+    trackProductEvent('scan_preflight_failed', {
+      surface: 'guided_scan_wizard',
+      file_type: file?.type || null,
+      file_size: file?.size || null,
+      reason: error.message,
+    });
+  },
 });
 
 uploadView.init();
@@ -1866,6 +1975,7 @@ syncLowConfidenceControls();
 syncSettingsAccessStatus();
 renderDailyMission();
 renderCaptureCoach();
+initLandingSectionTracking();
 if (betaShareCopy) {
   betaShareCopy.textContent = betaSharePrompt();
 }
@@ -1894,6 +2004,10 @@ motionToggle?.addEventListener('change', (event) => {
 });
 
 settingsSampleBtn?.addEventListener('click', () => {
+  trackProductEvent('sample_cta_clicked', {
+    surface: 'settings',
+    sample_key: 'walkthrough',
+  });
   trackProductEvent('settings_sample_opened');
   loadSampleReport();
 });
@@ -2041,6 +2155,13 @@ exportPdfBtn?.addEventListener('click', () => {
   if (!job || job.status !== 'complete') {
     return;
   }
+  trackProductEvent('pdf_export_clicked', {
+    surface: 'report_toolbar',
+    job_id: job.job_id,
+    sample_key: job.sample_key || null,
+    audience_mode: job.audience_mode || 'general',
+    room_labeled: Boolean(job.room_label || job.summary?.room_label),
+  });
   trackProductEvent('report_pdf_downloaded', {
     surface: 'report_toolbar',
     job_id: job.job_id,
@@ -2048,6 +2169,26 @@ exportPdfBtn?.addEventListener('click', () => {
     audience_mode: job.audience_mode || 'general',
     room_labeled: Boolean(job.room_label || job.summary?.room_label),
   });
+});
+
+copyShareCardBtn?.addEventListener('click', async () => {
+  const job = activeJob();
+  if (!job || job.status !== 'complete') {
+    return;
+  }
+  try {
+    await copyText(buildShareCardText(job));
+    await trackProductEvent('report_share_card_copied', {
+      surface: 'share_preview',
+      job_id: job.job_id,
+      sample_key: job.sample_key || null,
+      audience_mode: job.audience_mode || 'general',
+      room_labeled: Boolean(job.room_label || job.summary?.room_label),
+    });
+    showToast('Share card copied.');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not copy share card.', 3600);
+  }
 });
 
 function attachFixChecklistHandlers(jobId) {

@@ -14,11 +14,12 @@ export class UploadView {
    *   roomLabelInput?: HTMLInputElement | null,
    *   audienceModeInput?: HTMLSelectElement | null,
    *   uploadGuidance?: any,
- *   onJobCreated?: (job: any) => void,
- *   onJobUpdate?: (job: any) => void,
- *   onJobError?: (error: Error) => void,
- *   onUploadStart?: (file: File, metadata: { roomLabel: string, audienceMode: string }) => void,
- * }} opts
+   *   onJobCreated?: (job: any) => void,
+   *   onJobUpdate?: (job: any) => void,
+   *   onJobError?: (error: Error) => void,
+   *   onUploadStart?: (file: File, metadata: { roomLabel: string, audienceMode: string }) => void,
+   *   onPreflightFailed?: (file: File | null, error: Error) => void,
+   * }} opts
    */
   constructor(opts) {
     this._dropZone = opts.dropZone;
@@ -30,6 +31,7 @@ export class UploadView {
     this._onJobUpdate = opts.onJobUpdate || (() => {});
     this._onJobError = opts.onJobError || (() => {});
     this._onUploadStart = opts.onUploadStart || (() => {});
+    this._onPreflightFailed = opts.onPreflightFailed || (() => {});
     this._pollers = new Map();
   }
 
@@ -72,8 +74,10 @@ export class UploadView {
   }
 
   async _handle(file) {
+    let validated = false;
     try {
       this._validateFile(file);
+      validated = true;
       const roomLabel = this._roomLabelInput?.value?.trim() || '';
       const audienceMode = this._audienceModeInput?.value?.trim() || 'general';
       this._onUploadStart(file, { roomLabel, audienceMode });
@@ -82,9 +86,11 @@ export class UploadView {
       await this._onJobUpdate(job);
       this._poll(job.job_id);
     } catch (error) {
-      this._onJobError(
-        error instanceof Error ? error : new Error(String(error)),
-      );
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      if (!validated) {
+        this._onPreflightFailed(file || null, normalized);
+      }
+      this._onJobError(normalized);
     }
   }
 

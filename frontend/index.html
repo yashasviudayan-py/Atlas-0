@@ -26,6 +26,7 @@
       --bg-soft: rgba(255, 251, 245, 0.9);
       --panel: rgba(255, 252, 248, 0.94);
       --panel-strong: #fffdfa;
+      --paper: #fff8ee;
       --ink: #201916;
       --ink-soft: #62564e;
       --ink-muted: #897b72;
@@ -51,6 +52,7 @@
       --body-glow: radial-gradient(circle, rgba(255,255,255,0.4), rgba(255,255,255,0));
       --shadow: 0 18px 60px rgba(41, 25, 15, 0.10);
       --shadow-soft: 0 12px 34px rgba(41, 25, 15, 0.08);
+      --shadow-lift: 0 28px 80px rgba(57, 31, 16, 0.16);
       --radius-xl: 28px;
       --radius-lg: 20px;
       --radius-md: 16px;
@@ -64,6 +66,7 @@
       --bg-soft: rgba(10, 18, 16, 0.86);
       --panel: rgba(18, 24, 21, 0.92);
       --panel-strong: #171d19;
+      --paper: #171d19;
       --ink: #fff9f0;
       --ink-soft: #d8cfc4;
       --ink-muted: #9d9288;
@@ -89,6 +92,7 @@
       --body-glow: radial-gradient(circle, rgba(34, 185, 169, 0.18), rgba(34, 185, 169, 0));
       --shadow: 0 18px 60px rgba(0, 0, 0, 0.34);
       --shadow-soft: 0 12px 34px rgba(0, 0, 0, 0.24);
+      --shadow-lift: 0 28px 80px rgba(0, 0, 0, 0.42);
     }
 
     :root[data-reduced-motion="true"] *,
@@ -107,6 +111,7 @@
       background: var(--app-bg);
       color: var(--ink);
       font-family: var(--font-sans);
+      overflow-x: hidden;
     }
 
     body::before {
@@ -162,6 +167,12 @@
       gap: 10px;
     }
 
+    .brand-lockup {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
     .brand-mark {
       width: 52px;
       height: 52px;
@@ -172,9 +183,21 @@
         linear-gradient(145deg, rgba(12, 128, 116, 0.18), rgba(214, 127, 48, 0.20)),
         var(--panel-strong);
       border: 1px solid var(--line);
-      font-size: 17px;
+      color: var(--accent-strong);
+      font-size: 15px;
       font-weight: 700;
       letter-spacing: 0.08em;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .brand-wordmark {
+      display: grid;
+      gap: 2px;
+    }
+
+    .brand-wordmark strong {
+      font-size: 1.02rem;
+      letter-spacing: 0.18em;
     }
 
     .brand h1 {
@@ -301,19 +324,20 @@
     .hero {
       position: relative;
       overflow: hidden;
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
       align-items: flex-start;
-      justify-content: space-between;
-      gap: 18px;
-      padding: 24px 28px;
+      gap: 22px;
+      padding: clamp(22px, 4vw, 38px);
       border: 1px solid var(--line);
       border-radius: var(--radius-xl);
       background:
-        radial-gradient(circle at top right, rgba(255,255,255,0.55), rgba(255,255,255,0) 34%),
-        linear-gradient(135deg, rgba(12, 128, 116, 0.09), rgba(214, 127, 48, 0.12), rgba(255,255,255,0.55)),
+        radial-gradient(circle at 82% 18%, rgba(255,255,255,0.72), rgba(255,255,255,0) 30%),
+        radial-gradient(circle at 12% 0%, rgba(12, 128, 116, 0.13), transparent 28%),
+        linear-gradient(135deg, rgba(255,255,255,0.78), rgba(214, 127, 48, 0.11), rgba(12, 128, 116, 0.08)),
         var(--bg-soft);
       backdrop-filter: blur(18px);
-      box-shadow: var(--shadow);
+      box-shadow: var(--shadow-lift);
     }
 
     .hero::after {
@@ -325,6 +349,15 @@
       height: 280px;
       border-radius: 999px;
       background: radial-gradient(circle, rgba(255,255,255,0.55), rgba(255,255,255,0));
+      pointer-events: none;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.36);
+      border-radius: calc(var(--radius-xl) - 8px);
       pointer-events: none;
     }
 
@@ -347,18 +380,24 @@
 
     .hero h2 {
       margin: 0;
-      font-size: clamp(2rem, 4vw, 3.6rem);
+      font-size: clamp(2.15rem, 4.5vw, 4.55rem);
       line-height: 0.95;
       letter-spacing: -0.06em;
-      max-width: 12ch;
+      max-width: 13ch;
     }
 
     .hero p {
       margin: 0;
-      max-width: 64ch;
+      max-width: 68ch;
       color: var(--ink-soft);
       line-height: 1.6;
       font-size: 1rem;
+    }
+
+    .hero-lede {
+      font-size: clamp(1.02rem, 1.6vw, 1.18rem) !important;
+      color: var(--ink) !important;
+      max-width: 58ch !important;
     }
 
     .hero-badges,
@@ -384,6 +423,24 @@
       font-family: var(--font-mono);
       font-size: 0.74rem;
       box-shadow: var(--shadow-soft);
+    }
+
+    .trust-ribbon {
+      display: grid;
+      gap: 8px;
+      padding: 14px 16px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(12, 128, 116, 0.18);
+      background:
+        linear-gradient(135deg, var(--accent-wash), rgba(255,255,255,0.62)),
+        var(--panel-strong);
+      color: var(--ink-soft);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .trust-ribbon strong {
+      color: var(--ink);
+      letter-spacing: -0.02em;
     }
 
     .hero-steps {
@@ -422,7 +479,7 @@
     .hero-side {
       position: relative;
       z-index: 1;
-      min-width: 240px;
+      min-width: 0;
       display: grid;
       gap: 12px;
       padding: 18px;
@@ -430,6 +487,50 @@
       border-radius: var(--radius-lg);
       background: linear-gradient(180deg, rgba(255,255,255,0.68), rgba(255,255,255,0.82));
       box-shadow: var(--shadow-soft);
+    }
+
+    .hero-proof {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(214, 127, 48, 0.16);
+      background:
+        radial-gradient(circle at top right, rgba(214, 127, 48, 0.16), transparent 36%),
+        var(--paper);
+    }
+
+    .hero-proof h3 {
+      margin: 0;
+      font-size: 1.05rem;
+      letter-spacing: -0.03em;
+    }
+
+    .proof-list {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .proof-list li {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 10px;
+      align-items: flex-start;
+      color: var(--ink-soft);
+      line-height: 1.45;
+    }
+
+    .proof-list li::before {
+      content: '';
+      width: 10px;
+      height: 10px;
+      margin-top: 0.42em;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 5px var(--accent-wash);
     }
 
     .hero-side strong {
@@ -506,6 +607,43 @@
       background: var(--panel);
       backdrop-filter: blur(16px);
       box-shadow: var(--shadow);
+    }
+
+    .voice-card {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(12, 128, 116, 0.16);
+      background:
+        linear-gradient(135deg, rgba(12, 128, 116, 0.08), rgba(214, 127, 48, 0.08)),
+        var(--panel-strong);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .voice-principles {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .voice-principle {
+      display: grid;
+      gap: 6px;
+      padding: 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.58);
+    }
+
+    .voice-principle strong {
+      color: var(--ink);
+    }
+
+    .voice-principle span {
+      color: var(--ink-soft);
+      line-height: 1.45;
+      font-size: 0.92rem;
     }
 
     .panel {
@@ -1309,7 +1447,8 @@
       padding: 24px;
       border-radius: var(--radius-xl);
       background:
-        linear-gradient(135deg, rgba(12, 128, 116, 0.14), rgba(214, 127, 48, 0.12)),
+        radial-gradient(circle at top right, rgba(214, 127, 48, 0.16), transparent 32%),
+        linear-gradient(135deg, rgba(12, 128, 116, 0.14), rgba(214, 127, 48, 0.10)),
         var(--panel);
       border: 1px solid var(--line);
       box-shadow: var(--shadow);
@@ -1361,6 +1500,38 @@
       border: 1px solid var(--line);
       background: var(--panel-strong);
       box-shadow: var(--shadow-soft);
+    }
+
+    .share-preview {
+      display: grid;
+      gap: 14px;
+      padding: 18px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(12, 128, 116, 0.18);
+      background:
+        radial-gradient(circle at 88% 18%, rgba(214, 127, 48, 0.18), transparent 34%),
+        linear-gradient(135deg, var(--panel-strong), var(--bg-soft));
+      box-shadow: var(--shadow-soft);
+    }
+
+    .share-preview-card {
+      display: grid;
+      gap: 8px;
+      padding: 18px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: var(--paper);
+    }
+
+    .share-preview-card strong {
+      font-size: 1.2rem;
+      letter-spacing: -0.04em;
+    }
+
+    .share-preview-card p {
+      margin: 0;
+      color: var(--ink-soft);
+      line-height: 1.55;
     }
 
     .score-tile span,
@@ -2319,7 +2490,7 @@
       }
 
       .hero {
-        flex-direction: column;
+        grid-template-columns: 1fr;
       }
 
       .settings-hero,
@@ -2338,7 +2509,8 @@
       .wizard-grid,
       .coach-grid,
       .report-loop-grid,
-      .scorecard-grid {
+      .scorecard-grid,
+      .voice-principles {
         grid-template-columns: 1fr;
       }
 
@@ -2393,12 +2565,17 @@
   <div id="app">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">A0</div>
-        <div>
-          <p class="eyebrow">ATLAS-0</p>
-          <h1>Room hazard reports from a phone walkthrough.</h1>
+        <div class="brand-lockup">
+          <div class="brand-mark">A0</div>
+          <div class="brand-wordmark">
+            <span class="eyebrow">Warm Trust Beta</span>
+            <strong>ATLAS-0</strong>
+          </div>
         </div>
-        <p>A focused product flow for uploading a room scan, reviewing evidence, and exporting something a real person can act on.</p>
+        <div>
+          <h1>Room safety briefs from a phone walkthrough.</h1>
+        </div>
+        <p>A calm product flow for scanning one room, reviewing evidence, and leaving with actions a real person can trust.</p>
       </div>
 
       <nav class="nav-stack" aria-label="Primary">
@@ -2437,7 +2614,7 @@
         </button>
       </nav>
 
-      <p class="sidebar-copy">The viewer and point cloud are supporting context. The product outcome is the report.</p>
+      <p class="sidebar-copy">The viewer and point cloud are supporting context. The product outcome is the Safety Brief.</p>
 
       <div class="sidebar-foot">
         <div class="chip-row">
@@ -2450,7 +2627,7 @@
     </aside>
 
     <main class="main">
-      <section class="hero">
+      <section class="hero" data-landing-section="hero">
         <div class="hero-copy">
           <div class="hero-badges">
             <span class="soft-badge">Private beta</span>
@@ -2458,19 +2635,23 @@
             <span class="soft-badge">Room safety focus</span>
           </div>
           <p class="eyebrow">Trust First</p>
-          <h2>A friendlier room safety scan that turns one walkthrough into a useful report.</h2>
-          <p>ATLAS-0 is moving away from “impressive-looking demos” and toward a calmer, more honest experience: upload one room, review what looks risky, and leave with a PDF a real person can act on.</p>
+          <h2>A calmer way to notice what could fall, tip, block, or break.</h2>
+          <p class="hero-lede">ATLAS-0 turns one phone walkthrough into a Room Safety Brief: top actions, evidence frames, confidence signals, and a clean PDF you can send to someone who needs the context.</p>
+          <div class="trust-ribbon">
+            <strong>Warm Trust promise</strong>
+            <span>We show what the scan saw, say when confidence is weak, and avoid pretending a beta report is a safety certification.</span>
+          </div>
           <div class="hero-actions">
             <button class="button-link" type="button" data-jump-view="scan">Start a scan</button>
             <button class="button-link ghost" type="button" data-load-sample="walkthrough">Try the sample report</button>
-            <button class="button-link ghost" type="button" data-jump-view="report">See the report layout</button>
+            <button class="button-link ghost" type="button" data-jump-view="report">See the Safety Brief</button>
           </div>
           <div class="hero-steps" aria-label="How it works">
             <div class="hero-step"><span class="step-num">01</span><span><strong>Upload</strong> a 20-60s walkthrough</span></div>
             <div class="hero-step"><span class="step-num">02</span><span><strong>Review</strong> hazards with evidence</span></div>
             <div class="hero-step"><span class="step-num">03</span><span><strong>Export</strong> a clean PDF report</span></div>
           </div>
-          <div class="use-case-grid" aria-label="Choose a beta use case">
+          <div class="use-case-grid" aria-label="Choose a beta use case" data-landing-section="persona_cards">
             <button class="use-case-card" type="button" data-use-case-mode="renter" data-use-case-label="Move-in receipt">
               <span class="guide-kicker">Renter</span>
               <strong>Move-in receipt</strong>
@@ -2494,13 +2675,15 @@
           </div>
         </div>
         <div class="hero-side">
-          <span class="mono-label">Why this feels different</span>
-          <strong>Less dashboard theater, more guidance a homeowner or renter can actually use.</strong>
-          <ul>
-            <li>The primary experience stays report-first and grounded in evidence.</li>
-            <li>Weak findings stay hidden by default so the report feels calmer.</li>
-            <li>Scene view remains available, but it no longer hijacks the story.</li>
-          </ul>
+          <span class="mono-label">What beta users get</span>
+          <div class="hero-proof">
+            <h3>A practical room check, not dashboard theater.</h3>
+            <ul class="proof-list">
+              <li>The primary experience stays report-first and grounded in evidence.</li>
+              <li>Weak findings stay hidden by default so the brief feels calmer.</li>
+              <li>Scene view remains available, but it no longer hijacks the story.</li>
+            </ul>
+          </div>
           <div class="hero-metric-band">
             <div class="hero-metric">
               <strong>1 room</strong>
@@ -2527,13 +2710,13 @@
         </div>
       </section>
 
-      <section id="view-scan" class="view active" aria-label="Scan view">
+      <section id="view-scan" class="view active" aria-label="Scan view" data-landing-section="scan_onboarding">
         <div class="panel-grid">
           <section class="panel">
             <div class="section-head">
               <div>
-                <h3>Start a room scan</h3>
-                <p>Drop an MP4, MOV, or WEBM file to begin a gentler, report-first upload flow.</p>
+                <h3>Start a guided room scan</h3>
+                <p>Drop an MP4, MOV, or WEBM file to begin a gentler upload flow that explains what to record before it asks for a file.</p>
               </div>
               <span class="pill">Upload first</span>
             </div>
@@ -2541,7 +2724,7 @@
             <div class="welcome-band">
               <div>
                 <h4>Make the first scan feel easy.</h4>
-                <p>If someone is trying this for the first time, we want them to know exactly what to record and what they’ll get back.</p>
+                <p>First-run confidence comes from knowing what to record, why it matters, and what a useful Safety Brief looks like before uploading.</p>
               </div>
               <div class="actions" style="margin-bottom: 12px;">
                 <button class="button-link ghost" type="button" data-load-sample="walkthrough">Open the built-in sample report</button>
@@ -2808,9 +2991,9 @@
         </section>
       </section>
 
-      <section id="view-report" class="view" aria-label="Report view">
+        <section id="view-report" class="view" aria-label="Report view" data-landing-section="report_brief">
         <section id="report-hero" class="report-hero empty">
-          <p class="eyebrow">Hazard report</p>
+          <p class="eyebrow">Room Safety Brief</p>
           <h3 id="report-headline">No report yet</h3>
           <p id="report-subhead">Run a scan to see hazards, evidence, and recommended actions.</p>
           <div id="report-hero-meta" class="report-hero-meta">
@@ -2826,6 +3009,21 @@
 
         <section id="report-action-loop" class="report-loop panel" aria-label="Fix, rescan, and share loop">
           <div class="empty-card">The fix-and-rescan loop will appear after a completed scan.</div>
+        </section>
+
+        <section id="share-card-preview" class="share-preview" aria-label="Shareable room summary">
+          <div class="section-head compact">
+            <div>
+              <span class="guide-kicker">Share card</span>
+              <h3>Make the useful part easy to pass along.</h3>
+              <p>A clean, copyable room summary for partners, landlords, care teams, or the person who will do the fix.</p>
+            </div>
+            <button id="copy-share-card-btn" class="button-link ghost disabled" type="button" disabled>Copy share card</button>
+          </div>
+          <article id="share-card-copy" class="share-preview-card">
+            <strong>No room brief yet</strong>
+            <p>Run a scan or open the sample report to generate a concise summary with score, top action, confidence, and decision-support wording.</p>
+          </article>
         </section>
 
         <section class="stats-grid" aria-label="Report summary">
@@ -3188,6 +3386,32 @@
                 <li>Object-store artifacts, worker health, and retention cleanup should be checked before hosted demos.</li>
                 <li>Low-confidence findings should remain hidden by default unless users ask for the rawer review mode.</li>
               </ul>
+            </div>
+          </details>
+
+          <details class="settings-details panel" open>
+            <summary>
+              <span>Warm Trust voice guide</span>
+              <small>How ATLAS-0 should sound across product, PDF, and README</small>
+            </summary>
+            <div class="settings-detail-body">
+              <div class="voice-card">
+                <p>ATLAS-0 should sound calm, specific, and humble. Prefer “what I saw,” “why it might matter,” and “what to do next” over grand claims or model theater.</p>
+                <div class="voice-principles">
+                  <div class="voice-principle">
+                    <strong>Specific</strong>
+                    <span>Name the object, location, evidence, and next action.</span>
+                  </div>
+                  <div class="voice-principle">
+                    <strong>Calibrated</strong>
+                    <span>Show confidence and recommend rescans when grounding is weak.</span>
+                  </div>
+                  <div class="voice-principle">
+                    <strong>Helpful</strong>
+                    <span>Make the first fix feel small enough to actually do.</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </details>
         </section>

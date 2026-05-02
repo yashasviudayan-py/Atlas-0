@@ -39,6 +39,9 @@ try {
   await page.locator('.use-case-card').first().waitFor({ state: 'attached', timeout: 3000 });
   await page.locator('#scan-wizard-status').waitFor({ state: 'attached', timeout: 3000 });
   await page.locator('#report-action-loop').waitFor({ state: 'attached', timeout: 3000 });
+  await page.locator('#share-card-preview').waitFor({ state: 'attached', timeout: 3000 });
+  await page.locator('text=Room Safety Brief').first().waitFor({ timeout: 3000 });
+  await page.locator('text=Warm Trust voice guide').waitFor({ timeout: 3000 });
   await page.locator('#view-settings').waitFor({ state: 'attached', timeout: 3000 });
   await page.locator('footer.app-footer').waitFor({ timeout: 3000 });
 
