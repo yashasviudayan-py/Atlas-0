@@ -20,12 +20,13 @@
   </a>
 </p>
 
-<h3 align="center">Upload one room walkthrough. Get the hazards, evidence, and next actions in one report.</h3>
+<h3 align="center">Upload one room walkthrough. Leave with a warm, evidence-backed Room Safety Brief.</h3>
 
 <p align="center">
-  <strong>ATLAS-0</strong> is a report-first room safety scanner for renters,
+  <strong>ATLAS-0</strong> is a warm-trust room safety assistant for renters,
   parents, pet owners, and anyone who wants a practical second look before
-  something falls, tips, spills, or blocks a path.
+  something falls, tips, spills, blocks a path, or becomes tomorrow's small
+  household chaos.
 </p>
 
 <table>
@@ -36,8 +37,8 @@
     </td>
     <td width="33%">
       <strong>Output</strong><br/>
-      Ranked hazards with evidence frames, approximate locations, confidence,
-      and fix-first recommendations.
+      A Room Safety Brief with top actions, evidence frames, approximate
+      locations, confidence, and fix-first recommendations.
     </td>
     <td width="33%">
       <strong>Share</strong><br/>
@@ -50,6 +51,9 @@
 > Current promise: decision support, not safety certification. ATLAS-0 is
 > intentionally honest about confidence, scan quality, and where the pipeline is
 > still approximate.
+
+The design direction is **Warm Trust**: calm language, high contrast, visible
+uncertainty, and practical next steps instead of demo theater or fake certainty.
 
 ## Current Standing
 

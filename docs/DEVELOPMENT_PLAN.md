@@ -1086,6 +1086,58 @@ changing the core hazard engine.
 
 ---
 
+## 10x Warm-Trust Product Design Pass
+
+### Status
+
+Implemented. This pass keeps the same narrow product wedge but makes the first
+impression, scan flow, report surface, sharing loop, and README branding feel
+more like a calm product and less like a technical demo.
+
+### Completed
+
+1. Cohesive Warm Trust brand system
+   - frontend tokens now lean into warmer paper surfaces, higher contrast,
+     softer shadows, clearer hierarchy, and stronger trust-state cards
+   - sidebar and hero copy now position ATLAS-0 around "Room Safety Briefs"
+     rather than generic hazard dashboards
+   - README hero artwork has been rebuilt as a polished product banner with a
+     white ATLAS-0 title, centered composition, and no text spilling out of the
+     visual frame
+
+2. Product landing story
+   - the top-of-app hero now reads as one story: promise, trust promise,
+     start-scan CTA, sample report CTA, use-case cards, and beta waitlist
+   - landing-section analytics now record which warm-trust sections beta users
+     actually see
+
+3. Guided onboarding and preflight trust
+   - scan onboarding copy now explains first-run expectations more clearly
+   - unsupported or oversized files now emit a `scan_preflight_failed` event so
+     operators can see where upload friction is happening
+
+4. Room Safety Brief and sharing
+   - the report view now explicitly names the product artifact as a Room Safety
+     Brief
+   - a share-card preview gives users a concise, copyable summary with score,
+     top action, confidence, and decision-support language
+   - PDF and share-card CTAs now emit dedicated events for beta funnel analysis
+
+5. Voice guide and QA coverage
+   - settings now includes a Warm Trust voice guide for product, PDF, and README
+     copy decisions
+   - browser smoke coverage now checks the Safety Brief, share-card preview,
+     and Warm Trust settings content in addition to the existing shell checks
+
+### Remaining Honest Gap
+
+This is a brand/product experience pass, not a model-quality leap. The next 10x
+step still depends on real beta usage: find where users fail to scan, what they
+share, which report claims they distrust, and which hazards they say ATLAS-0
+missed.
+
+---
+
 ## Non-Negotiable Quality Bar
 
 Before calling the product usable:
