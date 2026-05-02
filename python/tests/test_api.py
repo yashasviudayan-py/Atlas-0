@@ -273,6 +273,50 @@ def test_product_event_accepts_beta_loop_events() -> None:
     assert _upload_store.load_product_events()[0]["event_name"] == "fix_plan_copied"
 
 
+def test_product_event_accepts_warm_trust_design_events() -> None:
+    for event_name in (
+        "landing_section_viewed",
+        "sample_cta_clicked",
+        "scan_preflight_failed",
+        "report_share_card_copied",
+        "pdf_export_clicked",
+    ):
+        response = client.post(
+            "/product/events",
+            json={"event_name": event_name, "surface": "warm_trust_ui"},
+        )
+
+        assert response.status_code == 204
+
+    events = _upload_store.load_product_events()
+    assert [event["event_name"] for event in events] == [
+        "landing_section_viewed",
+        "sample_cta_clicked",
+        "scan_preflight_failed",
+        "report_share_card_copied",
+        "pdf_export_clicked",
+    ]
+
+
+def test_product_event_persists_preflight_failure_metadata() -> None:
+    response = client.post(
+        "/product/events",
+        json={
+            "event_name": "scan_preflight_failed",
+            "surface": "guided_scan_wizard",
+            "file_type": "application/zip",
+            "file_size": 12345,
+            "reason": "Unsupported file type",
+        },
+    )
+
+    assert response.status_code == 204
+    event = _upload_store.load_product_events()[0]
+    assert event["file_type"] == "application/zip"
+    assert event["file_size"] == 12345
+    assert event["reason"] == "Unsupported file type"
+
+
 def test_job_listing_requires_token_when_configured() -> None:
     _api_cfg.enable_job_listing = True
     _api_cfg.access_token = "secret-token"

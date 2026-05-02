@@ -345,6 +345,9 @@ class ProductEventRequest(BaseModel):
     referrer: str | None = None
     utm_source: str | None = None
     utm_campaign: str | None = None
+    file_type: str | None = None
+    file_size: int | None = None
+    reason: str | None = None
 
 
 class WaitlistRequest(BaseModel):
@@ -676,6 +679,9 @@ def record_product_event(payload: ProductEventRequest, request: Request) -> Resp
             "referrer": _bounded_text(payload.referrer, max_len=240),
             "utm_source": _bounded_text(payload.utm_source, max_len=80),
             "utm_campaign": _bounded_text(payload.utm_campaign, max_len=120),
+            "file_type": _bounded_text(payload.file_type, max_len=80),
+            "file_size": max(int(payload.file_size or 0), 0),
+            "reason": _bounded_text(payload.reason, max_len=180),
             "host": _request_host(request),
             "created_at": _utc_now_iso(),
         }
@@ -1475,9 +1481,14 @@ _PUBLIC_PRODUCT_EVENTS = {
     "daily_mission_started",
     "fix_checklist_toggled",
     "fix_plan_copied",
+    "landing_section_viewed",
+    "pdf_export_clicked",
+    "report_share_card_copied",
+    "sample_cta_clicked",
     "sample_report_opened",
     "room_win_copied",
     "same_room_rescan_started",
+    "scan_preflight_failed",
     "settings_motion_changed",
     "settings_sample_opened",
     "settings_theme_changed",
@@ -1899,7 +1910,10 @@ def _aggregate_product_metrics() -> dict[str, Any]:
         "product_event_count": len(product_events),
         "waitlist_signups": len(waitlist_entries),
         "sample_report_opens": event_counts.get("sample_report_opened", 0),
+        "sample_cta_events": event_counts.get("sample_cta_clicked", 0),
+        "landing_section_events": event_counts.get("landing_section_viewed", 0),
         "share_events": event_counts.get("report_share_copied", 0),
+        "share_card_events": event_counts.get("report_share_card_copied", 0),
         "beta_invite_events": event_counts.get("beta_invite_copied", 0),
         "room_win_events": event_counts.get("room_win_copied", 0),
         "fix_plan_events": event_counts.get("fix_plan_copied", 0),
@@ -1908,6 +1922,8 @@ def _aggregate_product_metrics() -> dict[str, Any]:
         "capture_coach_events": event_counts.get("capture_coach_checked", 0),
         "same_room_rescan_events": event_counts.get("same_room_rescan_started", 0),
         "pdf_download_events": event_counts.get("report_pdf_downloaded", 0),
+        "pdf_export_click_events": event_counts.get("pdf_export_clicked", 0),
+        "scan_preflight_failed_events": event_counts.get("scan_preflight_failed", 0),
         "upload_start_events": event_counts.get("upload_started", 0),
         "upload_completed_events": event_counts.get("upload_completed", 0),
         "cta_start_scan_events": event_counts.get("cta_start_scan", 0),
@@ -2038,6 +2054,8 @@ def _build_beta_inbox() -> dict[str, Any]:
             "report_viewed": event_counts.get("report_viewed", 0),
             "pdf_downloads": event_counts.get("report_pdf_downloaded", 0),
             "share_events": event_counts.get("report_share_copied", 0),
+            "share_card_copies": event_counts.get("report_share_card_copied", 0),
+            "scan_preflight_failed": event_counts.get("scan_preflight_failed", 0),
             "waitlist_submitted": event_counts.get("waitlist_submitted", 0),
             "completion_rate": round(len(completed_jobs) / len(terminal_jobs), 2)
             if terminal_jobs
