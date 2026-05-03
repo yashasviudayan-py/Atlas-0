@@ -28,29 +28,41 @@ try {
 const htmlPath = new URL('../index.html', import.meta.url);
 await access(htmlPath);
 
+const viewports = [
+  { name: 'desktop', width: 1360, height: 900 },
+  { name: 'tablet', width: 820, height: 920 },
+  { name: 'mobile', width: 390, height: 844 },
+];
+
 const browser = await chromium.launch();
-const page = await browser.newPage({ javaScriptEnabled: false, viewport: { width: 1360, height: 900 } });
+const page = await browser.newPage({ javaScriptEnabled: false });
 
 try {
-  await page.goto(htmlPath.href);
-  await page.locator('text=ATLAS-0').first().waitFor({ timeout: 3000 });
-  await page.locator('#view-scan').waitFor({ state: 'attached', timeout: 3000 });
-  await page.locator('#capture-coach-title').waitFor({ state: 'attached', timeout: 3000 });
-  await page.locator('.use-case-card').first().waitFor({ state: 'attached', timeout: 3000 });
-  await page.locator('#scan-wizard-status').waitFor({ state: 'attached', timeout: 3000 });
-  await page.locator('#report-action-loop').waitFor({ state: 'attached', timeout: 3000 });
-  await page.locator('#share-card-preview').waitFor({ state: 'attached', timeout: 3000 });
-  await page.locator('text=Room Safety Brief').first().waitFor({ timeout: 3000 });
-  await page.locator('text=Warm Trust voice guide').waitFor({ timeout: 3000 });
-  await page.locator('#view-settings').waitFor({ state: 'attached', timeout: 3000 });
-  await page.locator('footer.app-footer').waitFor({ timeout: 3000 });
+  for (const viewport of viewports) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.goto(htmlPath.href);
+    await page.locator('text=ATLAS-0').first().waitFor({ timeout: 3000 });
+    await page.locator('#view-scan').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#capture-coach-title').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('.hero-artifact').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('.use-case-card').first().waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#scan-wizard-status').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('.premium-stepper').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#brief-executive').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#report-action-loop').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#share-card-preview').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('text=Room Safety Brief').first().waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('text=Warm Trust voice guide').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#view-settings').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('footer.app-footer').waitFor({ timeout: 3000 });
 
-  const overflow = await page.evaluate(() => {
-    const body = document.body;
-    return body.scrollWidth - body.clientWidth;
-  });
-  if (overflow > 8) {
-    throw new Error(`Static frontend shell overflows viewport by ${overflow}px`);
+    const overflow = await page.evaluate(() => {
+      const body = document.body;
+      return body.scrollWidth - body.clientWidth;
+    });
+    if (overflow > 8) {
+      throw new Error(`${viewport.name} frontend shell overflows viewport by ${overflow}px`);
+    }
   }
 
   console.log('Frontend browser smoke test passed.');

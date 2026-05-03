@@ -22,37 +22,38 @@
     *, *::before, *::after { box-sizing: border-box; }
 
     :root {
-      --bg: #f6efe6;
-      --bg-soft: rgba(255, 251, 245, 0.9);
-      --panel: rgba(255, 252, 248, 0.94);
-      --panel-strong: #fffdfa;
-      --paper: #fff8ee;
-      --ink: #201916;
-      --ink-soft: #62564e;
-      --ink-muted: #897b72;
+      --bg: #f4ebdd;
+      --bg-soft: rgba(255, 250, 242, 0.92);
+      --panel: rgba(255, 252, 247, 0.96);
+      --panel-strong: #fffdf8;
+      --paper: #fff7eb;
+      --ink: #211915;
+      --ink-soft: #5d5047;
+      --ink-muted: #8a7a6d;
       --line: rgba(79, 53, 40, 0.14);
       --line-strong: rgba(79, 53, 40, 0.22);
-      --accent: #0c8074;
-      --accent-strong: #0a5f57;
-      --accent-wash: rgba(12, 128, 116, 0.1);
-      --gold: #d67f30;
-      --gold-wash: rgba(214, 127, 48, 0.12);
+      --accent: #0a7f73;
+      --accent-strong: #075f57;
+      --accent-wash: rgba(10, 127, 115, 0.11);
+      --gold: #c87828;
+      --gold-wash: rgba(200, 120, 40, 0.13);
       --rose: #d98b7b;
       --rose-wash: rgba(217, 139, 123, 0.12);
       --danger: #c84b43;
       --danger-wash: rgba(200, 75, 67, 0.12);
       --app-bg:
-        radial-gradient(circle at top left, rgba(214, 127, 48, 0.20), transparent 26%),
-        radial-gradient(circle at top right, rgba(12, 128, 116, 0.16), transparent 22%),
+        radial-gradient(circle at top left, rgba(200, 120, 40, 0.18), transparent 26%),
+        radial-gradient(circle at top right, rgba(10, 127, 115, 0.16), transparent 22%),
         radial-gradient(circle at 50% 120%, rgba(217, 139, 123, 0.10), transparent 30%),
-        linear-gradient(180deg, #fcf6ec 0%, #f4ede2 100%);
+        linear-gradient(180deg, #fff8ef 0%, #f3eadc 100%);
       --body-noise:
         linear-gradient(rgba(255,255,255,0.18), rgba(255,255,255,0.18)),
         radial-gradient(circle at 1px 1px, rgba(79, 53, 40, 0.08) 1px, transparent 0);
       --body-glow: radial-gradient(circle, rgba(255,255,255,0.4), rgba(255,255,255,0));
-      --shadow: 0 18px 60px rgba(41, 25, 15, 0.10);
-      --shadow-soft: 0 12px 34px rgba(41, 25, 15, 0.08);
-      --shadow-lift: 0 28px 80px rgba(57, 31, 16, 0.16);
+      --shadow: 0 18px 60px rgba(41, 25, 15, 0.09);
+      --shadow-soft: 0 12px 34px rgba(41, 25, 15, 0.07);
+      --shadow-lift: 0 34px 94px rgba(57, 31, 16, 0.15);
+      --hairline: inset 0 1px 0 rgba(255,255,255,0.62);
       --radius-xl: 28px;
       --radius-lg: 20px;
       --radius-md: 16px;
@@ -93,6 +94,7 @@
       --shadow: 0 18px 60px rgba(0, 0, 0, 0.34);
       --shadow-soft: 0 12px 34px rgba(0, 0, 0, 0.24);
       --shadow-lift: 0 28px 80px rgba(0, 0, 0, 0.42);
+      --hairline: inset 0 1px 0 rgba(255,255,255,0.06);
     }
 
     :root[data-reduced-motion="true"] *,
@@ -140,14 +142,21 @@
 
     a { color: inherit; }
 
+    :focus-visible {
+      outline: 3px solid rgba(10, 127, 115, 0.42);
+      outline-offset: 4px;
+    }
+
     #app {
       position: relative;
       z-index: 1;
       min-height: 100vh;
       display: grid;
-      grid-template-columns: 280px minmax(0, 1fr);
-      gap: 22px;
-      padding: 22px;
+      grid-template-columns: 292px minmax(0, 1fr);
+      gap: 24px;
+      width: min(100%, 1540px);
+      margin: 0 auto;
+      padding: 24px;
     }
 
     .sidebar {
@@ -160,6 +169,10 @@
       background: var(--bg-soft);
       backdrop-filter: blur(18px);
       box-shadow: var(--shadow);
+      position: sticky;
+      top: 24px;
+      align-self: start;
+      min-height: calc(100vh - 48px);
     }
 
     .brand {
@@ -178,7 +191,7 @@
       height: 52px;
       display: grid;
       place-items: center;
-      border-radius: 18px;
+      border-radius: 20px;
       background:
         linear-gradient(145deg, rgba(12, 128, 116, 0.18), rgba(214, 127, 48, 0.20)),
         var(--panel-strong);
@@ -188,6 +201,19 @@
       font-weight: 700;
       letter-spacing: 0.08em;
       box-shadow: var(--shadow-soft);
+      position: relative;
+    }
+
+    .brand-mark::after {
+      content: '';
+      width: 20px;
+      height: 20px;
+      border-left: 3px solid currentColor;
+      border-bottom: 3px solid currentColor;
+      transform: rotate(135deg);
+      position: absolute;
+      border-radius: 2px;
+      opacity: 0.3;
     }
 
     .brand-wordmark {
@@ -202,7 +228,8 @@
 
     .brand h1 {
       margin: 0;
-      font-size: 1.5rem;
+      font-size: 1.42rem;
+      line-height: 1.04;
       letter-spacing: -0.03em;
     }
 
@@ -234,7 +261,7 @@
       font: inherit;
       text-align: left;
       cursor: pointer;
-      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
     }
 
     .nav-btn:hover,
@@ -243,6 +270,7 @@
       color: var(--ink);
       border-color: var(--line-strong);
       background: var(--panel-strong);
+      box-shadow: var(--shadow-soft), var(--hairline);
     }
 
     .nav-btn strong {
@@ -325,10 +353,10 @@
       position: relative;
       overflow: hidden;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+      grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.72fr);
       align-items: flex-start;
-      gap: 22px;
-      padding: clamp(22px, 4vw, 38px);
+      gap: clamp(22px, 4vw, 44px);
+      padding: clamp(26px, 4.8vw, 54px);
       border: 1px solid var(--line);
       border-radius: var(--radius-xl);
       background:
@@ -338,6 +366,7 @@
         var(--bg-soft);
       backdrop-filter: blur(18px);
       box-shadow: var(--shadow-lift);
+      min-height: 520px;
     }
 
     .hero::after {
@@ -366,7 +395,7 @@
       z-index: 1;
       max-width: 760px;
       display: grid;
-      gap: 12px;
+      gap: 16px;
     }
 
     .eyebrow,
@@ -380,10 +409,10 @@
 
     .hero h2 {
       margin: 0;
-      font-size: clamp(2.15rem, 4.5vw, 4.55rem);
-      line-height: 0.95;
-      letter-spacing: -0.06em;
-      max-width: 13ch;
+      font-size: clamp(2.45rem, 5.6vw, 5.65rem);
+      line-height: 0.9;
+      letter-spacing: -0.075em;
+      max-width: 12ch;
     }
 
     .hero p {
@@ -395,9 +424,9 @@
     }
 
     .hero-lede {
-      font-size: clamp(1.02rem, 1.6vw, 1.18rem) !important;
+      font-size: clamp(1.08rem, 1.7vw, 1.24rem) !important;
       color: var(--ink) !important;
-      max-width: 58ch !important;
+      max-width: 54ch !important;
     }
 
     .hero-badges,
@@ -418,11 +447,17 @@
       padding: 0 14px;
       border-radius: 999px;
       border: 1px solid var(--line);
-      background: rgba(255,255,255,0.68);
+      background: rgba(255,255,255,0.72);
       color: var(--ink-soft);
       font-family: var(--font-mono);
       font-size: 0.74rem;
       box-shadow: var(--shadow-soft);
+    }
+
+    .hero-badges .soft-badge:first-child {
+      color: var(--accent-strong);
+      border-color: rgba(10, 127, 115, 0.22);
+      background: var(--accent-wash);
     }
 
     .trust-ribbon {
@@ -436,6 +471,7 @@
         var(--panel-strong);
       color: var(--ink-soft);
       box-shadow: var(--shadow-soft);
+      max-width: 620px;
     }
 
     .trust-ribbon strong {
@@ -451,8 +487,9 @@
       display: inline-flex;
       align-items: center;
       gap: 10px;
+      min-height: 48px;
       padding: 10px 14px;
-      border-radius: 18px;
+      border-radius: 999px;
       border: 1px solid rgba(79, 53, 40, 0.12);
       background: rgba(255,255,255,0.62);
       box-shadow: var(--shadow-soft);
@@ -481,18 +518,92 @@
       z-index: 1;
       min-width: 0;
       display: grid;
-      gap: 12px;
-      padding: 18px;
+      gap: 14px;
+      padding: 20px;
       border: 1px solid var(--line);
-      border-radius: var(--radius-lg);
-      background: linear-gradient(180deg, rgba(255,255,255,0.68), rgba(255,255,255,0.82));
+      border-radius: 26px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.74), rgba(255,255,255,0.88)),
+        var(--panel-strong);
+      box-shadow: var(--shadow), var(--hairline);
+    }
+
+    .hero-artifact {
+      display: grid;
+      gap: 14px;
+      padding: 18px;
+      border-radius: 24px;
+      border: 1px solid rgba(79, 53, 40, 0.12);
+      background:
+        radial-gradient(circle at top right, rgba(200, 120, 40, 0.16), transparent 34%),
+        var(--paper);
       box-shadow: var(--shadow-soft);
+    }
+
+    .artifact-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .artifact-title {
+      display: grid;
+      gap: 4px;
+    }
+
+    .artifact-title strong {
+      font-size: 1.24rem;
+      letter-spacing: -0.05em;
+    }
+
+    .artifact-score {
+      width: 74px;
+      height: 74px;
+      display: grid;
+      place-items: center;
+      border-radius: 24px;
+      background: linear-gradient(135deg, var(--accent), var(--gold));
+      color: #fffdf8;
+      font-size: 1.3rem;
+      font-weight: 700;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .artifact-rows {
+      display: grid;
+      gap: 10px;
+    }
+
+    .artifact-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      padding: 12px;
+      border-radius: var(--radius-md);
+      background: rgba(255,255,255,0.62);
+      border: 1px solid rgba(79, 53, 40, 0.08);
+      color: var(--ink-soft);
+      line-height: 1.45;
+    }
+
+    .artifact-row span:first-child {
+      width: 24px;
+      height: 24px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      background: var(--accent-wash);
+      color: var(--accent-strong);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
     }
 
     .hero-proof {
       display: grid;
       gap: 12px;
-      padding: 16px;
+      padding: 14px 16px;
       border-radius: var(--radius-lg);
       border: 1px solid rgba(214, 127, 48, 0.16);
       background:
@@ -606,7 +717,7 @@
       border-radius: var(--radius-lg);
       background: var(--panel);
       backdrop-filter: blur(16px);
-      box-shadow: var(--shadow);
+      box-shadow: var(--shadow), var(--hairline);
     }
 
     .voice-card {
@@ -647,19 +758,20 @@
     }
 
     .panel {
-      padding: 22px;
+      padding: clamp(20px, 2.5vw, 28px);
       min-width: 0;
     }
 
     .welcome-band {
       display: grid;
-      gap: 16px;
+      gap: 18px;
       margin-bottom: 18px;
-      padding: 18px;
-      border-radius: var(--radius-lg);
-      border: 1px solid rgba(79, 53, 40, 0.1);
+      padding: 20px;
+      border-radius: 24px;
+      border: 1px solid rgba(79, 53, 40, 0.12);
       background:
-        linear-gradient(135deg, rgba(255,255,255,0.72), rgba(255,255,255,0.54)),
+        radial-gradient(circle at top right, rgba(200, 120, 40, 0.12), transparent 32%),
+        linear-gradient(135deg, rgba(255,255,255,0.78), rgba(255,255,255,0.58)),
         linear-gradient(135deg, rgba(12, 128, 116, 0.06), rgba(217, 139, 123, 0.08));
       box-shadow: var(--shadow-soft);
     }
@@ -701,7 +813,7 @@
     .wizard-step-card {
       display: grid;
       gap: 8px;
-      padding: 14px;
+      padding: 15px;
       border: 1px solid rgba(79, 53, 40, 0.1);
       border-radius: var(--radius-md);
       background: rgba(255,255,255,0.68);
@@ -710,7 +822,7 @@
       font: inherit;
       cursor: pointer;
       box-shadow: var(--shadow-soft);
-      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
     }
 
     .use-case-card {
@@ -727,6 +839,7 @@
       transform: translateY(-1px);
       border-color: rgba(12, 128, 116, 0.24);
       background: var(--panel-strong);
+      box-shadow: var(--shadow), var(--hairline);
     }
 
     .sample-card strong,
@@ -739,15 +852,15 @@
 
     .wizard-shell {
       display: grid;
-      gap: 14px;
+      gap: 18px;
       margin-bottom: 18px;
-      padding: 18px;
-      border-radius: var(--radius-lg);
-      border: 1px solid rgba(12, 128, 116, 0.16);
+      padding: 20px;
+      border-radius: 24px;
+      border: 1px solid rgba(12, 128, 116, 0.18);
       background:
-        radial-gradient(circle at top right, rgba(12, 128, 116, 0.12), transparent 32%),
-        linear-gradient(135deg, rgba(255,255,255,0.74), rgba(214, 127, 48, 0.08));
-      box-shadow: var(--shadow-soft);
+        radial-gradient(circle at top right, rgba(12, 128, 116, 0.14), transparent 32%),
+        linear-gradient(135deg, rgba(255,255,255,0.82), rgba(214, 127, 48, 0.09));
+      box-shadow: var(--shadow-soft), var(--hairline);
     }
 
     .wizard-shell h4,
@@ -760,6 +873,86 @@
     .wizard-step-card span {
       color: var(--ink-soft);
       line-height: 1.5;
+    }
+
+    .premium-stepper {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      position: relative;
+    }
+
+    .premium-stepper::before {
+      content: '';
+      position: absolute;
+      left: 8%;
+      right: 8%;
+      top: 26px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(10, 127, 115, 0.28), transparent);
+      pointer-events: none;
+    }
+
+    .premium-step {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(79, 53, 40, 0.1);
+      background: rgba(255,255,255,0.76);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .premium-step strong {
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+
+    .premium-step span:last-child {
+      color: var(--ink-soft);
+      line-height: 1.45;
+      font-size: 0.92rem;
+    }
+
+    .premium-step-index {
+      width: 34px;
+      height: 34px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent), var(--gold));
+      color: #fffdf8;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      box-shadow: 0 0 0 6px rgba(255,255,255,0.82);
+    }
+
+    .wizard-status-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px 16px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(10, 127, 115, 0.16);
+      background: var(--accent-wash);
+      color: var(--ink-soft);
+      line-height: 1.5;
+    }
+
+    .wizard-status-card::after {
+      content: 'Ready';
+      flex: 0 0 auto;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: var(--panel-strong);
+      color: var(--accent-strong);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
     }
 
     .guide-card {
@@ -1163,14 +1356,14 @@
       position: relative;
       display: grid;
       gap: 16px;
-      padding: 28px;
-      border-radius: var(--radius-lg);
+      padding: 30px;
+      border-radius: 24px;
       border: 1px dashed var(--line-strong);
       background:
         linear-gradient(180deg, rgba(255,255,255,0.75), rgba(255,255,255,0.52)),
         linear-gradient(135deg, rgba(12, 128, 116, 0.08), rgba(214, 127, 48, 0.08));
       cursor: pointer;
-      transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+      transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
     }
 
     .drop-zone::after {
@@ -1194,6 +1387,7 @@
       background:
         linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.65)),
         linear-gradient(135deg, rgba(12, 128, 116, 0.12), rgba(214, 127, 48, 0.12));
+      box-shadow: var(--shadow-lift), var(--hairline);
     }
 
     .drop-grid {
@@ -1261,6 +1455,18 @@
       gap: 16px;
     }
 
+    .process-frame {
+      display: grid;
+      gap: 14px;
+      padding: 18px;
+      border-radius: 24px;
+      border: 1px solid rgba(79, 53, 40, 0.1);
+      background:
+        radial-gradient(circle at top right, rgba(10, 127, 115, 0.12), transparent 34%),
+        rgba(255,255,255,0.68);
+      box-shadow: var(--shadow-soft), var(--hairline);
+    }
+
     .process-guidance,
     .posture-card,
     .eval-card,
@@ -1315,6 +1521,38 @@
       border-radius: inherit;
       background: linear-gradient(90deg, var(--accent), var(--gold));
       transition: width 0.3s ease;
+    }
+
+    .skeleton-stack {
+      display: grid;
+      gap: 8px;
+    }
+
+    .skeleton-line {
+      position: relative;
+      height: 10px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(32, 25, 22, 0.08);
+    }
+
+    .skeleton-line.short {
+      width: 58%;
+    }
+
+    .skeleton-line::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.62), transparent);
+      animation: shimmer 1.6s ease-in-out infinite;
+    }
+
+    @keyframes shimmer {
+      to {
+        transform: translateX(100%);
+      }
     }
 
     .meta-strip {
@@ -1443,15 +1681,15 @@
 
     .report-hero {
       display: grid;
-      gap: 10px;
-      padding: 24px;
+      gap: 12px;
+      padding: clamp(24px, 3vw, 34px);
       border-radius: var(--radius-xl);
       background:
         radial-gradient(circle at top right, rgba(214, 127, 48, 0.16), transparent 32%),
         linear-gradient(135deg, rgba(12, 128, 116, 0.14), rgba(214, 127, 48, 0.10)),
         var(--panel);
       border: 1px solid var(--line);
-      box-shadow: var(--shadow);
+      box-shadow: var(--shadow), var(--hairline);
     }
 
     .report-hero-meta {
@@ -1475,6 +1713,88 @@
       color: var(--ink-soft);
       line-height: 1.6;
       max-width: 60ch;
+    }
+
+    .brief-executive {
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .brief-executive-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 0.42fr);
+      gap: 0;
+      min-height: 260px;
+    }
+
+    .brief-lead {
+      display: grid;
+      align-content: center;
+      gap: 16px;
+      padding: clamp(24px, 4vw, 42px);
+      background:
+        radial-gradient(circle at 12% 20%, rgba(10, 127, 115, 0.12), transparent 28%),
+        linear-gradient(135deg, rgba(255,255,255,0.92), rgba(255, 247, 235, 0.78));
+    }
+
+    .brief-lead h3 {
+      margin: 0;
+      font-size: clamp(1.9rem, 4vw, 3.45rem);
+      letter-spacing: -0.07em;
+      line-height: 0.98;
+      max-width: 12ch;
+    }
+
+    .brief-lead p {
+      margin: 0;
+      max-width: 58ch;
+      color: var(--ink-soft);
+      font-size: 1.02rem;
+      line-height: 1.7;
+    }
+
+    .brief-action-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .confidence-strip {
+      display: grid;
+      align-content: center;
+      gap: 14px;
+      padding: clamp(22px, 3vw, 34px);
+      border-left: 1px solid var(--line);
+      background:
+        radial-gradient(circle at 85% 18%, rgba(200, 120, 40, 0.18), transparent 34%),
+        var(--paper);
+    }
+
+    .confidence-strip strong {
+      font-size: 1.18rem;
+      letter-spacing: -0.03em;
+    }
+
+    .confidence-strip p {
+      margin: 0;
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+
+    .confidence-meter {
+      height: 12px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(32, 25, 22, 0.08);
+    }
+
+    .confidence-meter span {
+      display: block;
+      width: 0;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--gold));
+      transition: width 0.36s ease;
     }
 
     .scorecard-panel {
@@ -1505,22 +1825,25 @@
     .share-preview {
       display: grid;
       gap: 14px;
-      padding: 18px;
-      border-radius: var(--radius-lg);
+      padding: clamp(18px, 2.5vw, 26px);
+      border-radius: 24px;
       border: 1px solid rgba(12, 128, 116, 0.18);
       background:
         radial-gradient(circle at 88% 18%, rgba(214, 127, 48, 0.18), transparent 34%),
         linear-gradient(135deg, var(--panel-strong), var(--bg-soft));
-      box-shadow: var(--shadow-soft);
+      box-shadow: var(--shadow), var(--hairline);
     }
 
     .share-preview-card {
       display: grid;
       gap: 8px;
-      padding: 18px;
-      border-radius: var(--radius-md);
+      padding: 20px;
+      border-radius: 20px;
       border: 1px solid var(--line);
-      background: var(--paper);
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.74), rgba(255,247,235,0.84)),
+        var(--paper);
+      box-shadow: var(--shadow-soft);
     }
 
     .share-preview-card strong {
@@ -1662,7 +1985,7 @@
     }
 
     .fix-first-card {
-      padding: 18px;
+      padding: 20px;
       border-radius: var(--radius-lg);
       border: 1px solid rgba(12, 128, 116, 0.18);
       background:
@@ -1670,6 +1993,7 @@
         var(--panel-strong);
       display: grid;
       gap: 12px;
+      box-shadow: var(--shadow-soft), var(--hairline);
     }
 
     .quality-card {
@@ -2255,8 +2579,8 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 46px;
-      padding: 0 16px;
+      min-height: 48px;
+      padding: 0 18px;
       border-radius: 999px;
       border: 1px solid rgba(12, 128, 116, 0.24);
       background: linear-gradient(180deg, rgba(12, 128, 116, 0.96), rgba(10, 95, 87, 0.96));
@@ -2264,23 +2588,31 @@
       text-decoration: none;
       font-weight: 700;
       letter-spacing: -0.01em;
-      transition: transform 0.16s ease, opacity 0.16s ease;
+      box-shadow: 0 14px 28px rgba(10, 127, 115, 0.18), var(--hairline);
+      transition: transform 0.16s ease, opacity 0.16s ease, box-shadow 0.16s ease;
     }
 
     .button-link.ghost {
       background: rgba(255,255,255,0.74);
       color: var(--ink);
       border-color: var(--line);
+      box-shadow: var(--shadow-soft), var(--hairline);
     }
 
     .button-link.danger {
       background: rgba(255,255,255,0.78);
       color: #8f332d;
       border-color: rgba(200, 75, 67, 0.2);
+      box-shadow: var(--shadow-soft), var(--hairline);
     }
 
     .button-link:hover {
       transform: translateY(-1px);
+      box-shadow: var(--shadow-lift), var(--hairline);
+    }
+
+    .button-link:active {
+      transform: translateY(0) scale(0.99);
     }
 
     .button-link.disabled,
@@ -2489,6 +2821,11 @@
         padding: 18px;
       }
 
+      .sidebar {
+        position: static;
+        min-height: auto;
+      }
+
       .hero {
         grid-template-columns: 1fr;
       }
@@ -2507,11 +2844,33 @@
       .sample-gallery,
       .use-case-grid,
       .wizard-grid,
+      .premium-stepper,
       .coach-grid,
       .report-loop-grid,
       .scorecard-grid,
+      .brief-executive-grid,
       .voice-principles {
         grid-template-columns: 1fr;
+      }
+
+      .premium-stepper::before {
+        left: 26px;
+        right: auto;
+        top: 30px;
+        bottom: 30px;
+        width: 1px;
+        height: auto;
+        background: linear-gradient(180deg, transparent, rgba(10, 127, 115, 0.28), transparent);
+      }
+
+      .premium-step {
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: start;
+      }
+
+      .confidence-strip {
+        border-left: 0;
+        border-top: 1px solid var(--line);
       }
 
       .nav-stack {
@@ -2676,6 +3035,30 @@
         </div>
         <div class="hero-side">
           <span class="mono-label">What beta users get</span>
+          <article class="hero-artifact" aria-label="Sample Safety Brief preview">
+            <div class="artifact-top">
+              <div class="artifact-title">
+                <span class="guide-kicker">Sample brief</span>
+                <strong>Nursery scan</strong>
+                <span class="meta-copy">Top actions ready for review</span>
+              </div>
+              <div class="artifact-score">82</div>
+            </div>
+            <div class="artifact-rows">
+              <div class="artifact-row">
+                <span>01</span>
+                <div><strong>Anchor the tall shelf.</strong> Evidence-backed, high-priority fix.</div>
+              </div>
+              <div class="artifact-row">
+                <span>02</span>
+                <div><strong>Clear the cord path.</strong> Practical next step with uncertainty noted.</div>
+              </div>
+              <div class="artifact-row">
+                <span>03</span>
+                <div><strong>Rescan after changes.</strong> Compare the same room label over time.</div>
+              </div>
+            </div>
+          </article>
           <div class="hero-proof">
             <h3>A practical room check, not dashboard theater.</h3>
             <ul class="proof-list">
@@ -2822,28 +3205,29 @@
                 <div>
                   <span class="guide-kicker">Guided scan wizard</span>
                   <h4>Four checks before you upload.</h4>
-                  <p id="scan-wizard-status">Choose a use case, confirm the room label, then upload one steady walkthrough. ATLAS-0 will warn before sending files that look unsupported or too large.</p>
+                  <p>One focused pass keeps the upload flow calmer and catches unsupported files before the backend spends work.</p>
                 </div>
                 <span class="pill">Beta-friendly</span>
               </div>
-              <div class="wizard-grid">
-                <article class="wizard-step-card">
-                  <span class="guide-kicker">01</span>
+              <p id="scan-wizard-status" class="wizard-status-card">Choose a use case, confirm the room label, then upload one steady walkthrough. ATLAS-0 will warn before sending files that look unsupported or too large.</p>
+              <div class="premium-stepper">
+                <article class="premium-step">
+                  <span class="premium-step-index">01</span>
                   <strong>Pick the mode</strong>
                   <span>Use the cards above or the report-mode menu to tune what the report emphasizes.</span>
                 </article>
-                <article class="wizard-step-card">
-                  <span class="guide-kicker">02</span>
+                <article class="premium-step">
+                  <span class="premium-step-index">02</span>
                   <strong>Name the room</strong>
                   <span>Reuse the same label for before/after rescans and score trends.</span>
                 </article>
-                <article class="wizard-step-card">
-                  <span class="guide-kicker">03</span>
+                <article class="premium-step">
+                  <span class="premium-step-index">03</span>
                   <strong>Record slowly</strong>
                   <span>Start at the doorway, pause on shelves and edges, and include the floor path.</span>
                 </article>
-                <article class="wizard-step-card">
-                  <span class="guide-kicker">04</span>
+                <article class="premium-step">
+                  <span class="premium-step-index">04</span>
                   <strong>Upload with trust</strong>
                   <span>Unsupported or oversized files are caught before the backend spends work.</span>
                 </article>
@@ -2896,14 +3280,20 @@
               </div>
               <span class="pill">Async pipeline</span>
             </div>
-            <div>
-              <p class="mono-label" id="process-stage">Ready for upload</p>
-              <p class="meta-copy" id="process-copy">Upload a 20-60 second room walkthrough to generate a safety report.</p>
+            <div class="process-frame">
+              <div>
+                <p class="mono-label" id="process-stage">Ready for upload</p>
+                <p class="meta-copy" id="process-copy">Upload a 20-60 second room walkthrough to generate a safety report.</p>
+              </div>
+              <div class="progress-track" aria-hidden="true">
+                <div id="process-bar" class="progress-bar"></div>
+              </div>
+              <div class="skeleton-stack" aria-hidden="true">
+                <span class="skeleton-line"></span>
+                <span class="skeleton-line short"></span>
+              </div>
+              <div id="process-meta" class="meta-strip">No active scan</div>
             </div>
-            <div class="progress-track" aria-hidden="true">
-              <div id="process-bar" class="progress-bar"></div>
-            </div>
-            <div id="process-meta" class="meta-strip">No active scan</div>
             <div id="process-guidance" class="process-guidance">
               <div class="empty-card">Capture coaching and retry guidance will appear here as scans move through the pipeline.</div>
             </div>
@@ -2991,7 +3381,7 @@
         </section>
       </section>
 
-        <section id="view-report" class="view" aria-label="Report view" data-landing-section="report_brief">
+      <section id="view-report" class="view" aria-label="Report view" data-landing-section="report_brief">
         <section id="report-hero" class="report-hero empty">
           <p class="eyebrow">Room Safety Brief</p>
           <h3 id="report-headline">No report yet</h3>
@@ -3000,6 +3390,27 @@
             <span class="soft-badge">Action-first</span>
             <span class="soft-badge">Evidence-backed</span>
             <span class="soft-badge">Shareable PDF</span>
+          </div>
+        </section>
+
+        <section id="brief-executive" class="brief-executive panel" aria-label="Executive safety brief">
+          <div class="brief-executive-grid">
+            <div class="brief-lead">
+              <span class="guide-kicker">Executive summary</span>
+              <h3 id="brief-executive-title">No Safety Brief yet</h3>
+              <p id="brief-executive-copy">Upload a focused room walkthrough or open the sample report to see top actions, evidence confidence, and practical next steps in one premium brief.</p>
+              <div id="brief-executive-actions" class="brief-action-row">
+                <span class="soft-badge">Top 3 actions</span>
+                <span class="soft-badge">Evidence rail</span>
+                <span class="soft-badge">Decision support</span>
+              </div>
+            </div>
+            <aside class="confidence-strip">
+              <span class="guide-kicker">Confidence calibration</span>
+              <strong id="brief-confidence-label">Waiting for scan</strong>
+              <div class="confidence-meter" aria-hidden="true"><span id="brief-confidence-meter"></span></div>
+              <p id="brief-confidence-copy">ATLAS-0 shows confidence and scan-quality notes so users know when to act, when to rescan, and when not to over-trust a result.</p>
+            </aside>
           </div>
         </section>
 

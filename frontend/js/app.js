@@ -126,6 +126,12 @@ const waitlistNote = document.getElementById('waitlist-note');
 
 const reportHero = document.getElementById('report-hero');
 const reportHeroMeta = document.getElementById('report-hero-meta');
+const briefExecutiveTitle = document.getElementById('brief-executive-title');
+const briefExecutiveCopy = document.getElementById('brief-executive-copy');
+const briefExecutiveActions = document.getElementById('brief-executive-actions');
+const briefConfidenceLabel = document.getElementById('brief-confidence-label');
+const briefConfidenceMeter = document.getElementById('brief-confidence-meter');
+const briefConfidenceCopy = document.getElementById('brief-confidence-copy');
 const summaryObjects = document.getElementById('summary-objects');
 const summaryHazards = document.getElementById('summary-hazards');
 const summarySeverity = document.getElementById('summary-severity');
@@ -763,6 +769,7 @@ function renderReport(job) {
       <span class="soft-badge">Evidence-backed</span>
       <span class="soft-badge">Shareable PDF</span>
     `;
+    renderBriefExecutive(null);
     renderShareCardPreview(null);
     summaryObjects.textContent = '0';
     summaryHazards.textContent = '0';
@@ -833,6 +840,7 @@ function renderReport(job) {
     : 'Hazard report');
   reportSubhead.textContent = summary.overview || `${roomLabel || job.filename} · ${audienceLabel} · ${summary.confidence_label || 'Approximate grounding'}`;
   reportHeroMeta.innerHTML = renderHeroBadges(summary, roomLabel, comparison, resolution, job.is_sample);
+  renderBriefExecutive(job, summary, visibleHazards, fixFirst, recommendations, scanQuality);
   renderShareCardPreview(job);
 
   summaryObjects.textContent = String(summary.object_count || 0);
@@ -1054,6 +1062,60 @@ function renderHeroBadges(summary, roomLabel, comparison, resolution, isSample) 
     badges.push(`${delta > 0 ? '+' : ''}${delta} vs last scan`);
   }
   return badges.map((badge) => `<span class="soft-badge">${escapeHtml(badge)}</span>`).join('');
+}
+
+function renderBriefExecutive(job, summary = {}, hazards = [], fixFirst = [], recommendations = [], scanQuality = {}) {
+  if (!briefExecutiveTitle || !briefExecutiveCopy || !briefExecutiveActions || !briefConfidenceLabel || !briefConfidenceMeter || !briefConfidenceCopy) {
+    return;
+  }
+
+  if (!job || job.status !== 'complete') {
+    briefExecutiveTitle.textContent = 'No Safety Brief yet';
+    briefExecutiveCopy.textContent = 'Upload a focused room walkthrough or open the sample report to see top actions, evidence confidence, and practical next steps in one premium brief.';
+    briefExecutiveActions.innerHTML = `
+      <span class="soft-badge">Top 3 actions</span>
+      <span class="soft-badge">Evidence rail</span>
+      <span class="soft-badge">Decision support</span>
+    `;
+    briefConfidenceLabel.textContent = 'Waiting for scan';
+    briefConfidenceMeter.style.width = '0%';
+    briefConfidenceCopy.textContent = 'ATLAS-0 shows confidence and scan-quality notes so users know when to act, when to rescan, and when not to over-trust a result.';
+    return;
+  }
+
+  const roomLabel = job.room_label || summary.room_label || 'Room';
+  const topAction = fixFirst[0]?.title
+    || recommendations[0]?.title
+    || hazards[0]?.hazard_title
+    || summary.top_hazard_label
+    || 'Review the top finding';
+  const hazardCount = Number(summary.hazard_count || hazards.length || 0);
+  const score = typeof summary.room_score === 'number' ? `${Math.round(summary.room_score)}/100` : 'Screened';
+  const confidenceLabel = summary.confidence_label
+    || summary.scan_quality_label
+    || (scanQuality.status ? `${capitalize(scanQuality.status)} scan` : 'Approximate grounding');
+  const meterValue = typeof scanQuality.score === 'number'
+    ? scanQuality.score
+    : typeof summary.average_confidence === 'number'
+      ? summary.average_confidence
+      : typeof hazards[0]?.confidence === 'number'
+        ? hazards[0].confidence
+        : 0.66;
+  const meterPercent = Math.max(0, Math.min(100, Math.round(meterValue * 100)));
+  const rescanCopy = summary.rescan_recommended || scanQuality.rescan_recommended
+    ? 'This brief is useful for triage, but scan quality suggests a rescan before trusting smaller details.'
+    : 'This brief is ready for practical next steps. Keep the confidence notes visible before making bigger decisions.';
+
+  briefExecutiveTitle.textContent = `${roomLabel} Safety Brief`;
+  briefExecutiveCopy.textContent = `${score} room score. Start with "${topAction}" and use the evidence rail to confirm what ATLAS-0 saw before acting.`;
+  briefExecutiveActions.innerHTML = `
+    <span class="soft-badge">${escapeHtml(topAction)}</span>
+    <span class="soft-badge">${hazardCount} finding${hazardCount === 1 ? '' : 's'}</span>
+    <span class="soft-badge">Decision support only</span>
+  `;
+  briefConfidenceLabel.textContent = confidenceLabel;
+  briefConfidenceMeter.style.width = `${meterPercent}%`;
+  briefConfidenceCopy.textContent = rescanCopy;
 }
 
 function renderRoomScorecard(job, summary, hazards, fixFirst, recommendations, comparison, scanQuality) {
