@@ -52,8 +52,9 @@
 > intentionally honest about confidence, scan quality, and where the pipeline is
 > still approximate.
 
-The design direction is **Warm Trust**: calm language, high contrast, visible
-uncertainty, and practical next steps instead of demo theater or fake certainty.
+The design direction is **Warm Trust** with a premium Safety Brief feel: calm
+language, high contrast, visible uncertainty, polished scan guidance, and
+practical next steps instead of demo theater or fake certainty.
 
 ## Current Standing
 
