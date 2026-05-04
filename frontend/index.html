@@ -1054,6 +1054,122 @@
       color: var(--accent-strong);
     }
 
+    .challenge-library-card,
+    .challenge-result {
+      display: grid;
+      gap: 14px;
+      padding: 18px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(79, 53, 40, 0.1);
+      background:
+        radial-gradient(circle at top right, rgba(10, 127, 115, 0.12), transparent 34%),
+        linear-gradient(135deg, rgba(255,255,255,0.78), rgba(255,247,235,0.68));
+      box-shadow: var(--shadow-soft), var(--hairline);
+    }
+
+    .challenge-library-head,
+    .challenge-result-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .challenge-library-head h4,
+    .challenge-result-head h3 {
+      margin: 0;
+      font-size: clamp(1.15rem, 2vw, 1.5rem);
+      letter-spacing: -0.04em;
+    }
+
+    .challenge-library-head p,
+    .challenge-result-head p {
+      margin: 6px 0 0;
+      color: var(--ink-soft);
+      line-height: 1.58;
+    }
+
+    .challenge-streak {
+      min-width: 132px;
+      padding: 12px;
+      border-radius: var(--radius-md);
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+      color: var(--ink-soft);
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      text-align: right;
+    }
+
+    .challenge-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .challenge-card {
+      display: grid;
+      gap: 8px;
+      min-height: 148px;
+      padding: 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(79, 53, 40, 0.1);
+      background: rgba(255,255,255,0.72);
+      color: var(--ink-soft);
+      text-align: left;
+      font: inherit;
+      cursor: pointer;
+      box-shadow: var(--shadow-soft);
+      transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+    }
+
+    .challenge-card:hover,
+    .challenge-card.active {
+      transform: translateY(-1px);
+      border-color: rgba(10, 127, 115, 0.28);
+      background: var(--panel-strong);
+      box-shadow: var(--shadow), var(--hairline);
+    }
+
+    .challenge-card strong {
+      color: var(--ink);
+      font-size: 1rem;
+      letter-spacing: -0.03em;
+    }
+
+    .challenge-card span:last-child {
+      line-height: 1.45;
+    }
+
+    .challenge-result-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: minmax(0, 1fr) minmax(220px, 0.45fr);
+    }
+
+    .challenge-result-main,
+    .challenge-result-side {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .challenge-result-main strong {
+      font-size: clamp(1.25rem, 2vw, 1.75rem);
+      letter-spacing: -0.05em;
+    }
+
+    .challenge-result-main p,
+    .challenge-result-side p {
+      margin: 0;
+      color: var(--ink-soft);
+      line-height: 1.58;
+    }
+
     .capture-coach,
     .report-loop,
     .beta-card {
@@ -2843,12 +2959,14 @@
       .guide-grid,
       .sample-gallery,
       .use-case-grid,
+      .challenge-grid,
       .wizard-grid,
       .premium-stepper,
       .coach-grid,
       .report-loop-grid,
       .scorecard-grid,
       .brief-executive-grid,
+      .challenge-result-grid,
       .voice-principles {
         grid-template-columns: 1fr;
       }
@@ -2886,11 +3004,14 @@
       }
 
       .coach-head,
-      .report-loop-head {
+      .report-loop-head,
+      .challenge-library-head,
+      .challenge-result-head {
         flex-direction: column;
       }
 
-      .coach-meter {
+      .coach-meter,
+      .challenge-streak {
         width: 100%;
         text-align: left;
       }
@@ -3123,6 +3244,17 @@
                 </div>
                 <p id="daily-mission-progress" class="mission-progress">No missions tried yet.</p>
               </article>
+              <section class="challenge-library-card" aria-label="Room Safety Challenge library">
+                <div class="challenge-library-head">
+                  <div>
+                    <span class="guide-kicker">Room Safety Challenges</span>
+                    <h4>Pick a tiny mission before upload.</h4>
+                    <p>Challenges make ATLAS-0 easier to try, repeat, and share: one room, one theme, one practical win.</p>
+                  </div>
+                  <div id="challenge-streak-summary" class="challenge-streak">No streak yet</div>
+                </div>
+                <div id="challenge-library-grid" class="challenge-grid"></div>
+              </section>
               <article class="capture-coach" aria-labelledby="capture-coach-title">
                 <div class="coach-head">
                   <div>
@@ -3416,6 +3548,10 @@
 
         <section id="room-scorecard" class="scorecard-panel panel" aria-label="Room safety scorecard">
           <div class="empty-card">Room scorecard will appear after a completed scan.</div>
+        </section>
+
+        <section id="challenge-result-card" class="challenge-result panel" aria-label="Completed challenge card">
+          <div class="empty-card">Complete a scan from a Room Safety Challenge to unlock a shareable room-win card.</div>
         </section>
 
         <section id="report-action-loop" class="report-loop panel" aria-label="Fix, rescan, and share loop">

@@ -16,6 +16,8 @@ const THEME_STORAGE_KEY = 'atlas0.theme';
 const MOTION_STORAGE_KEY = 'atlas0.reducedMotion';
 const LOW_CONFIDENCE_STORAGE_KEY = 'atlas0.showLowConfidenceDefault';
 const MISSION_STORAGE_KEY = 'atlas0.dailySafetyMission';
+const CHALLENGE_SELECTION_STORAGE_KEY = 'atlas0.selectedChallenge';
+const CHALLENGE_JOB_STORAGE_KEY = 'atlas0.challengeJobs';
 const FIX_CHECKLIST_STORAGE_KEY = 'atlas0.fixChecklist';
 const CAPTURE_COACH_STORAGE_KEY = 'atlas0.captureCoach';
 const SESSION_STORAGE_KEY = 'atlas0.sessionId';
@@ -72,6 +74,8 @@ const state = {
   operatorSettings: null,
   reportViewEvents: new Set(),
   uploadCompleteEvents: new Set(),
+  activeChallengeId: readStoredPreference(CHALLENGE_SELECTION_STORAGE_KEY) || null,
+  pendingUploadChallengeId: null,
 };
 
 const navButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
@@ -109,6 +113,8 @@ const uploadGuidanceCopy = document.getElementById('upload-guidance-copy');
 const uploadDurationPill = document.getElementById('upload-duration-pill');
 const uploadSizePill = document.getElementById('upload-size-pill');
 const scanWizardStatus = document.getElementById('scan-wizard-status');
+const challengeLibraryGrid = document.getElementById('challenge-library-grid');
+const challengeStreakSummary = document.getElementById('challenge-streak-summary');
 const privacyPolicy = document.getElementById('privacy-policy');
 const operatorPolicy = document.getElementById('operator-policy');
 const operatorQueue = document.getElementById('operator-queue');
@@ -147,6 +153,7 @@ const reportEvalCard = document.getElementById('report-eval-card');
 const weekendFixList = document.getElementById('weekend-fix-list');
 const roomWinsList = document.getElementById('room-wins-list');
 const fixChecklistList = document.getElementById('fix-checklist-list');
+const challengeResultCard = document.getElementById('challenge-result-card');
 const lowConfidenceToggle = /** @type {HTMLInputElement} */ (document.getElementById('low-confidence-toggle'));
 const settingsLowConfidenceToggle = /** @type {HTMLInputElement} */ (
   document.getElementById('settings-low-confidence-toggle')
@@ -370,6 +377,14 @@ function dailyMissionForDate(date = new Date()) {
   return SAFETY_MISSIONS[dayNumber % SAFETY_MISSIONS.length];
 }
 
+function challengeById(id) {
+  return SAFETY_MISSIONS.find((challenge) => challenge.id === id) || null;
+}
+
+function activeChallenge() {
+  return challengeById(state.activeChallengeId) || dailyMissionForDate();
+}
+
 function dailyMissionStreak(completedDates, fromDate = new Date()) {
   const completed = new Set(completedDates);
   let streak = 0;
@@ -384,24 +399,85 @@ function dailyMissionStreak(completedDates, fromDate = new Date()) {
 function readDailyMissionState() {
   const raw = readStoredPreference(MISSION_STORAGE_KEY);
   if (!raw) {
-    return { completedDates: [] };
+    return { completedDates: [], completedChallengeIds: [] };
   }
   try {
     const parsed = JSON.parse(raw);
     return {
       completedDates: Array.isArray(parsed.completedDates) ? parsed.completedDates.slice(-45) : [],
+      completedChallengeIds: Array.isArray(parsed.completedChallengeIds) ? parsed.completedChallengeIds.slice(-80) : [],
       lastMissionId: typeof parsed.lastMissionId === 'string' ? parsed.lastMissionId : null,
     };
   } catch {
-    return { completedDates: [] };
+    return { completedDates: [], completedChallengeIds: [] };
   }
 }
 
 function writeDailyMissionState(nextState) {
   writeStoredPreference(MISSION_STORAGE_KEY, JSON.stringify({
     completedDates: Array.isArray(nextState.completedDates) ? nextState.completedDates.slice(-45) : [],
+    completedChallengeIds: Array.isArray(nextState.completedChallengeIds) ? nextState.completedChallengeIds.slice(-80) : [],
     lastMissionId: nextState.lastMissionId || null,
   }));
+}
+
+function readChallengeJobMap() {
+  const raw = readStoredPreference(CHALLENGE_JOB_STORAGE_KEY);
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeChallengeJobMap(map) {
+  const entries = Object.entries(map).slice(-80);
+  writeStoredPreference(CHALLENGE_JOB_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
+}
+
+function assignChallengeToJob(jobId, challengeId) {
+  if (!jobId || !challengeById(challengeId)) {
+    return;
+  }
+  const map = readChallengeJobMap();
+  map[jobId] = challengeId;
+  writeChallengeJobMap(map);
+}
+
+function challengeForJob(job) {
+  if (!job) {
+    return activeChallenge();
+  }
+  const map = readChallengeJobMap();
+  const mapped = challengeById(map[job.job_id]);
+  if (mapped) {
+    return mapped;
+  }
+  const roomLabel = String(job.room_label || job.summary?.room_label || '').toLowerCase();
+  const mode = job.audience_mode || job.summary?.audience_mode || 'general';
+  return SAFETY_MISSIONS.find((challenge) => (
+    challenge.roomLabel.toLowerCase() === roomLabel
+    || (challenge.audienceMode === mode && roomLabel.includes(challenge.roomLabel.toLowerCase()))
+  )) || activeChallenge();
+}
+
+function challengeStreakCopy() {
+  const missionState = readDailyMissionState();
+  const today = localDateKey();
+  const completedToday = missionState.completedDates.includes(today);
+  const streak = completedToday ? dailyMissionStreak(missionState.completedDates) : 0;
+  const uniqueChallenges = new Set(missionState.completedChallengeIds || []).size;
+  if (completedToday) {
+    return `${streak}-day streak · ${uniqueChallenges} challenge${uniqueChallenges === 1 ? '' : 's'} tried`;
+  }
+  if (uniqueChallenges) {
+    return `${uniqueChallenges} challenge${uniqueChallenges === 1 ? '' : 's'} tried · pick one today`;
+  }
+  return 'No streak yet · start with one tiny win';
 }
 
 function renderDailyMission() {
@@ -432,44 +508,90 @@ function renderDailyMission() {
     dailyMissionComplete.disabled = completedToday;
     dailyMissionComplete.textContent = completedToday ? 'Tried today' : 'Mark tried today';
   }
+  if (challengeStreakSummary) {
+    challengeStreakSummary.textContent = challengeStreakCopy();
+  }
+}
+
+function renderChallengeLibrary() {
+  if (!challengeLibraryGrid) {
+    return;
+  }
+  const missionState = readDailyMissionState();
+  const completedIds = new Set(missionState.completedChallengeIds || []);
+  const currentChallenge = activeChallenge();
+  challengeLibraryGrid.innerHTML = SAFETY_MISSIONS.map((challenge) => `
+    <button class="challenge-card ${challenge.id === currentChallenge.id ? 'active' : ''}" type="button" data-safety-challenge="${escapeHtml(challenge.id)}">
+      <span class="guide-kicker">${escapeHtml(challenge.badge || challenge.audienceMode)}</span>
+      <strong>${escapeHtml(challenge.title)}</strong>
+      <span>${escapeHtml(challenge.copy)}</span>
+      <span class="soft-badge">${completedIds.has(challenge.id) ? 'Tried locally' : challenge.winLabel || 'Room win'}</span>
+    </button>
+  `).join('');
+  challengeLibraryGrid.querySelectorAll('[data-safety-challenge]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const challenge = challengeById(button.dataset.safetyChallenge);
+      if (challenge) {
+        startChallenge(challenge, 'challenge_library');
+      }
+    });
+  });
+}
+
+function startChallenge(challenge, source = 'daily_card') {
+  state.activeChallengeId = challenge.id;
+  state.pendingUploadChallengeId = challenge.id;
+  writeStoredPreference(CHALLENGE_SELECTION_STORAGE_KEY, challenge.id);
+  if (roomLabelInput) {
+    const currentLabel = roomLabelInput.value.trim();
+    const isExistingChallengeLabel = SAFETY_MISSIONS.some((item) => item.roomLabel === currentLabel);
+    if (!currentLabel || isExistingChallengeLabel) {
+      roomLabelInput.value = challenge.roomLabel;
+    }
+  }
+  if (audienceModeInput) {
+    audienceModeInput.value = challenge.audienceMode;
+  }
+  renderCaptureCoach();
+  renderDailyMission();
+  renderChallengeLibrary();
+  if (uploadGuidanceCopy) {
+    uploadGuidanceCopy.textContent = challenge.uploadHint;
+  }
+  trackProductEvent('daily_mission_started', {
+    mission_id: challenge.id,
+    challenge_id: challenge.id,
+    surface: source,
+    audience_mode: challenge.audienceMode,
+  });
+  switchView('scan');
+  showToast(`${challenge.title} loaded. Record one room when you are ready.`);
 }
 
 function startDailyMission() {
-  const mission = dailyMissionForDate();
-  if (roomLabelInput && !roomLabelInput.value.trim()) {
-    roomLabelInput.value = mission.roomLabel;
-  }
-  if (audienceModeInput) {
-    audienceModeInput.value = mission.audienceMode;
-  }
-  renderCaptureCoach();
-  if (uploadGuidanceCopy) {
-    uploadGuidanceCopy.textContent = mission.uploadHint;
-  }
-  trackProductEvent('daily_mission_started', {
-    mission_id: mission.id,
-    audience_mode: mission.audienceMode,
-  });
-  switchView('scan');
-  showToast(`${mission.title} loaded. Record one room when you are ready.`);
+  startChallenge(dailyMissionForDate(), 'daily_mission_card');
 }
 
-function completeDailyMission() {
-  const mission = dailyMissionForDate();
+function completeDailyMission(challenge = activeChallenge()) {
   const today = localDateKey();
   const missionState = readDailyMissionState();
   const completedDates = new Set(missionState.completedDates);
+  const completedChallengeIds = new Set(missionState.completedChallengeIds || []);
   completedDates.add(today);
+  completedChallengeIds.add(challenge.id);
   writeDailyMissionState({
     completedDates: [...completedDates].sort(),
-    lastMissionId: mission.id,
+    completedChallengeIds: [...completedChallengeIds],
+    lastMissionId: challenge.id,
   });
   renderDailyMission();
+  renderChallengeLibrary();
   trackProductEvent('daily_mission_completed', {
-    mission_id: mission.id,
+    mission_id: challenge.id,
+    challenge_id: challenge.id,
     completion_count: completedDates.size,
   });
-  showToast('Mission logged locally. Tiny room win counted.');
+  showToast(`${challenge.title} logged locally. Tiny room win counted.`);
 }
 
 function selectedAudienceMode() {
@@ -784,6 +906,7 @@ function renderReport(job) {
     weekendFixList.innerHTML = emptyMarkup('Weekend-friendly fixes will appear here after a completed scan.');
     roomWinsList.innerHTML = emptyMarkup('Positive scan signals will appear here after a completed scan.');
     roomScorecard.innerHTML = emptyMarkup('Room scorecard will appear after a completed scan.');
+    renderChallengeResultCard(null);
     reportActionLoop.innerHTML = emptyMarkup('The fix-and-rescan loop will appear after a completed scan.');
     fixChecklistList.innerHTML = emptyMarkup('Checklist items will appear after a completed scan.');
     reportHazards.innerHTML = emptyMarkup('Hazards will appear here once ATLAS-0 has something evidence-backed to show.');
@@ -856,6 +979,7 @@ function renderReport(job) {
     : 'Showing every finding, including weak or approximate ones.';
 
   roomScorecard.innerHTML = renderRoomScorecard(job, summary, visibleHazards, fixFirst, recommendations, comparison, scanQuality);
+  renderChallengeResultCard(job, summary, visibleHazards, fixFirst, recommendations, comparison);
   reportActionLoop.innerHTML = renderReportActionLoop(job, summary, visibleHazards, fixFirst, recommendations, evidence, comparison);
 
   fixFirstList.innerHTML = fixFirst.length
@@ -1168,6 +1292,56 @@ function renderRoomScorecard(job, summary, hazards, fixFirst, recommendations, c
   `;
 }
 
+function renderChallengeResultCard(job, summary = {}, hazards = [], fixFirst = [], recommendations = [], comparison = null) {
+  if (!challengeResultCard) {
+    return;
+  }
+  if (!job || job.status !== 'complete') {
+    challengeResultCard.innerHTML = emptyMarkup('Complete a scan from a Room Safety Challenge to unlock a shareable room-win card.');
+    return;
+  }
+
+  const challenge = challengeForJob(job);
+  const topAction = fixFirst[0]?.title
+    || recommendations[0]?.title
+    || hazards[0]?.hazard_title
+    || summary.top_hazard_label
+    || 'Review the top finding';
+  const score = typeof summary.room_score === 'number' ? `${Math.round(summary.room_score)}/100` : 'Screened';
+  const delta = comparison && typeof comparison.score_delta === 'number'
+    ? `${comparison.score_delta > 0 ? '+' : ''}${comparison.score_delta} vs last scan`
+    : 'Baseline ready';
+  const completed = new Set(readDailyMissionState().completedChallengeIds || []).has(challenge.id);
+
+  challengeResultCard.innerHTML = `
+    <div class="challenge-result-head">
+      <div>
+        <span class="guide-kicker">Challenge completed</span>
+        <h3>${escapeHtml(challenge.title)}</h3>
+        <p>${escapeHtml(challenge.resultPrompt || 'Share one practical room win, then rescan after the fix.')}</p>
+      </div>
+      <span class="pill">${escapeHtml(completed ? 'Logged locally' : challenge.badge || 'Room win')}</span>
+    </div>
+    <div class="challenge-result-grid">
+      <article class="challenge-result-main">
+        <span class="guide-kicker">${escapeHtml(challenge.winLabel || 'Room win')}</span>
+        <strong>${escapeHtml(topAction)}</strong>
+        <p>${escapeHtml(`${score} room score. ${summary.confidence_label || 'Approximate grounding'}. Decision support only, not safety certification.`)}</p>
+      </article>
+      <article class="challenge-result-side">
+        <span class="guide-kicker">Before / after loop</span>
+        <strong>${escapeHtml(delta)}</strong>
+        <p>${escapeHtml(comparison?.summary || 'Reuse the same room label after one fix to compare the next scan against this baseline.')}</p>
+      </article>
+    </div>
+    <div class="report-loop-actions">
+      <button class="button-link ghost" type="button" data-copy-challenge-win="true">Copy challenge win</button>
+      <button class="button-link ghost" type="button" data-start-rescan="true">Start before/after rescan</button>
+      <button class="button-link ghost ${completed ? 'disabled' : ''}" type="button" data-complete-challenge="${escapeHtml(challenge.id)}" ${completed ? 'disabled' : ''}>${completed ? 'Challenge logged' : 'Mark challenge complete'}</button>
+    </div>
+  `;
+}
+
 function buildChecklistItems(fixFirst, recommendations, hazards) {
   const items = [
     ...fixFirst.map((item) => ({
@@ -1349,6 +1523,27 @@ function buildRoomWinShareText(job) {
     : '';
   const topFix = (job.fix_first || [])[0]?.title || (job.recommendations || [])[0]?.title || summary.top_hazard_label || 'one practical next step';
   return `ATLAS-0 room win: ${roomLabel} scored ${score}${delta}. Quick win: ${topFix}.`;
+}
+
+function buildChallengeWinText(job) {
+  const summary = job.summary || {};
+  const challenge = challengeForJob(job);
+  const comparison = job.room_comparison || null;
+  const roomLabel = job.room_label || summary.room_label || challenge.roomLabel || 'Room';
+  const score = typeof summary.room_score === 'number' ? `${Math.round(summary.room_score)}/100` : 'screened';
+  const delta = comparison && typeof comparison.score_delta === 'number'
+    ? ` (${comparison.score_delta > 0 ? '+' : ''}${comparison.score_delta} vs last scan)`
+    : '';
+  const topAction = (job.fix_first || [])[0]?.title
+    || (job.recommendations || [])[0]?.title
+    || summary.top_hazard_label
+    || 'one practical next step';
+  return [
+    `ATLAS-0 challenge: ${challenge.title}`,
+    `${roomLabel} scored ${score}${delta}.`,
+    `${challenge.winLabel || 'Room win'}: ${topAction}.`,
+    'Decision support only, not safety certification.',
+  ].join('\n');
 }
 
 function buildShareCardText(job) {
@@ -1958,7 +2153,7 @@ useCaseButtons.forEach((button) => {
 });
 
 dailyMissionStart?.addEventListener('click', startDailyMission);
-dailyMissionComplete?.addEventListener('click', completeDailyMission);
+dailyMissionComplete?.addEventListener('click', () => completeDailyMission(activeChallenge()));
 
 audienceModeInput?.addEventListener('change', () => {
   renderCaptureCoach();
@@ -1986,17 +2181,21 @@ const uploadView = new UploadView({
   roomLabelInput,
   audienceModeInput,
   onUploadStart: (file, metadata) => {
+    state.pendingUploadChallengeId = activeChallenge().id;
     if (scanWizardStatus) {
       scanWizardStatus.textContent = `Uploading ${file.name}. Keep this tab open while ATLAS-0 builds the report.`;
     }
     trackProductEvent('upload_started', {
       surface: 'guided_scan_wizard',
       audience_mode: metadata.audienceMode,
+      mission_id: state.pendingUploadChallengeId,
+      challenge_id: state.pendingUploadChallengeId,
       room_label: metadata.roomLabel || null,
       room_labeled: Boolean(metadata.roomLabel),
     });
   },
   onJobCreated: async (job) => {
+    assignChallengeToJob(job.job_id, state.pendingUploadChallengeId || activeChallenge().id);
     upsertJob(job);
     await refreshOperatorState();
     switchView('scan');
@@ -2008,6 +2207,8 @@ const uploadView = new UploadView({
       trackProductEvent('upload_completed', {
         surface: 'upload_worker',
         job_id: job.job_id,
+        mission_id: challengeForJob(job).id,
+        challenge_id: challengeForJob(job).id,
         audience_mode: job.audience_mode || selectedAudienceMode(),
         room_label: job.room_label || job.summary?.room_label || null,
         room_labeled: Boolean(job.room_label || job.summary?.room_label),
@@ -2036,6 +2237,7 @@ applyMotionPreference(readStoredPreference(MOTION_STORAGE_KEY) === 'true');
 syncLowConfidenceControls();
 syncSettingsAccessStatus();
 renderDailyMission();
+renderChallengeLibrary();
 renderCaptureCoach();
 initLandingSectionTracking();
 if (betaShareCopy) {
@@ -2324,6 +2526,48 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
+  const challengeWinButton = target.closest('[data-copy-challenge-win]');
+  if (challengeWinButton) {
+    const job = activeJob();
+    if (!job || job.status !== 'complete') {
+      return;
+    }
+    try {
+      const challenge = challengeForJob(job);
+      await copyText(buildChallengeWinText(job));
+      await trackProductEvent('room_win_copied', {
+        surface: 'challenge_result_card',
+        job_id: job.job_id,
+        sample_key: job.sample_key || null,
+        mission_id: challenge.id,
+        challenge_id: challenge.id,
+        audience_mode: job.audience_mode || 'general',
+      });
+      showToast('Challenge win copied.');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not copy challenge win.', 3600);
+    }
+    return;
+  }
+
+  const completeChallengeButton = target.closest('[data-complete-challenge]');
+  if (completeChallengeButton) {
+    const challenge = challengeById(completeChallengeButton.dataset.completeChallenge) || activeChallenge();
+    completeDailyMission(challenge);
+    const job = activeJob();
+    if (job?.status === 'complete') {
+      renderChallengeResultCard(
+        job,
+        job.summary || {},
+        state.showLowConfidence ? job.risks || [] : (job.risks || []).filter((risk) => !isLowConfidenceRisk(risk)),
+        job.fix_first || [],
+        job.recommendations || [],
+        job.room_comparison || null,
+      );
+    }
+    return;
+  }
+
   const betaButton = target.closest('[data-copy-beta-invite]');
   if (betaButton) {
     try {
@@ -2358,6 +2602,13 @@ document.addEventListener('click', async (event) => {
   if (rescanButton) {
     const job = activeJob();
     const summary = job?.summary || {};
+    if (job) {
+      const challenge = challengeForJob(job);
+      state.activeChallengeId = challenge.id;
+      state.pendingUploadChallengeId = challenge.id;
+      writeStoredPreference(CHALLENGE_SELECTION_STORAGE_KEY, challenge.id);
+      renderChallengeLibrary();
+    }
     if (roomLabelInput && job) {
       roomLabelInput.value = job.room_label || summary.room_label || roomLabelInput.value;
     }
@@ -2367,6 +2618,8 @@ document.addEventListener('click', async (event) => {
     }
     await trackProductEvent('same_room_rescan_started', {
       job_id: job?.job_id || null,
+      mission_id: job ? challengeForJob(job).id : activeChallenge().id,
+      challenge_id: job ? challengeForJob(job).id : activeChallenge().id,
       room_labeled: Boolean(roomLabelInput?.value),
     });
     switchView('scan');
