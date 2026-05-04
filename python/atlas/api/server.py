@@ -345,6 +345,8 @@ class ProductEventRequest(BaseModel):
     referrer: str | None = None
     utm_source: str | None = None
     utm_campaign: str | None = None
+    mission_id: str | None = None
+    challenge_id: str | None = None
     file_type: str | None = None
     file_size: int | None = None
     reason: str | None = None
@@ -679,6 +681,8 @@ def record_product_event(payload: ProductEventRequest, request: Request) -> Resp
             "referrer": _bounded_text(payload.referrer, max_len=240),
             "utm_source": _bounded_text(payload.utm_source, max_len=80),
             "utm_campaign": _bounded_text(payload.utm_campaign, max_len=120),
+            "mission_id": _bounded_text(payload.mission_id, max_len=80),
+            "challenge_id": _bounded_text(payload.challenge_id, max_len=80),
             "file_type": _bounded_text(payload.file_type, max_len=80),
             "file_size": max(int(payload.file_size or 0), 0),
             "reason": _bounded_text(payload.reason, max_len=180),

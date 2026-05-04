@@ -237,6 +237,8 @@ def test_product_event_accepts_attribution_fields() -> None:
             "referrer": "https://example.com/post",
             "utm_source": "friend",
             "utm_campaign": "beta",
+            "mission_id": "cord-safari",
+            "challenge_id": "cord-safari",
             "audience_mode": "pet",
             "room_label": "Living room",
             "room_labeled": True,
@@ -248,6 +250,8 @@ def test_product_event_accepts_attribution_fields() -> None:
     assert event["session_id"] == "session-123"
     assert event["utm_source"] == "friend"
     assert event["utm_campaign"] == "beta"
+    assert event["mission_id"] == "cord-safari"
+    assert event["challenge_id"] == "cord-safari"
     assert event["audience_mode"] == "pet"
     assert event["room_label"] == "Living room"
     assert event["room_labeled"] is True
