@@ -1186,6 +1186,43 @@ larger beta feedback loops, and continued model/eval quality improvement.
 
 ---
 
+## Room Safety Challenge Loop
+
+### Status
+
+Implemented. This pass makes ATLAS-0 easier to use repeatedly by turning a
+scan into a small, themed room challenge with a shareable result.
+
+### Completed
+
+1. Challenge library
+   - the static frontend now ships 10 local challenge playbooks for pets,
+     toddlers, renters, guest-ready checks, trip paths, shelves, kitchens,
+     fragile zones, and bedtime floor resets
+   - selecting a challenge preloads the room label, audience mode, capture
+     coach, upload hint, and local active challenge state
+
+2. Local retention loop
+   - challenge streak and completion state stay browser-local with no accounts
+     required
+   - daily mission buttons now use the same challenge engine as the broader
+     library, so users can either take today's prompt or pick a specific one
+
+3. Challenge result card
+   - completed reports now show a challenge result card with score, top action,
+     before/after rescan prompt, completion control, and copyable challenge-win
+     text
+   - uploads are locally mapped to the active challenge so the report can keep
+     the right challenge context after async processing
+
+4. Share and rescan loop
+   - challenge wins reuse existing room-win analytics events and include
+     decision-support wording
+   - same-room rescan carries the active challenge forward so before/after
+     comparison stays focused
+
+---
+
 ## Non-Negotiable Quality Bar
 
 Before calling the product usable:

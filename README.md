@@ -63,6 +63,8 @@ upload a room scan, wait for analysis, review a report, export evidence, and
 use feedback loops to improve the next scan.
 
 What is strong today:
+- Room Safety Challenges now give users themed reasons to scan, rescan, and
+  share small room wins without needing an account.
 - Upload jobs persist to disk instead of living only in memory.
 - Completed scans produce a report-first UI and a downloadable PDF.
 - Findings now include evidence frames, hazard codes, reasoning signals, and
