@@ -281,9 +281,12 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
     for event_name in (
         "landing_section_viewed",
         "sample_cta_clicked",
+        "first_run_started",
         "scan_preflight_failed",
+        "confidence_inspector_opened",
         "report_share_card_copied",
         "pdf_export_clicked",
+        "rescan_prompt_clicked",
     ):
         response = client.post(
             "/product/events",
@@ -296,9 +299,12 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
     assert [event["event_name"] for event in events] == [
         "landing_section_viewed",
         "sample_cta_clicked",
+        "first_run_started",
         "scan_preflight_failed",
+        "confidence_inspector_opened",
         "report_share_card_copied",
         "pdf_export_clicked",
+        "rescan_prompt_clicked",
     ]
 
 
