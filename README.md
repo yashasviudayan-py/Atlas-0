@@ -63,6 +63,14 @@ upload a room scan, wait for analysis, review a report, export evidence, and
 use feedback loops to improve the next scan.
 
 What is strong today:
+- The 90-second first-run path now explains the room mode, recording route,
+  file preflight, sample report, and expected Safety Brief before users commit
+  to an upload.
+- Safety Brief 2.0 now puts top actions, score context, confidence inspection,
+  evidence, fix difficulty, and room-win sharing into a clearer product loop.
+- A Trust Proof layer now explains how frames become evidence, what limits still
+  exist, how deletion/retention works, and why the report is decision support
+  rather than certification.
 - Room Safety Challenges now give users themed reasons to scan, rescan, and
   share small room wins without needing an account.
 - Upload jobs persist to disk instead of living only in memory.

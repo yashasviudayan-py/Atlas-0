@@ -1223,6 +1223,49 @@ scan into a small, themed room challenge with a shareable result.
 
 ---
 
+## 10x Usability, Design, UX, and Branding Pass
+
+### Status
+
+Implemented. This pass turns the existing Warm Trust beta into a clearer
+try-scan-review-share product loop without changing the core report payload or
+adding accounts.
+
+### Completed
+
+1. 90-second first-run path
+   - the hero now explains the first-run sequence: pick a room story, record
+     one steady pass, and copy one room win after the report
+   - first-run starts are tracked once per browser session so operators can
+     separate curious visitors from users who begin the scan journey
+
+2. Trust Proof layer
+   - the app now has a dedicated trust proof deck for how frames become
+     evidence, where limits remain, how deletion/retention works, and why the
+     product optimizes for one useful fix
+   - landing-section smoke coverage now includes the first-run rail and trust
+     proof deck so the premium onboarding shell does not regress silently
+
+3. Safety Brief 2.0 refinements
+   - the executive brief now has a confidence inspector that explains evidence
+     count, scan quality, visible findings, and decision-support limits
+   - fix-first cards now expose a lightweight difficulty label such as quick
+     fix, heavier fix, or start here
+
+4. Room Win and rescan instrumentation
+   - room-win copy now includes score, top action, confidence, and
+     certification-safe language
+   - rescan prompt clicks are tracked separately from same-room rescan starts
+     so operators can see whether users are interested before they upload
+
+5. Operator learning loop
+   - product metrics and beta inbox now surface first-run starts, confidence
+     inspector opens, and rescan prompt clicks
+   - the public event allowlist and backend tests now cover the new 10x
+     usability events
+
+---
+
 ## Non-Negotiable Quality Bar
 
 Before calling the product usable:
