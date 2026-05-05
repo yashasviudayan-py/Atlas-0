@@ -21,6 +21,7 @@ const CHALLENGE_JOB_STORAGE_KEY = 'atlas0.challengeJobs';
 const FIX_CHECKLIST_STORAGE_KEY = 'atlas0.fixChecklist';
 const CAPTURE_COACH_STORAGE_KEY = 'atlas0.captureCoach';
 const SESSION_STORAGE_KEY = 'atlas0.sessionId';
+const FIRST_RUN_STORAGE_KEY = 'atlas0.firstRunStarted';
 
 function readStoredPreference(key) {
   try {
@@ -138,6 +139,9 @@ const briefExecutiveActions = document.getElementById('brief-executive-actions')
 const briefConfidenceLabel = document.getElementById('brief-confidence-label');
 const briefConfidenceMeter = document.getElementById('brief-confidence-meter');
 const briefConfidenceCopy = document.getElementById('brief-confidence-copy');
+const briefConfidenceDetails = /** @type {HTMLDetailsElement} */ (
+  document.getElementById('brief-confidence-details')
+);
 const summaryObjects = document.getElementById('summary-objects');
 const summaryHazards = document.getElementById('summary-hazards');
 const summarySeverity = document.getElementById('summary-severity');
@@ -293,6 +297,18 @@ async function trackProductEvent(eventName, extra = {}) {
   } catch {}
 }
 
+function markFirstRunStarted(surface = 'unknown') {
+  if (readStoredPreference(FIRST_RUN_STORAGE_KEY)) {
+    return;
+  }
+  writeStoredPreference(FIRST_RUN_STORAGE_KEY, new Date().toISOString());
+  trackProductEvent('first_run_started', {
+    surface,
+    mission_id: activeChallenge().id,
+    challenge_id: activeChallenge().id,
+  });
+}
+
 function applyThemePreference(theme) {
   const nextTheme = theme === 'dark' ? 'dark' : 'light';
   document.documentElement.dataset.theme = nextTheme;
@@ -355,6 +371,7 @@ function syncSettingsAccessStatus() {
 
 async function loadSampleReport() {
   try {
+    markFirstRunStarted('sample_report');
     const sample = await api.fetchSampleReport();
     upsertJob(sample);
     setActiveJob(sample.job_id);
@@ -539,6 +556,7 @@ function renderChallengeLibrary() {
 }
 
 function startChallenge(challenge, source = 'daily_card') {
+  markFirstRunStarted(source);
   state.activeChallengeId = challenge.id;
   state.pendingUploadChallengeId = challenge.id;
   writeStoredPreference(CHALLENGE_SELECTION_STORAGE_KEY, challenge.id);
@@ -677,6 +695,7 @@ function updateCaptureCoachCheck(check, enabled) {
 }
 
 function applyUseCase(mode, label) {
+  markFirstRunStarted('use_case_card');
   if (audienceModeInput && CAPTURE_COACH_MODES[mode]) {
     audienceModeInput.value = mode;
   }
@@ -1000,6 +1019,7 @@ function renderReport(job) {
           <div class="report-card-meta">
             <span>${escapeHtml(action.location || 'scan area')}</span>
             <span>${escapeHtml(action.confidence_label || 'weak')} evidence</span>
+            <span>${escapeHtml(fixDifficultyLabel(action, index))}</span>
           </div>
         </article>
       `).join('')
@@ -1204,6 +1224,13 @@ function renderBriefExecutive(job, summary = {}, hazards = [], fixFirst = [], re
     briefConfidenceLabel.textContent = 'Waiting for scan';
     briefConfidenceMeter.style.width = '0%';
     briefConfidenceCopy.textContent = 'ATLAS-0 shows confidence and scan-quality notes so users know when to act, when to rescan, and when not to over-trust a result.';
+    if (briefConfidenceDetails) {
+      briefConfidenceDetails.open = false;
+      const paragraph = briefConfidenceDetails.querySelector('p');
+      if (paragraph) {
+        paragraph.textContent = 'Upload quality, evidence count, finding confidence, and trust notes explain why this brief is useful for triage rather than safety certification.';
+      }
+    }
     return;
   }
 
@@ -1240,6 +1267,29 @@ function renderBriefExecutive(job, summary = {}, hazards = [], fixFirst = [], re
   briefConfidenceLabel.textContent = confidenceLabel;
   briefConfidenceMeter.style.width = `${meterPercent}%`;
   briefConfidenceCopy.textContent = rescanCopy;
+  if (briefConfidenceDetails) {
+    const paragraph = briefConfidenceDetails.querySelector('p');
+    if (paragraph) {
+      const evidenceCount = Number(job.evidence_frames?.length || 0);
+      const visibleCount = hazards.length;
+      paragraph.textContent = [
+        `${visibleCount} visible finding${visibleCount === 1 ? '' : 's'} and ${evidenceCount} evidence frame${evidenceCount === 1 ? '' : 's'} support this brief.`,
+        scanQuality.capture_summary || summary.coverage_summary || 'Scan quality details are limited, so trust notes should stay visible.',
+        'Use this as decision support, not safety certification.',
+      ].join(' ');
+    }
+  }
+}
+
+function fixDifficultyLabel(item, index = 0) {
+  const text = `${item.title || ''} ${item.action || ''} ${item.why || ''}`.toLowerCase();
+  if (text.match(/\b(anchor|mount|bracket|secure|install|contractor|repair)\b/)) {
+    return 'Heavier fix';
+  }
+  if (text.match(/\b(move|clear|lower|tuck|route|remove|shift|relocate)\b/)) {
+    return 'Quick fix';
+  }
+  return index === 0 ? 'Start here' : 'Review';
 }
 
 function renderRoomScorecard(job, summary, hazards, fixFirst, recommendations, comparison, scanQuality) {
@@ -1522,7 +1572,12 @@ function buildRoomWinShareText(job) {
     ? ` (${comparison.score_delta > 0 ? '+' : ''}${comparison.score_delta} vs last scan)`
     : '';
   const topFix = (job.fix_first || [])[0]?.title || (job.recommendations || [])[0]?.title || summary.top_hazard_label || 'one practical next step';
-  return `ATLAS-0 room win: ${roomLabel} scored ${score}${delta}. Quick win: ${topFix}.`;
+  const confidence = summary.confidence_label || summary.scan_quality_label || 'approximate confidence';
+  return [
+    `ATLAS-0 room win: ${roomLabel} scored ${score}${delta}.`,
+    `Quick win: ${topFix}.`,
+    `Confidence: ${confidence}. Decision support only, not safety certification.`,
+  ].join(' ');
 }
 
 function buildChallengeWinText(job) {
@@ -1563,6 +1618,7 @@ function buildShareCardText(job) {
   return [
     `ATLAS-0 Room Safety Brief for ${roomLabel}`,
     `Score: ${score}. Top action: ${topAction}.`,
+    `Room win: fix one thing, then rescan with the same room label to show progress.`,
     `Confidence: ${confidence}. Decision support only, not safety certification.`,
     link ? `Report: ${link}` : '',
   ].filter(Boolean).join('\n');
@@ -1959,15 +2015,18 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Waitlist signups', value: String(settings.product.waitlist_signups || 0) },
       { label: 'Sample report opens', value: String(settings.product.sample_report_opens || 0) },
       { label: 'Sample CTA taps', value: String(settings.product.sample_cta_events || 0) },
+      { label: 'First-run starts', value: String(settings.product.first_run_events || 0) },
       { label: 'Landing sections viewed', value: String(settings.product.landing_section_events || 0) },
       { label: 'Share events', value: String(settings.product.share_events || 0) },
       { label: 'Share card copies', value: String(settings.product.share_card_events || 0) },
+      { label: 'Confidence inspector opens', value: String(settings.product.confidence_inspector_events || 0) },
       { label: 'Beta invite copies', value: String(settings.product.beta_invite_events || 0) },
       { label: 'Room win copies', value: String(settings.product.room_win_events || 0) },
       { label: 'Fix plan copies', value: String(settings.product.fix_plan_events || 0) },
       { label: 'Daily mission starts', value: String(settings.product.daily_mission_events || 0) },
       { label: 'Capture coach checks', value: String(settings.product.capture_coach_events || 0) },
       { label: 'Same-room rescan starts', value: String(settings.product.same_room_rescan_events || 0) },
+      { label: 'Rescan prompt clicks', value: String(settings.product.rescan_prompt_events || 0) },
       { label: 'PDF downloads', value: String(settings.product.pdf_download_events || 0) },
       { label: 'PDF CTA taps', value: String(settings.product.pdf_export_click_events || 0) },
       { label: 'Preflight failures', value: String(settings.product.scan_preflight_failed_events || 0) },
@@ -1996,9 +2055,12 @@ function renderBetaInbox(inbox) {
       { label: 'Upload starts', value: String(funnel.upload_started || 0) },
       { label: 'Upload completes', value: String(funnel.upload_completed || 0) },
       { label: 'Report views', value: String(funnel.report_viewed || 0) },
+      { label: 'First-run starts', value: String(funnel.first_run_started || 0) },
       { label: 'PDF downloads', value: String(funnel.pdf_downloads || 0) },
       { label: 'Share card copies', value: String(funnel.share_card_copies || 0) },
+      { label: 'Confidence opens', value: String(funnel.confidence_inspector_opened || 0) },
       { label: 'Preflight failures', value: String(funnel.scan_preflight_failed || 0) },
+      { label: 'Rescan prompt clicks', value: String(funnel.rescan_prompt_clicked || 0) },
       { label: 'Completion rate', value: `${Math.round((funnel.completion_rate || 0) * 100)}%` },
       { label: 'Eval-ready reports', value: String(readiness.review_ready_reports || 0) },
       { label: 'Eval candidates', value: `${readiness.saved_eval_candidates || 0} / ${readiness.target_corpus_size || 0}` },
@@ -2130,6 +2192,7 @@ jumpButtons.forEach((button) => {
   button.addEventListener('click', () => {
     const destination = button.dataset.jumpView || 'scan';
     if (destination === 'scan') {
+      markFirstRunStarted('hero_scan_cta');
       trackProductEvent('cta_start_scan', { surface: 'hero' });
     }
     switchView(destination);
@@ -2181,6 +2244,7 @@ const uploadView = new UploadView({
   roomLabelInput,
   audienceModeInput,
   onUploadStart: (file, metadata) => {
+    markFirstRunStarted('upload_dropzone');
     state.pendingUploadChallengeId = activeChallenge().id;
     if (scanWizardStatus) {
       scanWizardStatus.textContent = `Uploading ${file.name}. Keep this tab open while ATLAS-0 builds the report.`;
@@ -2265,6 +2329,20 @@ motionToggle?.addEventListener('change', (event) => {
   const enabled = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
   applyMotionPreference(enabled);
   trackProductEvent('settings_motion_changed', { reduced_motion: enabled });
+});
+
+briefConfidenceDetails?.addEventListener('toggle', () => {
+  if (!briefConfidenceDetails.open) {
+    return;
+  }
+  const job = activeJob();
+  trackProductEvent('confidence_inspector_opened', {
+    surface: 'brief_confidence_strip',
+    job_id: job?.job_id || null,
+    sample_key: job?.sample_key || null,
+    audience_mode: job?.audience_mode || selectedAudienceMode(),
+    room_labeled: Boolean(job?.room_label || job?.summary?.room_label || roomLabelInput?.value?.trim()),
+  });
 });
 
 settingsSampleBtn?.addEventListener('click', () => {
@@ -2617,6 +2695,13 @@ document.addEventListener('click', async (event) => {
       renderCaptureCoach();
     }
     await trackProductEvent('same_room_rescan_started', {
+      job_id: job?.job_id || null,
+      mission_id: job ? challengeForJob(job).id : activeChallenge().id,
+      challenge_id: job ? challengeForJob(job).id : activeChallenge().id,
+      room_labeled: Boolean(roomLabelInput?.value),
+    });
+    await trackProductEvent('rescan_prompt_clicked', {
+      surface: rescanButton.closest('#challenge-result-card') ? 'challenge_result_card' : 'report_action_loop',
       job_id: job?.job_id || null,
       mission_id: job ? challengeForJob(job).id : activeChallenge().id,
       challenge_id: job ? challengeForJob(job).id : activeChallenge().id,

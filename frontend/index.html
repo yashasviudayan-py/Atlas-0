@@ -483,6 +483,37 @@
       margin-top: 4px;
     }
 
+    .first-run-rail {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 2px;
+    }
+
+    .first-run-card {
+      display: grid;
+      gap: 8px;
+      min-height: 132px;
+      padding: 15px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(79, 53, 40, 0.10);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,247,235,0.62)),
+        var(--panel-strong);
+      box-shadow: var(--shadow-soft), var(--hairline);
+    }
+
+    .first-run-card strong {
+      font-size: 1rem;
+      letter-spacing: -0.03em;
+    }
+
+    .first-run-card span:last-child {
+      color: var(--ink-soft);
+      line-height: 1.45;
+      font-size: 0.9rem;
+    }
+
     .hero-step {
       display: inline-flex;
       align-items: center;
@@ -615,6 +646,36 @@
       margin: 0;
       font-size: 1.05rem;
       letter-spacing: -0.03em;
+    }
+
+    .trust-proof-deck {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .trust-proof-card {
+      display: grid;
+      gap: 10px;
+      padding: 18px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--line);
+      background:
+        radial-gradient(circle at 100% 0%, rgba(10, 127, 115, 0.10), transparent 32%),
+        var(--panel);
+      box-shadow: var(--shadow), var(--hairline);
+    }
+
+    .trust-proof-card strong {
+      font-size: 1.04rem;
+      letter-spacing: -0.03em;
+    }
+
+    .trust-proof-card p {
+      margin: 0;
+      color: var(--ink-soft);
+      line-height: 1.58;
     }
 
     .proof-list {
@@ -1897,6 +1958,31 @@
       line-height: 1.6;
     }
 
+    .confidence-inspector {
+      display: grid;
+      gap: 10px;
+      margin-top: 2px;
+      padding: 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.62);
+    }
+
+    .confidence-inspector summary {
+      cursor: pointer;
+      list-style: none;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .confidence-inspector summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .confidence-inspector p {
+      font-size: 0.92rem;
+    }
+
     .confidence-meter {
       height: 12px;
       overflow: hidden;
@@ -2959,6 +3045,8 @@
       .guide-grid,
       .sample-gallery,
       .use-case-grid,
+      .first-run-rail,
+      .trust-proof-deck,
       .challenge-grid,
       .wizard-grid,
       .premium-stepper,
@@ -3037,6 +3125,10 @@
       .hero-actions {
         flex-direction: column;
         align-items: flex-start;
+      }
+
+      .hero-actions .button-link {
+        width: 100%;
       }
     }
   </style>
@@ -3126,6 +3218,23 @@
             <button class="button-link ghost" type="button" data-load-sample="walkthrough">Try the sample report</button>
             <button class="button-link ghost" type="button" data-jump-view="report">See the Safety Brief</button>
           </div>
+          <div class="first-run-rail" aria-label="90-second first run path">
+            <article class="first-run-card">
+              <span class="guide-kicker">0-20 sec</span>
+              <strong>Pick the room story.</strong>
+              <span>Choose renter, toddler, pet, or general mode so the first report has the right lens.</span>
+            </article>
+            <article class="first-run-card">
+              <span class="guide-kicker">20-60 sec</span>
+              <strong>Record one steady pass.</strong>
+              <span>ATLAS-0 checks file type and size before upload, then explains weak capture states clearly.</span>
+            </article>
+            <article class="first-run-card">
+              <span class="guide-kicker">After report</span>
+              <strong>Copy one room win.</strong>
+              <span>Use the top fix, evidence, and rescan prompt to make progress shareable instead of abstract.</span>
+            </article>
+          </div>
           <div class="hero-steps" aria-label="How it works">
             <div class="hero-step"><span class="step-num">01</span><span><strong>Upload</strong> a 20-60s walkthrough</span></div>
             <div class="hero-step"><span class="step-num">02</span><span><strong>Review</strong> hazards with evidence</span></div>
@@ -3212,6 +3321,29 @@
             <p id="waitlist-note" class="meta-copy">If you are not ready to scan yet, leave an email and a quick use case so we can shape the next beta wave around real demand.</p>
           </div>
         </div>
+      </section>
+
+      <section class="trust-proof-deck" data-landing-section="trust_proof" aria-label="ATLAS-0 trust proof">
+        <article class="trust-proof-card">
+          <span class="guide-kicker">How it works</span>
+          <strong>Frames become evidence, not mystery.</strong>
+          <p>ATLAS-0 samples the walkthrough, links findings back to frames, and keeps the visual proof close to each claim.</p>
+        </article>
+        <article class="trust-proof-card">
+          <span class="guide-kicker">Limits</span>
+          <strong>Approximate means approximate.</strong>
+          <p>Weak lighting, blur, low coverage, and heuristic grounding are called out so users know when to rescan.</p>
+        </article>
+        <article class="trust-proof-card">
+          <span class="guide-kicker">Privacy</span>
+          <strong>Reports can be deleted.</strong>
+          <p>Retention defaults and delete controls stay visible because room scans are personal, not generic demo data.</p>
+        </article>
+        <article class="trust-proof-card">
+          <span class="guide-kicker">Outcome</span>
+          <strong>One fix beats a scary dashboard.</strong>
+          <p>The product nudges users toward one useful action, a copyable room win, and a same-room rescan.</p>
+        </article>
       </section>
 
       <section id="view-scan" class="view active" aria-label="Scan view" data-landing-section="scan_onboarding">
@@ -3542,6 +3674,10 @@
               <strong id="brief-confidence-label">Waiting for scan</strong>
               <div class="confidence-meter" aria-hidden="true"><span id="brief-confidence-meter"></span></div>
               <p id="brief-confidence-copy">ATLAS-0 shows confidence and scan-quality notes so users know when to act, when to rescan, and when not to over-trust a result.</p>
+              <details id="brief-confidence-details" class="confidence-inspector" data-confidence-inspector>
+                <summary>Open confidence inspector</summary>
+                <p>Upload quality, evidence count, finding confidence, and trust notes explain why this brief is useful for triage rather than safety certification.</p>
+              </details>
             </aside>
           </div>
         </section>

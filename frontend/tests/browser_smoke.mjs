@@ -45,12 +45,15 @@ try {
     await page.locator('#view-scan').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#capture-coach-title').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.hero-artifact').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('.first-run-rail').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('.trust-proof-deck').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.use-case-card').first().waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#challenge-library-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#challenge-result-card').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#scan-wizard-status').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.premium-stepper').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#brief-executive').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#brief-confidence-details').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#report-action-loop').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#share-card-preview').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('text=Room Safety Brief').first().waitFor({ state: 'attached', timeout: 3000 });
