@@ -1264,6 +1264,50 @@ adding accounts.
    - the public event allowlist and backend tests now cover the new 10x
      usability events
 
+## Daily Brand Value Pass
+
+### Status
+
+Implemented. This pass turns ATLAS-0 from a one-off room scanner into a
+recognizable weekly home-care companion while keeping the v1 beta accountless
+and report-first.
+
+### Completed
+
+1. Room Rituals
+   - the scan flow now includes daily/weekly ritual cards, a 5-minute room-win
+     prompt, seasonal packs, local streaks, and report-mode defaults for
+     pet/toddler/renter/general routines
+   - new product events track ritual starts, ritual completions, and seasonal
+     pack starts for the beta learning loop
+
+2. Home Journal
+   - a new Journal view stores completed room scans locally by room label with
+     score history, top action, last checked date, favorite rooms, completed
+     fixes, and reminder prompts
+   - no account or backend journal payload is required for this pass; the
+     browser-local history is intentionally lightweight
+
+3. Safety Brief top actions
+   - report view now surfaces Fix Today, Watch Later, and Rescan Needed so the
+     first report screen reads like an action order instead of a dense finding
+     list
+   - Fix Today copy is shareable and tracked separately from the broader fix
+     plan copy event
+
+4. Brand system refresh
+   - display typography now uses Fraunces, body/UI typography uses Manrope, and
+     the existing mono/status language keeps IBM Plex Mono
+   - the palette is now named around Porcelain, Walnut Ink, Spruce,
+     Persimmon, Marigold, Soft Sage, and Dust Rose with tactile room-map motifs
+     and stronger CTA contrast
+
+5. Verification coverage
+   - frontend browser smoke coverage now checks the ritual dashboard, seasonal
+     packs, Safety Brief triage strip, and Home Journal shell
+   - backend event tests cover the new daily brand value events so telemetry
+     does not silently reject beta learning signals
+
 ---
 
 ## Non-Negotiable Quality Bar

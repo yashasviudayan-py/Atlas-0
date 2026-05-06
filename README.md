@@ -73,6 +73,12 @@ What is strong today:
   rather than certification.
 - Room Safety Challenges now give users themed reasons to scan, rescan, and
   share small room wins without needing an account.
+- Room Rituals now make the product feel like a tiny home-care habit with
+  daily/weekly prompts, seasonal packs, and local streaks.
+- The Home Journal now keeps accountless browser-local room history with last
+  checked rooms, score trends, favorite rooms, and rescan reminders.
+- The frontend identity now uses a named Warm Trust palette, editorial display
+  typography, and calmer body/UI typography to feel less dashboard-like.
 - Upload jobs persist to disk instead of living only in memory.
 - Completed scans produce a report-first UI and a downloadable PDF.
 - Findings now include evidence frames, hazard codes, reasoning signals, and
