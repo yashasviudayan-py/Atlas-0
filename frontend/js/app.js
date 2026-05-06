@@ -7,7 +7,9 @@ import {
   BETA_SHARE_PROMPTS,
   CAPTURE_COACH_MODES,
   REPORT_DECISION_STEPS,
+  ROOM_RITUALS,
   SAFETY_MISSIONS,
+  SEASONAL_RITUAL_PACKS,
 } from './product_playbooks.js';
 import { SceneViewer } from './scene_viewer.js';
 import { UploadView } from './upload.js';
@@ -22,6 +24,10 @@ const FIX_CHECKLIST_STORAGE_KEY = 'atlas0.fixChecklist';
 const CAPTURE_COACH_STORAGE_KEY = 'atlas0.captureCoach';
 const SESSION_STORAGE_KEY = 'atlas0.sessionId';
 const FIRST_RUN_STORAGE_KEY = 'atlas0.firstRunStarted';
+const RITUAL_STORAGE_KEY = 'atlas0.roomRituals';
+const RITUAL_SELECTION_STORAGE_KEY = 'atlas0.selectedRitual';
+const HOME_JOURNAL_STORAGE_KEY = 'atlas0.homeJournal';
+const FAVORITE_ROOMS_STORAGE_KEY = 'atlas0.favoriteRooms';
 
 function readStoredPreference(key) {
   try {
@@ -59,6 +65,7 @@ function urlAttribution() {
 const VIEW_LABELS = {
   scan: 'Scan',
   report: 'Report',
+  journal: 'Journal',
   scene: 'Scene',
   settings: 'Settings',
 };
@@ -76,6 +83,7 @@ const state = {
   reportViewEvents: new Set(),
   uploadCompleteEvents: new Set(),
   activeChallengeId: readStoredPreference(CHALLENGE_SELECTION_STORAGE_KEY) || null,
+  activeRitualId: readStoredPreference(RITUAL_SELECTION_STORAGE_KEY) || null,
   pendingUploadChallengeId: null,
 };
 
@@ -189,6 +197,15 @@ const dailyMissionSteps = document.getElementById('daily-mission-steps');
 const dailyMissionProgress = document.getElementById('daily-mission-progress');
 const dailyMissionStart = /** @type {HTMLButtonElement} */ (document.getElementById('daily-mission-start'));
 const dailyMissionComplete = /** @type {HTMLButtonElement} */ (document.getElementById('daily-mission-complete'));
+const ritualTodayTitle = document.getElementById('ritual-today-title');
+const ritualTodayCopy = document.getElementById('ritual-today-copy');
+const ritualTodayPrompt = document.getElementById('ritual-today-prompt');
+const ritualTodayMeta = document.getElementById('ritual-today-meta');
+const ritualStreakSummary = document.getElementById('ritual-streak-summary');
+const ritualGrid = document.getElementById('ritual-grid');
+const seasonalPackGrid = document.getElementById('seasonal-pack-grid');
+const ritualStartBtn = /** @type {HTMLButtonElement} */ (document.getElementById('ritual-start-btn'));
+const ritualCompleteBtn = /** @type {HTMLButtonElement} */ (document.getElementById('ritual-complete-btn'));
 const captureCoachTitle = document.getElementById('capture-coach-title');
 const captureCoachCopy = document.getElementById('capture-coach-copy');
 const captureCoachRoute = document.getElementById('capture-coach-route');
@@ -198,6 +215,10 @@ const captureCoachStatus = document.getElementById('capture-coach-status');
 const captureCoachMeter = document.getElementById('capture-coach-meter');
 const betaShareCopy = document.getElementById('beta-share-copy');
 const copyBetaInviteBtn = /** @type {HTMLButtonElement} */ (document.getElementById('copy-beta-invite-btn'));
+const briefTriageStrip = document.getElementById('brief-triage-strip');
+const homeJournalSummary = document.getElementById('home-journal-summary');
+const homeJournalGrid = document.getElementById('home-journal-grid');
+const homeJournalEmpty = document.getElementById('home-journal-empty');
 
 const sceneCanvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene-canvas'));
 const sceneEmpty = document.getElementById('scene-empty');
@@ -497,6 +518,313 @@ function challengeStreakCopy() {
   return 'No streak yet · start with one tiny win';
 }
 
+function ritualForDate(date = new Date()) {
+  const dayNumber = Math.floor(new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() / 86_400_000);
+  return ROOM_RITUALS[dayNumber % ROOM_RITUALS.length];
+}
+
+function ritualById(id) {
+  return ROOM_RITUALS.find((ritual) => ritual.id === id) || null;
+}
+
+function activeRitual() {
+  return ritualById(state.activeRitualId) || ritualForDate();
+}
+
+function readRitualState() {
+  const raw = readStoredPreference(RITUAL_STORAGE_KEY);
+  if (!raw) {
+    return { completedDates: [], completedRitualIds: [], lastCompletedAt: null };
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      completedDates: Array.isArray(parsed.completedDates) ? parsed.completedDates.slice(-60) : [],
+      completedRitualIds: Array.isArray(parsed.completedRitualIds) ? parsed.completedRitualIds.slice(-120) : [],
+      lastCompletedAt: typeof parsed.lastCompletedAt === 'string' ? parsed.lastCompletedAt : null,
+    };
+  } catch {
+    return { completedDates: [], completedRitualIds: [], lastCompletedAt: null };
+  }
+}
+
+function writeRitualState(nextState) {
+  writeStoredPreference(RITUAL_STORAGE_KEY, JSON.stringify({
+    completedDates: Array.isArray(nextState.completedDates) ? nextState.completedDates.slice(-60) : [],
+    completedRitualIds: Array.isArray(nextState.completedRitualIds) ? nextState.completedRitualIds.slice(-120) : [],
+    lastCompletedAt: nextState.lastCompletedAt || null,
+  }));
+}
+
+function ritualStreakCopy() {
+  const ritualState = readRitualState();
+  const completedDates = ritualState.completedDates || [];
+  const completedToday = completedDates.includes(localDateKey());
+  const streak = completedToday ? dailyMissionStreak(completedDates) : 0;
+  const uniqueRituals = new Set(ritualState.completedRitualIds || []).size;
+  if (completedToday) {
+    return `${streak}-day ritual streak · ${uniqueRituals} routine${uniqueRituals === 1 ? '' : 's'} tried`;
+  }
+  if (uniqueRituals) {
+    return `${uniqueRituals} routine${uniqueRituals === 1 ? '' : 's'} tried · keep it tiny today`;
+  }
+  return 'No ritual streak yet · start with five calm minutes';
+}
+
+function ritualIconLabel(icon) {
+  const labels = {
+    sun: 'SUN',
+    paw: 'PAW',
+    hand: 'HAND',
+    key: 'KEY',
+  };
+  return labels[icon] || 'A0';
+}
+
+function renderRoomRituals() {
+  if (!ritualTodayTitle || !ritualTodayCopy || !ritualTodayPrompt || !ritualTodayMeta) {
+    return;
+  }
+
+  const ritual = activeRitual();
+  const ritualState = readRitualState();
+  const completedToday = ritualState.completedDates.includes(localDateKey());
+  const completedIds = new Set(ritualState.completedRitualIds || []);
+
+  ritualTodayTitle.textContent = ritual.title;
+  ritualTodayCopy.textContent = ritual.copy;
+  ritualTodayPrompt.textContent = ritual.prompt;
+  ritualTodayMeta.innerHTML = [
+    ritual.cadence,
+    ritual.duration,
+    ritual.season,
+    CAPTURE_COACH_MODES[ritual.audienceMode]?.title || 'General room safety',
+  ].map((label) => `<span class="soft-badge">${escapeHtml(label)}</span>`).join('');
+
+  if (ritualStreakSummary) {
+    ritualStreakSummary.textContent = ritualStreakCopy();
+  }
+  if (ritualCompleteBtn) {
+    ritualCompleteBtn.disabled = completedToday;
+    ritualCompleteBtn.textContent = completedToday ? 'Ritual done today' : 'Mark ritual done';
+  }
+  if (ritualGrid) {
+    ritualGrid.innerHTML = ROOM_RITUALS.map((item) => `
+      <button class="ritual-card ${item.id === ritual.id ? 'active' : ''}" type="button" data-room-ritual="${escapeHtml(item.id)}">
+        <span class="ritual-icon">${escapeHtml(ritualIconLabel(item.icon))}</span>
+        <span class="guide-kicker">${escapeHtml(item.cadence)} · ${escapeHtml(item.duration)}</span>
+        <strong>${escapeHtml(item.title)}</strong>
+        <span>${escapeHtml(item.copy)}</span>
+        <span class="soft-badge">${completedIds.has(item.id) ? 'Tried locally' : item.season}</span>
+      </button>
+    `).join('');
+  }
+  if (seasonalPackGrid) {
+    seasonalPackGrid.innerHTML = SEASONAL_RITUAL_PACKS.map((pack) => `
+      <button class="seasonal-card" type="button" data-seasonal-pack="${escapeHtml(pack.id)}">
+        <span class="guide-kicker">${escapeHtml(pack.season)}</span>
+        <strong>${escapeHtml(pack.title)}</strong>
+        <span>${escapeHtml(pack.copy)}</span>
+      </button>
+    `).join('');
+  }
+}
+
+function startRoomRitual(ritual, source = 'ritual_dashboard') {
+  markFirstRunStarted(source);
+  state.activeRitualId = ritual.id;
+  writeStoredPreference(RITUAL_SELECTION_STORAGE_KEY, ritual.id);
+  if (roomLabelInput) {
+    const currentLabel = roomLabelInput.value.trim();
+    const isExistingRitualLabel = ROOM_RITUALS.some((item) => item.roomLabel === currentLabel);
+    if (!currentLabel || isExistingRitualLabel) {
+      roomLabelInput.value = ritual.roomLabel;
+    }
+  }
+  if (audienceModeInput) {
+    audienceModeInput.value = ritual.audienceMode;
+  }
+  renderRoomRituals();
+  renderCaptureCoach();
+  trackProductEvent('room_ritual_started', {
+    surface: source,
+    ritual_id: ritual.id,
+    audience_mode: ritual.audienceMode,
+    room_label: ritual.roomLabel,
+    room_labeled: true,
+  });
+  switchView('scan');
+  showToast(`${ritual.title} loaded. Scan one room, then fix one small thing.`);
+}
+
+function completeRoomRitual(ritual = activeRitual()) {
+  const today = localDateKey();
+  const ritualState = readRitualState();
+  const completedDates = new Set(ritualState.completedDates || []);
+  const completedRitualIds = new Set(ritualState.completedRitualIds || []);
+  completedDates.add(today);
+  completedRitualIds.add(ritual.id);
+  writeRitualState({
+    completedDates: [...completedDates].sort(),
+    completedRitualIds: [...completedRitualIds],
+    lastCompletedAt: new Date().toISOString(),
+  });
+  renderRoomRituals();
+  trackProductEvent('room_ritual_completed', {
+    ritual_id: ritual.id,
+    completion_count: completedDates.size,
+    audience_mode: ritual.audienceMode,
+  });
+  showToast(`${ritual.title} logged locally. The home-care streak lives in this browser.`);
+}
+
+function readHomeJournal() {
+  const raw = readStoredPreference(HOME_JOURNAL_STORAGE_KEY);
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeHomeJournal(journal) {
+  const entries = Object.entries(journal)
+    .sort(([, a], [, b]) => String(b.lastCheckedAt || '').localeCompare(String(a.lastCheckedAt || '')))
+    .slice(0, 40);
+  writeStoredPreference(HOME_JOURNAL_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
+}
+
+function readFavoriteRooms() {
+  const raw = readStoredPreference(FAVORITE_ROOMS_STORAGE_KEY);
+  if (!raw) {
+    return new Set();
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeFavoriteRooms(favorites) {
+  writeStoredPreference(FAVORITE_ROOMS_STORAGE_KEY, JSON.stringify([...favorites].slice(0, 40)));
+}
+
+function roomJournalKey(job) {
+  const summary = job?.summary || {};
+  return String(job?.room_label || summary.room_label || job?.filename || 'Unlabeled room')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 64) || 'unlabeled-room';
+}
+
+function upsertHomeJournalFromJob(job) {
+  if (!job || job.status !== 'complete') {
+    return;
+  }
+  const summary = job.summary || {};
+  const key = roomJournalKey(job);
+  const journal = readHomeJournal();
+  const existing = journal[key] || {};
+  const score = typeof summary.room_score === 'number' ? Math.round(summary.room_score) : null;
+  const previousScores = Array.isArray(existing.scores) ? existing.scores : [];
+  const progress = checklistProgress(
+    job,
+    job.fix_first || [],
+    job.recommendations || [],
+    state.showLowConfidence ? job.risks || [] : (job.risks || []).filter((risk) => !isLowConfidenceRisk(risk)),
+  );
+  journal[key] = {
+    key,
+    roomLabel: job.room_label || summary.room_label || job.filename || 'Unlabeled room',
+    audienceLabel: summary.audience_label || CAPTURE_COACH_MODES[job.audience_mode || 'general']?.title || 'General home safety',
+    lastCheckedAt: new Date().toISOString(),
+    lastJobId: job.job_id,
+    sampleKey: job.sample_key || null,
+    filename: job.filename || 'scan',
+    topAction: (job.fix_first || [])[0]?.title || (job.recommendations || [])[0]?.title || summary.top_hazard_label || 'Review the Safety Brief',
+    confidenceLabel: summary.confidence_label || summary.scan_quality_label || 'Approximate confidence',
+    hazardCount: Number(summary.hazard_count || (job.risks || []).length || 0),
+    completedFixes: Math.max(Number(existing.completedFixes || 0), progress.done || 0),
+    scores: score === null ? previousScores.slice(-6) : [...previousScores, score].slice(-6),
+    lastScore: score,
+    rescanRecommended: Boolean(summary.rescan_recommended || job.scan_quality?.rescan_recommended),
+  };
+  writeHomeJournal(journal);
+}
+
+function renderHomeJournal() {
+  if (!homeJournalSummary || !homeJournalGrid || !homeJournalEmpty) {
+    return;
+  }
+  const journal = readHomeJournal();
+  const favorites = readFavoriteRooms();
+  const entries = Object.values(journal)
+    .sort((a, b) => {
+      const favoriteDelta = Number(favorites.has(b.key)) - Number(favorites.has(a.key));
+      return favoriteDelta || String(b.lastCheckedAt || '').localeCompare(String(a.lastCheckedAt || ''));
+    });
+  const scannedRooms = entries.length;
+  const favoriteCount = entries.filter((entry) => favorites.has(entry.key)).length;
+  const scoreValues = entries
+    .map((entry) => entry.lastScore)
+    .filter((score) => typeof score === 'number');
+  const avgScore = scoreValues.length
+    ? scoreValues.reduce((sum, score) => sum + score, 0) / scoreValues.length
+    : null;
+
+  homeJournalSummary.innerHTML = entries.length
+    ? `
+      <span class="guide-kicker">Local home rhythm</span>
+      <strong>${scannedRooms} room${scannedRooms === 1 ? '' : 's'} checked locally</strong>
+      <p>${escapeHtml(favoriteCount
+        ? `${favoriteCount} favorite room${favoriteCount === 1 ? '' : 's'} pinned. Average latest score ${avgScore === null ? 'pending' : `${Math.round(avgScore)}/100`}.`
+        : `Average latest score ${avgScore === null ? 'pending' : `${Math.round(avgScore)}/100`}. Favorite a room to make the next check faster.`)}</p>
+      <div class="journal-meta">
+        <span class="soft-badge">${escapeHtml(ritualStreakCopy())}</span>
+        <span class="soft-badge">Local browser history</span>
+        <span class="soft-badge">No account required</span>
+      </div>
+    `
+    : `
+      <strong>No rooms saved yet</strong>
+      <p>Run a scan with a room label and completed reports will become local room journal entries.</p>
+    `;
+
+  homeJournalEmpty.style.display = entries.length ? 'none' : '';
+  homeJournalGrid.innerHTML = entries.map((entry) => {
+    const isFavorite = favorites.has(entry.key);
+    const scores = Array.isArray(entry.scores) ? entry.scores : [];
+    const trend = scores.length >= 2 ? scores[scores.length - 1] - scores[0] : 0;
+    const checked = entry.lastCheckedAt ? new Date(entry.lastCheckedAt).toLocaleDateString() : 'Recently';
+    return `
+      <article class="journal-room-card" data-journal-room="${escapeHtml(entry.key)}">
+        <span class="guide-kicker">${escapeHtml(isFavorite ? 'Favorite room' : entry.audienceLabel || 'Room')}</span>
+        <h4 class="journal-room-title">${escapeHtml(entry.roomLabel || 'Room')}</h4>
+        <p>${escapeHtml(entry.topAction || 'Review the Safety Brief')}</p>
+        <div class="journal-meta">
+          <span class="soft-badge">${escapeHtml(entry.lastScore === null || entry.lastScore === undefined ? 'Score pending' : `${entry.lastScore}/100`)}</span>
+          <span class="soft-badge">${escapeHtml(trend ? `${trend > 0 ? '+' : ''}${trend} trend` : 'Baseline')}</span>
+          <span class="soft-badge">${escapeHtml(`${entry.hazardCount || 0} findings`)}</span>
+        </div>
+        <p>${escapeHtml(`Last checked ${checked}. ${entry.rescanRecommended ? 'Rescan recommended.' : 'Ready for a calm follow-up.'}`)}</p>
+        <div class="journal-actions">
+          <button class="button-link ghost" type="button" data-open-journal-report="${escapeHtml(entry.lastJobId || '')}" data-sample-key="${escapeHtml(entry.sampleKey || '')}">Open report</button>
+          <button class="button-link ghost" type="button" data-favorite-room="${escapeHtml(entry.key)}">${isFavorite ? 'Unfavorite' : 'Favorite'}</button>
+          <button class="button-link ghost" type="button" data-room-reminder="${escapeHtml(entry.key)}">Plan reminder</button>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
 function renderDailyMission() {
   if (!dailyMissionTitle || !dailyMissionCopy || !dailyMissionSteps || !dailyMissionProgress) {
     return;
@@ -754,6 +1082,10 @@ function switchView(id) {
     ensureScene();
     sceneViewer.refresh();
   }
+  if (id === 'journal') {
+    renderHomeJournal();
+    trackProductEvent('home_journal_opened', { surface: 'journal_nav' });
+  }
   syncUrlState();
 }
 
@@ -774,6 +1106,7 @@ function setActiveJob(jobId) {
   renderUploads();
   renderProcessing(activeJob());
   renderReport(activeJob());
+  renderHomeJournal();
   syncUrlState();
 }
 
@@ -787,6 +1120,8 @@ function upsertJob(job) {
   renderProcessing(job);
 
   if (job.status === 'complete') {
+    upsertHomeJournalFromJob(job);
+    renderHomeJournal();
     renderReport(job);
     switchView('report');
     showToast(job.is_sample ? 'Sample report ready.' : 'Scan complete. Report is ready.');
@@ -804,6 +1139,7 @@ function removeJob(jobId) {
   renderUploads();
   renderProcessing(activeJob());
   renderReport(activeJob());
+  renderHomeJournal();
 }
 
 function renderUploads() {
@@ -911,6 +1247,7 @@ function renderReport(job) {
       <span class="soft-badge">Shareable PDF</span>
     `;
     renderBriefExecutive(null);
+    renderBriefTriage(null);
     renderShareCardPreview(null);
     summaryObjects.textContent = '0';
     summaryHazards.textContent = '0';
@@ -983,6 +1320,7 @@ function renderReport(job) {
   reportSubhead.textContent = summary.overview || `${roomLabel || job.filename} · ${audienceLabel} · ${summary.confidence_label || 'Approximate grounding'}`;
   reportHeroMeta.innerHTML = renderHeroBadges(summary, roomLabel, comparison, resolution, job.is_sample);
   renderBriefExecutive(job, summary, visibleHazards, fixFirst, recommendations, scanQuality);
+  renderBriefTriage(job, summary, visibleHazards, fixFirst, recommendations, scanQuality);
   renderShareCardPreview(job);
 
   summaryObjects.textContent = String(summary.object_count || 0);
@@ -1279,6 +1617,60 @@ function renderBriefExecutive(job, summary = {}, hazards = [], fixFirst = [], re
       ].join(' ');
     }
   }
+}
+
+function renderBriefTriage(job, summary = {}, hazards = [], fixFirst = [], recommendations = [], scanQuality = {}) {
+  if (!briefTriageStrip) {
+    return;
+  }
+  if (!job || job.status !== 'complete') {
+    briefTriageStrip.innerHTML = emptyMarkup('Fix Today, Watch Later, and Rescan Needed guidance will appear after a completed scan.');
+    return;
+  }
+
+  const fixToday = fixFirst[0] || recommendations[0] || hazards[0] || {};
+  const watchLater = hazards.find((risk) => risk.follow_up_status === 'monitor')
+    || hazards.find((risk) => Number(risk.confidence || 0) < 0.72)
+    || hazards[1]
+    || {};
+  const needsRescan = Boolean(summary.rescan_recommended || scanQuality.rescan_recommended);
+  const rescanCopy = needsRescan
+    ? scanQuality.capture_summary || summary.coverage_summary || 'Scan confidence is weak enough that a steadier follow-up is worth doing.'
+    : 'No urgent rescan required for this first-pass brief. Reuse the same room label after one fix to make progress visible.';
+  const fixTitle = fixToday.title || fixToday.hazard_title || fixToday.object_label || summary.top_hazard_label || 'Pick one practical fix';
+  const fixCopy = fixToday.action || fixToday.what_to_do_next || fixToday.recommendation || fixToday.why || 'Start with the top evidence-backed action before trying to fix the whole room.';
+  const watchTitle = watchLater.hazard_title || watchLater.title || watchLater.object_label || 'Watch weaker findings';
+  const watchCopy = watchLater.why_it_matters || watchLater.why || watchLater.description || 'Review lower-confidence or monitor items after the top fix and evidence frames.';
+
+  briefTriageStrip.innerHTML = `
+    <div class="triage-head">
+      <div>
+        <span class="guide-kicker">Safety Brief 2.0</span>
+        <h3>Fix today, watch later, rescan only when it helps.</h3>
+        <p>ATLAS-0 turns the report into a home-care order of operations instead of a wall of warnings.</p>
+      </div>
+      <span class="pill">${escapeHtml(summary.report_posture || 'Decision support')}</span>
+    </div>
+    <div class="triage-grid">
+      <article class="triage-card fix">
+        <span class="guide-kicker">Fix Today</span>
+        <strong>${escapeHtml(fixTitle)}</strong>
+        <p>${escapeHtml(fixCopy)}</p>
+        <button class="button-link ghost" type="button" data-copy-fix-today="true">Copy fix today</button>
+      </article>
+      <article class="triage-card watch">
+        <span class="guide-kicker">Watch Later</span>
+        <strong>${escapeHtml(watchTitle)}</strong>
+        <p>${escapeHtml(watchCopy)}</p>
+      </article>
+      <article class="triage-card rescan">
+        <span class="guide-kicker">Rescan Needed</span>
+        <strong>${escapeHtml(needsRescan ? 'Yes, improve capture' : 'Not immediately')}</strong>
+        <p>${escapeHtml(rescanCopy)}</p>
+        <button class="button-link ghost" type="button" data-start-rescan="true">Prepare rescan</button>
+      </article>
+    </div>
+  `;
 }
 
 function fixDifficultyLabel(item, index = 0) {
@@ -1666,6 +2058,20 @@ function buildFixPlanText(job) {
   return [header, ...actions, `Report: ${reportDeepLink(job)}`].filter(Boolean).join('\n');
 }
 
+function buildFixTodayText(job) {
+  const summary = job.summary || {};
+  const first = (job.fix_first || [])[0] || (job.recommendations || [])[0] || (job.risks || [])[0] || {};
+  const roomLabel = job.room_label || summary.room_label || 'Room';
+  const title = first.title || first.hazard_title || first.object_label || summary.top_hazard_label || 'Fix one thing';
+  const action = first.action || first.what_to_do_next || first.recommendation || first.why || 'Review the top finding and make the smallest practical fix.';
+  return [
+    `ATLAS-0 Fix Today for ${roomLabel}`,
+    `${title}: ${action}`,
+    'After the fix, rescan with the same room label if you want the before/after to show up.',
+    'Decision support only, not safety certification.',
+  ].join('\n');
+}
+
 async function copyBetaInvite(surface = 'unknown') {
   const text = betaSharePrompt();
   await copyText(text);
@@ -2023,7 +2429,13 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Beta invite copies', value: String(settings.product.beta_invite_events || 0) },
       { label: 'Room win copies', value: String(settings.product.room_win_events || 0) },
       { label: 'Fix plan copies', value: String(settings.product.fix_plan_events || 0) },
+      { label: 'Fix Today copies', value: String(settings.product.fix_today_events || 0) },
       { label: 'Daily mission starts', value: String(settings.product.daily_mission_events || 0) },
+      { label: 'Room ritual starts', value: String(settings.product.room_ritual_events || 0) },
+      { label: 'Room ritual completions', value: String(settings.product.room_ritual_completed_events || 0) },
+      { label: 'Home Journal opens', value: String(settings.product.home_journal_events || 0) },
+      { label: 'Reminder clicks', value: String(settings.product.room_reminder_events || 0) },
+      { label: 'Seasonal pack starts', value: String(settings.product.seasonal_pack_events || 0) },
       { label: 'Capture coach checks', value: String(settings.product.capture_coach_events || 0) },
       { label: 'Same-room rescan starts', value: String(settings.product.same_room_rescan_events || 0) },
       { label: 'Rescan prompt clicks', value: String(settings.product.rescan_prompt_events || 0) },
@@ -2056,6 +2468,10 @@ function renderBetaInbox(inbox) {
       { label: 'Upload completes', value: String(funnel.upload_completed || 0) },
       { label: 'Report views', value: String(funnel.report_viewed || 0) },
       { label: 'First-run starts', value: String(funnel.first_run_started || 0) },
+      { label: 'Room ritual starts', value: String(funnel.room_ritual_started || 0) },
+      { label: 'Room ritual done', value: String(funnel.room_ritual_completed || 0) },
+      { label: 'Home Journal opens', value: String(funnel.home_journal_opened || 0) },
+      { label: 'Fix Today copies', value: String(funnel.fix_today_copied || 0) },
       { label: 'PDF downloads', value: String(funnel.pdf_downloads || 0) },
       { label: 'Share card copies', value: String(funnel.share_card_copies || 0) },
       { label: 'Confidence opens', value: String(funnel.confidence_inspector_opened || 0) },
@@ -2106,6 +2522,7 @@ async function bootstrapJobs() {
     renderUploads();
     renderProcessing(activeJob());
     renderReport(activeJob());
+    renderHomeJournal();
     return;
   }
 
@@ -2118,17 +2535,21 @@ async function bootstrapJobs() {
       setActiveJob(latest.job_id);
       renderProcessing(latest);
       if (latest.status === 'complete') {
+        jobs.filter((job) => job.status === 'complete').forEach(upsertHomeJournalFromJob);
+        renderHomeJournal();
         renderReport(latest);
       }
     } else {
       renderUploads();
       renderProcessing(null);
       renderReport(null);
+      renderHomeJournal();
     }
   } catch {
     renderUploads();
     renderProcessing(null);
     renderReport(null);
+    renderHomeJournal();
   }
 }
 
@@ -2217,6 +2638,30 @@ useCaseButtons.forEach((button) => {
 
 dailyMissionStart?.addEventListener('click', startDailyMission);
 dailyMissionComplete?.addEventListener('click', () => completeDailyMission(activeChallenge()));
+ritualStartBtn?.addEventListener('click', () => startRoomRitual(activeRitual(), 'ritual_today_card'));
+ritualCompleteBtn?.addEventListener('click', () => completeRoomRitual(activeRitual()));
+ritualGrid?.addEventListener('click', (event) => {
+  const button = event.target instanceof Element ? event.target.closest('[data-room-ritual]') : null;
+  const ritual = ritualById(button?.dataset.roomRitual);
+  if (ritual) {
+    startRoomRitual(ritual, 'ritual_grid');
+  }
+});
+seasonalPackGrid?.addEventListener('click', (event) => {
+  const button = event.target instanceof Element ? event.target.closest('[data-seasonal-pack]') : null;
+  const pack = SEASONAL_RITUAL_PACKS.find((item) => item.id === button?.dataset.seasonalPack);
+  if (!pack) {
+    return;
+  }
+  const ritual = activeRitual();
+  trackProductEvent('seasonal_pack_started', {
+    seasonal_pack_id: pack.id,
+    ritual_id: ritual.id,
+    audience_mode: ritual.audienceMode,
+  });
+  startRoomRitual(ritual, 'seasonal_pack');
+  showToast(`${pack.title} loaded as today’s room-care lens.`);
+});
 
 audienceModeInput?.addEventListener('change', () => {
   renderCaptureCoach();
@@ -2254,6 +2699,7 @@ const uploadView = new UploadView({
       audience_mode: metadata.audienceMode,
       mission_id: state.pendingUploadChallengeId,
       challenge_id: state.pendingUploadChallengeId,
+      ritual_id: activeRitual().id,
       room_label: metadata.roomLabel || null,
       room_labeled: Boolean(metadata.roomLabel),
     });
@@ -2273,6 +2719,7 @@ const uploadView = new UploadView({
         job_id: job.job_id,
         mission_id: challengeForJob(job).id,
         challenge_id: challengeForJob(job).id,
+        ritual_id: activeRitual().id,
         audience_mode: job.audience_mode || selectedAudienceMode(),
         room_label: job.room_label || job.summary?.room_label || null,
         room_labeled: Boolean(job.room_label || job.summary?.room_label),
@@ -2302,7 +2749,9 @@ syncLowConfidenceControls();
 syncSettingsAccessStatus();
 renderDailyMission();
 renderChallengeLibrary();
+renderRoomRituals();
 renderCaptureCoach();
+renderHomeJournal();
 initLandingSectionTracking();
 if (betaShareCopy) {
   betaShareCopy.textContent = betaSharePrompt();
@@ -2557,6 +3006,8 @@ function attachFixChecklistHandlers(jobId) {
           job.evidence_frames || [],
           job.room_comparison || null,
         );
+        upsertHomeJournalFromJob(job);
+        renderHomeJournal();
       }
       trackProductEvent('fix_checklist_toggled', {
         job_id: jobId,
@@ -2673,6 +3124,80 @@ document.addEventListener('click', async (event) => {
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not copy fix plan.', 3600);
     }
+    return;
+  }
+
+  const fixTodayButton = target.closest('[data-copy-fix-today]');
+  if (fixTodayButton) {
+    const job = activeJob();
+    if (!job || job.status !== 'complete') {
+      return;
+    }
+    try {
+      await copyText(buildFixTodayText(job));
+      await trackProductEvent('fix_today_copied', {
+        job_id: job.job_id,
+        sample_key: job.sample_key || null,
+        audience_mode: job.audience_mode || 'general',
+      });
+      showToast('Fix Today copied.');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not copy Fix Today.', 3600);
+    }
+    return;
+  }
+
+  const openJournalReportButton = target.closest('[data-open-journal-report]');
+  if (openJournalReportButton) {
+    const jobId = openJournalReportButton.dataset.openJournalReport;
+    const sampleKey = openJournalReportButton.dataset.sampleKey;
+    if (sampleKey) {
+      await loadSampleReport();
+      return;
+    }
+    if (jobId && state.jobs.has(jobId)) {
+      setActiveJob(jobId);
+      switchView('report');
+      return;
+    }
+    if (jobId) {
+      try {
+        upsertJob(await api.fetchJob(jobId));
+        setActiveJob(jobId);
+        switchView('report');
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Could not open journal report.', 3600);
+      }
+    }
+    return;
+  }
+
+  const favoriteRoomButton = target.closest('[data-favorite-room]');
+  if (favoriteRoomButton) {
+    const roomKey = favoriteRoomButton.dataset.favoriteRoom;
+    const favorites = readFavoriteRooms();
+    if (favorites.has(roomKey)) {
+      favorites.delete(roomKey);
+    } else if (roomKey) {
+      favorites.add(roomKey);
+    }
+    writeFavoriteRooms(favorites);
+    renderHomeJournal();
+    showToast(favorites.has(roomKey) ? 'Room favorited locally.' : 'Room removed from favorites.');
+    return;
+  }
+
+  const roomReminderButton = target.closest('[data-room-reminder]');
+  if (roomReminderButton) {
+    const roomKey = roomReminderButton.dataset.roomReminder;
+    const entry = readHomeJournal()[roomKey];
+    await trackProductEvent('room_reminder_clicked', {
+      surface: 'home_journal',
+      room_key: roomKey || null,
+      room_label: entry?.roomLabel || null,
+      room_labeled: Boolean(entry?.roomLabel),
+    });
+    showToast('Reminder idea saved mentally for now: rescan this room next week with the same label.', 3800);
     return;
   }
 

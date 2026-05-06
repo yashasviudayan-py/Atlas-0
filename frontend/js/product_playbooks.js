@@ -184,3 +184,75 @@ export const BETA_SHARE_PROMPTS = [
   'Tiny room safety challenge: scan one room, fix one thing, rescan it. ATLAS-0 makes the before/after visible.',
   'ATLAS-0 is a room safety scan for renters, parents, pet owners, and anyone who wants a calmer home check.',
 ];
+
+export const ROOM_RITUALS = [
+  {
+    id: 'morning-path-reset',
+    title: 'Morning path reset',
+    cadence: 'Daily',
+    audienceMode: 'general',
+    roomLabel: 'Morning path reset',
+    season: 'Everyday',
+    duration: '5 min',
+    copy: 'Start with the path from bed, door, kitchen, or desk. Clear one thing that would annoy you later.',
+    prompt: 'Fix today: clear the first floor or doorway obstacle the report calls out.',
+    icon: 'sun',
+  },
+  {
+    id: 'pet-calm-corner',
+    title: 'Pet calm corner',
+    cadence: 'Daily',
+    audienceMode: 'pet',
+    roomLabel: 'Pet calm corner',
+    season: 'Everyday',
+    duration: '4 min',
+    copy: 'Check cords, low plants, food corners, and tempting shelf edges from pet height.',
+    prompt: 'Fix today: move one chewable, dangling, or fragile thing out of the pet route.',
+    icon: 'paw',
+  },
+  {
+    id: 'tiny-hands-sweep',
+    title: 'Tiny hands sweep',
+    cadence: 'Weekly',
+    audienceMode: 'toddler',
+    roomLabel: 'Tiny hands sweep',
+    season: 'Family',
+    duration: '6 min',
+    copy: 'Scan below counter height and ask what could be pulled, climbed, opened, or tipped.',
+    prompt: 'Fix today: lower the risk around one reachable handle, edge, or heavy object.',
+    icon: 'hand',
+  },
+  {
+    id: 'renter-proof-note',
+    title: 'Renter proof note',
+    cadence: 'Monthly',
+    audienceMode: 'renter',
+    roomLabel: 'Renter proof note',
+    season: 'Move-in',
+    duration: '7 min',
+    copy: 'Make a calm room note before furniture, guests, repairs, or move-out changes the space.',
+    prompt: 'Fix today: export the PDF if the scan captures something worth documenting.',
+    icon: 'key',
+  },
+];
+
+export const SEASONAL_RITUAL_PACKS = [
+  {
+    id: 'monsoon-entryway',
+    title: 'Monsoon entryway pack',
+    season: 'Rainy day',
+    copy: 'Watch for wet floor paths, shoes near doors, chargers on the floor, and slippery thresholds.',
+  },
+  {
+    id: 'festival-guest-ready',
+    title: 'Guest-ready festival pack',
+    season: 'Hosting',
+    copy: 'Check crowd paths, fragile decor, low tables, candles, cords, and bags near walkways.',
+  },
+  {
+    id: 'summer-cord-heat',
+    title: 'Summer cord and heat pack',
+    season: 'Heat',
+    copy: 'Scan fans, extension cords, chargers, plants, and clutter near warm electronics.',
+  },
+];
