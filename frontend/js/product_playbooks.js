@@ -185,6 +185,92 @@ export const BETA_SHARE_PROMPTS = [
   'ATLAS-0 is a room safety scan for renters, parents, pet owners, and anyone who wants a calmer home check.',
 ];
 
+export const ROOM_MYSTERY_MODES = [
+  {
+    id: 'hidden-quick-fix',
+    title: 'One fix hiding in plain sight',
+    audienceMode: 'general',
+    roomLabel: 'Hidden quick fix',
+    prompt: 'What is the one small fix this room is quietly asking for?',
+    uploadHint: 'Record the normal walking path, shelf edges, tables, cords, and anything that would be annoying if bumped.',
+    resultFrame: 'Start with the smallest evidence-backed improvement, then rescan to see whether the room feels calmer.',
+  },
+  {
+    id: 'pet-knockover',
+    title: 'What could a pet knock over?',
+    audienceMode: 'pet',
+    roomLabel: 'Pet curiosity pass',
+    prompt: 'What would a bored pet notice first?',
+    uploadHint: 'Keep low shelves, plants, dangling cords, side tables, and under-desk corners visible from pet height.',
+    resultFrame: 'Look for floor-level temptations and fragile bump zones before they become a mess.',
+  },
+  {
+    id: 'tomorrow-annoyance',
+    title: 'What will annoy me tomorrow?',
+    audienceMode: 'general',
+    roomLabel: 'Tomorrow annoyance pass',
+    prompt: 'What tiny room problem is easiest to prevent today?',
+    uploadHint: 'Scan doorways, floors, bedside paths, desks, and high-touch surfaces that collect clutter.',
+    resultFrame: 'Treat the top finding as a five-minute future-you favor, not a scary warning.',
+  },
+  {
+    id: 'tiny-hands',
+    title: 'What can tiny hands reach?',
+    audienceMode: 'toddler',
+    roomLabel: 'Tiny hands mystery',
+    prompt: 'What is reachable, pullable, climbable, or tip-prone below counter height?',
+    uploadHint: 'Record from a lower angle and pause on handles, cords, drawers, shelves, and table edges.',
+    resultFrame: 'Use this as a calm reach-zone review, not a substitute for active supervision.',
+  },
+  {
+    id: 'guest-route',
+    title: 'What would a guest trip over?',
+    audienceMode: 'general',
+    roomLabel: 'Guest route mystery',
+    prompt: 'What does a first-time visitor not know to avoid?',
+    uploadHint: 'Walk from entry to seating, keeping rug edges, bags, cords, thresholds, and low tables in frame.',
+    resultFrame: 'Clear the easiest path issue first, then share the room win if someone else should know.',
+  },
+];
+
+export const CURIOSITY_SAMPLE_GALLERY = [
+  {
+    id: 'sample-toddler-room',
+    title: 'Toddler reach room',
+    audienceMode: 'toddler',
+    roomLabel: 'Toddler reach sample',
+    lesson: 'See how ATLAS-0 frames reachable objects without pretending the room is certified safe.',
+  },
+  {
+    id: 'sample-pet-corner',
+    title: 'Pet corner sweep',
+    audienceMode: 'pet',
+    roomLabel: 'Pet corner sample',
+    lesson: 'Preview cord, plant, and low-shelf language before scanning a real pet route.',
+  },
+  {
+    id: 'sample-renter-move-in',
+    title: 'Renter move-in note',
+    audienceMode: 'renter',
+    roomLabel: 'Move-in sample',
+    lesson: 'Use the sample as a model for evidence-backed room notes you can export.',
+  },
+  {
+    id: 'sample-guest-ready',
+    title: 'Guest-ready living room',
+    audienceMode: 'general',
+    roomLabel: 'Guest-ready sample',
+    lesson: 'Learn how trip paths and fragile edges become a simple fix-first brief.',
+  },
+  {
+    id: 'sample-night-path',
+    title: 'Night path reset',
+    audienceMode: 'general',
+    roomLabel: 'Night path sample',
+    lesson: 'See how one floor-path scan can turn into a calm before-bed room win.',
+  },
+];
+
 export const ROOM_RITUALS = [
   {
     id: 'morning-path-reset',

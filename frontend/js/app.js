@@ -6,7 +6,9 @@ import * as api from './api.js';
 import {
   BETA_SHARE_PROMPTS,
   CAPTURE_COACH_MODES,
+  CURIOSITY_SAMPLE_GALLERY,
   REPORT_DECISION_STEPS,
+  ROOM_MYSTERY_MODES,
   ROOM_RITUALS,
   SAFETY_MISSIONS,
   SEASONAL_RITUAL_PACKS,
@@ -28,6 +30,7 @@ const RITUAL_STORAGE_KEY = 'atlas0.roomRituals';
 const RITUAL_SELECTION_STORAGE_KEY = 'atlas0.selectedRitual';
 const HOME_JOURNAL_STORAGE_KEY = 'atlas0.homeJournal';
 const FAVORITE_ROOMS_STORAGE_KEY = 'atlas0.favoriteRooms';
+const MYSTERY_MODE_STORAGE_KEY = 'atlas0.selectedMysteryMode';
 
 function readStoredPreference(key) {
   try {
@@ -84,6 +87,7 @@ const state = {
   uploadCompleteEvents: new Set(),
   activeChallengeId: readStoredPreference(CHALLENGE_SELECTION_STORAGE_KEY) || null,
   activeRitualId: readStoredPreference(RITUAL_SELECTION_STORAGE_KEY) || null,
+  activeMysteryModeId: readStoredPreference(MYSTERY_MODE_STORAGE_KEY) || null,
   pendingUploadChallengeId: null,
 };
 
@@ -206,6 +210,10 @@ const ritualGrid = document.getElementById('ritual-grid');
 const seasonalPackGrid = document.getElementById('seasonal-pack-grid');
 const ritualStartBtn = /** @type {HTMLButtonElement} */ (document.getElementById('ritual-start-btn'));
 const ritualCompleteBtn = /** @type {HTMLButtonElement} */ (document.getElementById('ritual-complete-btn'));
+const homePulseCard = document.getElementById('home-pulse-card');
+const mysteryModeGrid = document.getElementById('mystery-mode-grid');
+const mysteryPromptCopy = document.getElementById('mystery-prompt-copy');
+const curiositySampleGrid = document.getElementById('curiosity-sample-grid');
 const captureCoachTitle = document.getElementById('capture-coach-title');
 const captureCoachCopy = document.getElementById('capture-coach-copy');
 const captureCoachRoute = document.getElementById('capture-coach-route');
@@ -216,6 +224,9 @@ const captureCoachMeter = document.getElementById('capture-coach-meter');
 const betaShareCopy = document.getElementById('beta-share-copy');
 const copyBetaInviteBtn = /** @type {HTMLButtonElement} */ (document.getElementById('copy-beta-invite-btn'));
 const briefTriageStrip = document.getElementById('brief-triage-strip');
+const fieldNotesPanel = document.getElementById('field-notes-panel');
+const roomMapPreview = document.getElementById('room-map-preview');
+const beforeAfterStory = document.getElementById('before-after-story');
 const homeJournalSummary = document.getElementById('home-journal-summary');
 const homeJournalGrid = document.getElementById('home-journal-grid');
 const homeJournalEmpty = document.getElementById('home-journal-empty');
@@ -678,6 +689,111 @@ function completeRoomRitual(ritual = activeRitual()) {
   showToast(`${ritual.title} logged locally. The home-care streak lives in this browser.`);
 }
 
+function mysteryModeForDate(date = new Date()) {
+  const dayNumber = Math.floor(new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() / 86_400_000);
+  return ROOM_MYSTERY_MODES[dayNumber % ROOM_MYSTERY_MODES.length];
+}
+
+function mysteryModeById(id) {
+  return ROOM_MYSTERY_MODES.find((mode) => mode.id === id) || null;
+}
+
+function activeMysteryMode() {
+  return mysteryModeById(state.activeMysteryModeId) || mysteryModeForDate();
+}
+
+function renderMysteryModes() {
+  if (!mysteryModeGrid || !mysteryPromptCopy) {
+    return;
+  }
+  const activeMode = activeMysteryMode();
+  mysteryPromptCopy.textContent = activeMode.prompt;
+  mysteryModeGrid.innerHTML = ROOM_MYSTERY_MODES.map((mode) => `
+    <button class="mystery-card ${mode.id === activeMode.id ? 'active' : ''}" type="button" data-mystery-mode="${escapeHtml(mode.id)}">
+      <span class="guide-kicker">${escapeHtml(CAPTURE_COACH_MODES[mode.audienceMode]?.title || 'Room discovery')}</span>
+      <strong>${escapeHtml(mode.title)}</strong>
+      <span>${escapeHtml(mode.prompt)}</span>
+      <span class="soft-badge">Discovery prompt</span>
+    </button>
+  `).join('');
+}
+
+function startMysteryMode(mode, source = 'mystery_mode_grid') {
+  markFirstRunStarted(source);
+  state.activeMysteryModeId = mode.id;
+  writeStoredPreference(MYSTERY_MODE_STORAGE_KEY, mode.id);
+  if (roomLabelInput) {
+    const currentLabel = roomLabelInput.value.trim();
+    const isExistingMysteryLabel = ROOM_MYSTERY_MODES.some((item) => item.roomLabel === currentLabel);
+    if (!currentLabel || isExistingMysteryLabel) {
+      roomLabelInput.value = mode.roomLabel;
+    }
+  }
+  if (audienceModeInput) {
+    audienceModeInput.value = mode.audienceMode;
+  }
+  if (uploadGuidanceCopy) {
+    uploadGuidanceCopy.textContent = mode.uploadHint;
+  }
+  renderMysteryModes();
+  renderCaptureCoach();
+  trackProductEvent('mystery_mode_started', {
+    surface: source,
+    mystery_mode_id: mode.id,
+    audience_mode: mode.audienceMode,
+    room_label: mode.roomLabel,
+    room_labeled: true,
+  });
+  switchView('scan');
+  showToast(`${mode.title} loaded. The report will stay evidence-backed.`);
+}
+
+function renderCuriositySampleGallery() {
+  if (!curiositySampleGrid) {
+    return;
+  }
+  curiositySampleGrid.innerHTML = CURIOSITY_SAMPLE_GALLERY.map((sample) => `
+    <button class="curiosity-sample-card" type="button" data-curiosity-sample="${escapeHtml(sample.id)}">
+      <span class="guide-kicker">${escapeHtml(CAPTURE_COACH_MODES[sample.audienceMode]?.title || 'Sample report')}</span>
+      <strong>${escapeHtml(sample.title)}</strong>
+      <span>${escapeHtml(sample.lesson)}</span>
+      <span class="soft-badge">Open sample</span>
+    </button>
+  `).join('');
+}
+
+function renderHomePulse() {
+  if (!homePulseCard) {
+    return;
+  }
+  const entries = Object.values(readHomeJournal());
+  const latest = entries
+    .sort((a, b) => String(b.lastCheckedAt || '').localeCompare(String(a.lastCheckedAt || '')))[0];
+  const scoreValues = entries
+    .map((entry) => entry.lastScore)
+    .filter((score) => typeof score === 'number');
+  const calmScore = scoreValues.length
+    ? Math.round(scoreValues.reduce((sum, score) => sum + score, 0) / scoreValues.length)
+    : null;
+  const nextRoom = latest?.rescanRecommended
+    ? latest.roomLabel
+    : activeMysteryMode().roomLabel || activeRitual().roomLabel;
+  homePulseCard.innerHTML = `
+    <div class="home-pulse-head">
+      <div>
+        <span class="guide-kicker">Home Pulse</span>
+        <strong>${entries.length ? `${entries.length} room${entries.length === 1 ? '' : 's'} checked` : 'Start your first room pulse'}</strong>
+      </div>
+      <button class="button-link ghost" type="button" data-open-home-pulse="true">Open Journal</button>
+    </div>
+    <div class="home-pulse-grid">
+      <span><strong>${escapeHtml(calmScore === null ? '—' : `${calmScore}/100`)}</strong><small>Weekly calm score</small></span>
+      <span><strong>${escapeHtml(latest?.topAction || 'No room win yet')}</strong><small>Last room win</small></span>
+      <span><strong>${escapeHtml(nextRoom || 'Pick a room')}</strong><small>Next suggested room</small></span>
+    </div>
+  `;
+}
+
 function readHomeJournal() {
   const raw = readStoredPreference(HOME_JOURNAL_STORAGE_KEY);
   if (!raw) {
@@ -823,6 +939,7 @@ function renderHomeJournal() {
       </article>
     `;
   }).join('');
+  renderHomePulse();
 }
 
 function renderDailyMission() {
@@ -1248,6 +1365,9 @@ function renderReport(job) {
     `;
     renderBriefExecutive(null);
     renderBriefTriage(null);
+    renderFieldNotes(null);
+    renderRoomMapPreview(null);
+    renderBeforeAfterStory(null);
     renderShareCardPreview(null);
     summaryObjects.textContent = '0';
     summaryHazards.textContent = '0';
@@ -1321,6 +1441,9 @@ function renderReport(job) {
   reportHeroMeta.innerHTML = renderHeroBadges(summary, roomLabel, comparison, resolution, job.is_sample);
   renderBriefExecutive(job, summary, visibleHazards, fixFirst, recommendations, scanQuality);
   renderBriefTriage(job, summary, visibleHazards, fixFirst, recommendations, scanQuality);
+  renderFieldNotes(job, summary, visibleHazards, fixFirst, recommendations, scanQuality);
+  renderRoomMapPreview(job, summary, visibleHazards, evidence);
+  renderBeforeAfterStory(job, summary, visibleHazards, fixFirst, recommendations, comparison);
   renderShareCardPreview(job);
 
   summaryObjects.textContent = String(summary.object_count || 0);
@@ -1670,6 +1793,188 @@ function renderBriefTriage(job, summary = {}, hazards = [], fixFirst = [], recom
         <button class="button-link ghost" type="button" data-start-rescan="true">Prepare rescan</button>
       </article>
     </div>
+  `;
+}
+
+function buildFieldNotes(summary = {}, hazards = [], fixFirst = [], recommendations = [], scanQuality = {}) {
+  const topAction = fixFirst[0] || recommendations[0] || hazards[0] || {};
+  const notes = [];
+  const difficulty = fixDifficultyLabel(topAction, 0);
+  if (topAction.title || topAction.hazard_title || topAction.object_label) {
+    notes.push({
+      id: 'quick-fix',
+      title: difficulty === 'Quick fix' ? 'This looks like a quick room win.' : 'This is worth a deliberate fix.',
+      copy: topAction.action || topAction.what_to_do_next || topAction.recommendation || topAction.why || 'Start with the top evidence-backed action before widening the checklist.',
+    });
+  }
+  if (summary.rescan_recommended || scanQuality.rescan_recommended) {
+    notes.push({
+      id: 'rescan',
+      title: 'This is a discovery prompt, not a final verdict.',
+      copy: scanQuality.capture_summary || summary.coverage_summary || 'A steadier follow-up scan would make smaller findings easier to trust.',
+    });
+  } else {
+    notes.push({
+      id: 'calm',
+      title: 'Useful does not have to feel dramatic.',
+      copy: 'The best next step is one visible fix, then a same-room rescan if you want progress to show up.',
+    });
+  }
+  const lowConfidenceCount = hazards.filter((risk) => isLowConfidenceRisk(risk)).length;
+  if (lowConfidenceCount) {
+    notes.push({
+      id: 'watch',
+      title: 'Some findings are for watching, not panicking.',
+      copy: `${lowConfidenceCount} visible finding${lowConfidenceCount === 1 ? '' : 's'} have weaker support. Check evidence before acting.`,
+    });
+  }
+  notes.push({
+    id: 'mystery',
+    title: activeMysteryMode().title,
+    copy: activeMysteryMode().resultFrame,
+  });
+  return notes.slice(0, 4);
+}
+
+function renderFieldNotes(job, summary = {}, hazards = [], fixFirst = [], recommendations = [], scanQuality = {}) {
+  if (!fieldNotesPanel) {
+    return;
+  }
+  if (!job || job.status !== 'complete') {
+    fieldNotesPanel.innerHTML = emptyMarkup('ATLAS Field Notes will appear after a completed scan.');
+    return;
+  }
+  const notes = buildFieldNotes(summary, hazards, fixFirst, recommendations, scanQuality);
+  fieldNotesPanel.innerHTML = `
+    <div class="section-head compact">
+      <div>
+        <span class="guide-kicker">ATLAS Field Notes</span>
+        <h3>Small observations that make the report easier to explore.</h3>
+        <p>Human-readable notes derived from findings, confidence, scan quality, and the active discovery prompt.</p>
+      </div>
+      <span class="pill">Evidence-aware</span>
+    </div>
+    <div class="field-note-grid">
+      ${notes.map((note) => `
+        <details class="field-note-card" data-field-note="${escapeHtml(note.id)}">
+          <summary>${escapeHtml(note.title)}</summary>
+          <p>${escapeHtml(note.copy)}</p>
+        </details>
+      `).join('')}
+    </div>
+  `;
+  fieldNotesPanel.querySelectorAll('[data-field-note]').forEach((details) => {
+    details.addEventListener('toggle', () => {
+      if (details.open) {
+        trackProductEvent('field_note_expanded', {
+          field_note_id: details.dataset.fieldNote || null,
+          job_id: job.job_id,
+          sample_key: job.sample_key || null,
+          audience_mode: job.audience_mode || 'general',
+        });
+      }
+    });
+  });
+}
+
+function markerPosition(index, total) {
+  const safeTotal = Math.max(1, total);
+  const x = 16 + ((index * 23) % 68);
+  const y = 18 + ((index * 31 + safeTotal * 7) % 58);
+  return { x, y };
+}
+
+function renderRoomMapPreview(job, summary = {}, hazards = [], evidence = []) {
+  if (!roomMapPreview) {
+    return;
+  }
+  if (!job || job.status !== 'complete') {
+    roomMapPreview.innerHTML = emptyMarkup('Approximate evidence map will appear after a completed scan.');
+    return;
+  }
+  const markers = hazards.slice(0, 6).map((risk, index) => ({
+    title: risk.hazard_title || risk.object_label || `Finding ${index + 1}`,
+    location: risk.location_label || risk.location || 'approximate scan zone',
+    severity: risk.severity || 'low',
+    ...markerPosition(index, hazards.length || evidence.length || 1),
+  }));
+  roomMapPreview.innerHTML = `
+    <div class="section-head compact">
+      <div>
+        <span class="guide-kicker">Approximate evidence map</span>
+        <h3>A tactile preview of where findings cluster.</h3>
+        <p>This is an evidence map, not measured 3D reconstruction. Use it to orient the report, then confirm with frames.</p>
+      </div>
+      <button class="button-link ghost" type="button" data-room-map-preview="true">Explore map</button>
+    </div>
+    <div class="room-map-shell" aria-label="Approximate room evidence map">
+      <div class="room-map-canvas" aria-hidden="true">
+        ${markers.map((marker, index) => `
+          <span class="room-map-marker ${escapeHtml(marker.severity)}" style="left:${marker.x}%; top:${marker.y}%;">${index + 1}</span>
+        `).join('')}
+      </div>
+      <div class="room-map-list">
+        ${markers.length ? markers.map((marker, index) => `
+          <button class="room-map-item" type="button" data-room-map-preview="true" data-map-marker="${index + 1}">
+            <strong>${index + 1}. ${escapeHtml(marker.title)}</strong>
+            <span>${escapeHtml(marker.location)} · ${escapeHtml(marker.severity)} severity</span>
+          </button>
+        `).join('') : '<div class="empty-card">No hazard markers were generated for this scan.</div>'}
+      </div>
+    </div>
+  `;
+}
+
+function buildBeforeAfterStoryText(job) {
+  const summary = job.summary || {};
+  const comparison = job.room_comparison || {};
+  const roomLabel = job.room_label || summary.room_label || 'Room';
+  const score = typeof summary.room_score === 'number' ? `${Math.round(summary.room_score)}/100` : 'screened';
+  const delta = typeof comparison.score_delta === 'number'
+    ? `${comparison.score_delta > 0 ? '+' : ''}${comparison.score_delta}`
+    : 'baseline';
+  const topAction = (job.fix_first || [])[0]?.title || (job.recommendations || [])[0]?.title || summary.top_hazard_label || 'review the top action';
+  return [
+    `ATLAS-0 before/after story: ${roomLabel}`,
+    `Current score: ${score}. Change: ${delta}.`,
+    `Top action: ${topAction}.`,
+    comparison.summary || 'Reuse this room label after one fix to make progress visible.',
+    'Decision support only, not safety certification.',
+  ].join('\n');
+}
+
+function renderBeforeAfterStory(job, summary = {}, hazards = [], fixFirst = [], recommendations = [], comparison = null) {
+  if (!beforeAfterStory) {
+    return;
+  }
+  if (!job || job.status !== 'complete') {
+    beforeAfterStory.innerHTML = emptyMarkup('Before/after story card will appear after a completed scan.');
+    return;
+  }
+  const score = typeof summary.room_score === 'number' ? `${Math.round(summary.room_score)}/100` : 'Screened';
+  const topAction = fixFirst[0]?.title || recommendations[0]?.title || hazards[0]?.hazard_title || summary.top_hazard_label || 'Review the top action';
+  const delta = comparison && typeof comparison.score_delta === 'number'
+    ? `${comparison.score_delta > 0 ? '+' : ''}${comparison.score_delta} score change`
+    : 'Baseline saved';
+  beforeAfterStory.innerHTML = `
+    <div class="section-head compact">
+      <div>
+        <span class="guide-kicker">Before / After Story</span>
+        <h3>${escapeHtml(comparison ? 'A shareable progress artifact.' : 'Your baseline is ready.')}</h3>
+        <p>${escapeHtml(comparison?.summary || 'Rescan with the same room label after one fix to unlock a visible before/after story.')}</p>
+      </div>
+      <button class="button-link ghost" type="button" data-copy-before-after-story="true" ${comparison ? '' : 'disabled'}>${comparison ? 'Copy story card' : 'Rescan to unlock'}</button>
+    </div>
+    <article class="story-card">
+      <span class="guide-kicker">ATLAS-0 room story</span>
+      <strong>${escapeHtml(job.room_label || summary.room_label || 'Room')} · ${escapeHtml(score)}</strong>
+      <p>${escapeHtml(topAction)}.</p>
+      <div class="journal-meta">
+        <span class="soft-badge">${escapeHtml(delta)}</span>
+        <span class="soft-badge">${escapeHtml(`${hazards.length} finding${hazards.length === 1 ? '' : 's'}`)}</span>
+        <span class="soft-badge">${escapeHtml(summary.confidence_label || 'Approximate confidence')}</span>
+      </div>
+    </article>
   `;
 }
 
@@ -2430,6 +2735,12 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Room win copies', value: String(settings.product.room_win_events || 0) },
       { label: 'Fix plan copies', value: String(settings.product.fix_plan_events || 0) },
       { label: 'Fix Today copies', value: String(settings.product.fix_today_events || 0) },
+      { label: 'Before/after cards', value: String(settings.product.before_after_card_events || 0) },
+      { label: 'Mystery mode starts', value: String(settings.product.mystery_mode_events || 0) },
+      { label: 'Sample gallery opens', value: String(settings.product.sample_gallery_events || 0) },
+      { label: 'Field note expands', value: String(settings.product.field_note_events || 0) },
+      { label: 'Map preview opens', value: String(settings.product.room_map_preview_events || 0) },
+      { label: 'Home Pulse opens', value: String(settings.product.home_pulse_events || 0) },
       { label: 'Daily mission starts', value: String(settings.product.daily_mission_events || 0) },
       { label: 'Room ritual starts', value: String(settings.product.room_ritual_events || 0) },
       { label: 'Room ritual completions', value: String(settings.product.room_ritual_completed_events || 0) },
@@ -2468,6 +2779,12 @@ function renderBetaInbox(inbox) {
       { label: 'Upload completes', value: String(funnel.upload_completed || 0) },
       { label: 'Report views', value: String(funnel.report_viewed || 0) },
       { label: 'First-run starts', value: String(funnel.first_run_started || 0) },
+      { label: 'Mystery mode starts', value: String(funnel.mystery_mode_started || 0) },
+      { label: 'Sample gallery opens', value: String(funnel.sample_gallery_opened || 0) },
+      { label: 'Before/after copies', value: String(funnel.before_after_card_copied || 0) },
+      { label: 'Field note expands', value: String(funnel.field_note_expanded || 0) },
+      { label: 'Map preview opens', value: String(funnel.room_map_preview_opened || 0) },
+      { label: 'Home Pulse opens', value: String(funnel.home_pulse_opened || 0) },
       { label: 'Room ritual starts', value: String(funnel.room_ritual_started || 0) },
       { label: 'Room ritual done', value: String(funnel.room_ritual_completed || 0) },
       { label: 'Home Journal opens', value: String(funnel.home_journal_opened || 0) },
@@ -2647,6 +2964,38 @@ ritualGrid?.addEventListener('click', (event) => {
     startRoomRitual(ritual, 'ritual_grid');
   }
 });
+mysteryModeGrid?.addEventListener('click', (event) => {
+  const button = event.target instanceof Element ? event.target.closest('[data-mystery-mode]') : null;
+  const mode = mysteryModeById(button?.dataset.mysteryMode);
+  if (mode) {
+    startMysteryMode(mode, 'mystery_mode_grid');
+  }
+});
+curiositySampleGrid?.addEventListener('click', (event) => {
+  const button = event.target instanceof Element ? event.target.closest('[data-curiosity-sample]') : null;
+  const sample = CURIOSITY_SAMPLE_GALLERY.find((item) => item.id === button?.dataset.curiositySample);
+  if (!sample) {
+    return;
+  }
+  if (audienceModeInput) {
+    audienceModeInput.value = sample.audienceMode;
+  }
+  if (roomLabelInput) {
+    roomLabelInput.value = sample.roomLabel;
+  }
+  renderCaptureCoach();
+  trackProductEvent('sample_gallery_opened', {
+    sample_gallery_id: sample.id,
+    audience_mode: sample.audienceMode,
+    room_label: sample.roomLabel,
+    room_labeled: true,
+  });
+  trackProductEvent('sample_cta_clicked', {
+    surface: 'curiosity_sample_gallery',
+    sample_key: 'walkthrough',
+  });
+  loadSampleReport();
+});
 seasonalPackGrid?.addEventListener('click', (event) => {
   const button = event.target instanceof Element ? event.target.closest('[data-seasonal-pack]') : null;
   const pack = SEASONAL_RITUAL_PACKS.find((item) => item.id === button?.dataset.seasonalPack);
@@ -2750,8 +3099,11 @@ syncSettingsAccessStatus();
 renderDailyMission();
 renderChallengeLibrary();
 renderRoomRituals();
+renderMysteryModes();
+renderCuriositySampleGallery();
 renderCaptureCoach();
 renderHomeJournal();
+renderHomePulse();
 initLandingSectionTracking();
 if (betaShareCopy) {
   betaShareCopy.textContent = betaSharePrompt();
@@ -3198,6 +3550,48 @@ document.addEventListener('click', async (event) => {
       room_labeled: Boolean(entry?.roomLabel),
     });
     showToast('Reminder idea saved mentally for now: rescan this room next week with the same label.', 3800);
+    return;
+  }
+
+  const homePulseButton = target.closest('[data-open-home-pulse]');
+  if (homePulseButton) {
+    await trackProductEvent('home_pulse_opened', { surface: 'home_pulse_card' });
+    switchView('journal');
+    showToast('Home Journal opened from Home Pulse.');
+    return;
+  }
+
+  const roomMapButton = target.closest('[data-room-map-preview]');
+  if (roomMapButton) {
+    const job = activeJob();
+    await trackProductEvent('room_map_preview_opened', {
+      surface: roomMapButton.dataset.mapMarker ? 'map_marker' : 'map_panel',
+      map_marker: roomMapButton.dataset.mapMarker || null,
+      job_id: job?.job_id || null,
+      sample_key: job?.sample_key || null,
+      audience_mode: job?.audience_mode || selectedAudienceMode(),
+    });
+    showToast('Approximate evidence map is for orientation only. Confirm with frames.');
+    return;
+  }
+
+  const beforeAfterButton = target.closest('[data-copy-before-after-story]');
+  if (beforeAfterButton) {
+    const job = activeJob();
+    if (!job || job.status !== 'complete' || !job.room_comparison) {
+      return;
+    }
+    try {
+      await copyText(buildBeforeAfterStoryText(job));
+      await trackProductEvent('before_after_card_copied', {
+        job_id: job.job_id,
+        sample_key: job.sample_key || null,
+        audience_mode: job.audience_mode || 'general',
+      });
+      showToast('Before/after story card copied.');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not copy before/after story.', 3600);
+    }
     return;
   }
 

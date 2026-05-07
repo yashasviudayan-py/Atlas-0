@@ -432,6 +432,7 @@
     .report-hero h3,
     .brief-lead h3,
     .mission-card h4,
+    .curiosity-head h4,
     .challenge-library-head h4,
     .journal-room-title {
       font-family: var(--font-display);
@@ -1434,8 +1435,12 @@
     }
 
     .ritual-dashboard,
+    .curiosity-dashboard,
     .home-journal-shell,
-    .brief-triage {
+    .brief-triage,
+    .field-notes,
+    .room-map-preview,
+    .before-after-story {
       display: grid;
       gap: 16px;
       padding: 18px;
@@ -1449,6 +1454,7 @@
     }
 
     .ritual-head,
+    .curiosity-head,
     .journal-head,
     .triage-head {
       display: flex;
@@ -1504,6 +1510,9 @@
     }
 
     .ritual-grid,
+    .mystery-grid,
+    .curiosity-sample-grid,
+    .field-note-grid,
     .seasonal-pack-grid,
     .triage-grid {
       display: grid;
@@ -1516,9 +1525,13 @@
     }
 
     .ritual-card,
+    .mystery-card,
+    .curiosity-sample-card,
     .seasonal-card,
     .triage-card,
-    .journal-room-card {
+    .journal-room-card,
+    .field-note-card,
+    .story-card {
       display: grid;
       gap: 10px;
       min-width: 0;
@@ -1530,6 +1543,8 @@
     }
 
     .ritual-card,
+    .mystery-card,
+    .curiosity-sample-card,
     .seasonal-card {
       cursor: pointer;
       color: inherit;
@@ -1540,6 +1555,9 @@
 
     .ritual-card:hover,
     .ritual-card.active,
+    .mystery-card:hover,
+    .mystery-card.active,
+    .curiosity-sample-card:hover,
     .seasonal-card:hover {
       transform: translateY(-1px);
       border-color: rgba(13, 111, 97, 0.28);
@@ -1562,11 +1580,162 @@
     }
 
     .ritual-card strong,
+    .mystery-card strong,
+    .curiosity-sample-card strong,
     .seasonal-card strong,
-    .triage-card strong {
+    .triage-card strong,
+    .field-note-card summary,
+    .story-card strong {
       color: var(--ink);
       font-size: 1rem;
       letter-spacing: -0.03em;
+    }
+
+    .home-pulse-card {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(13, 111, 97, 0.18);
+      background:
+        radial-gradient(circle at top right, var(--accent-wash), transparent 34%),
+        var(--panel-strong);
+      box-shadow: var(--shadow-soft), var(--hairline);
+    }
+
+    .home-pulse-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .home-pulse-head strong {
+      display: block;
+      margin-top: 4px;
+      font-family: var(--font-display);
+      font-size: clamp(1.2rem, 2vw, 1.6rem);
+      letter-spacing: -0.055em;
+    }
+
+    .home-pulse-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .home-pulse-grid span {
+      display: grid;
+      gap: 5px;
+      padding: 10px;
+      border-radius: var(--radius-sm);
+      background: rgba(255,255,255,0.68);
+      border: 1px solid var(--line);
+      color: var(--ink-soft);
+      min-width: 0;
+    }
+
+    .home-pulse-grid strong {
+      color: var(--ink);
+      overflow-wrap: anywhere;
+    }
+
+    .home-pulse-grid small,
+    .mystery-card span,
+    .curiosity-sample-card span,
+    .field-note-card p {
+      color: var(--ink-soft);
+      line-height: 1.5;
+    }
+
+    .field-note-card {
+      cursor: pointer;
+    }
+
+    .field-note-card summary {
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .field-note-card summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .room-map-shell {
+      display: grid;
+      grid-template-columns: minmax(280px, 0.9fr) minmax(260px, 0.7fr);
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .room-map-canvas {
+      position: relative;
+      min-height: 280px;
+      overflow: hidden;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(90deg, rgba(13, 111, 97, 0.12) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(212, 111, 44, 0.10) 1px, transparent 1px),
+        radial-gradient(circle at 70% 30%, rgba(226, 170, 67, 0.18), transparent 28%),
+        var(--paper);
+      background-size: 34px 34px, 34px 34px, auto, auto;
+      box-shadow: var(--shadow-soft) inset;
+    }
+
+    .room-map-canvas::before {
+      content: '';
+      position: absolute;
+      inset: 34px;
+      border: 2px solid rgba(13, 111, 97, 0.18);
+      border-radius: 34px;
+    }
+
+    .room-map-marker {
+      position: absolute;
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      transform: translate(-50%, -50%);
+      background: var(--accent);
+      color: #fffaf1;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      box-shadow: 0 10px 24px rgba(36, 23, 17, 0.18);
+    }
+
+    .room-map-marker.high {
+      background: var(--danger);
+    }
+
+    .room-map-marker.medium {
+      background: var(--gold);
+    }
+
+    .room-map-list {
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+
+    .room-map-item {
+      display: grid;
+      gap: 5px;
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      color: inherit;
+      text-align: left;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .room-map-item span {
+      color: var(--ink-soft);
+      line-height: 1.45;
     }
 
     .triage-card.fix {
@@ -1621,8 +1790,12 @@
     }
 
     :root[data-theme="dark"] .ritual-dashboard,
+    :root[data-theme="dark"] .curiosity-dashboard,
     :root[data-theme="dark"] .home-journal-shell,
-    :root[data-theme="dark"] .brief-triage {
+    :root[data-theme="dark"] .brief-triage,
+    :root[data-theme="dark"] .field-notes,
+    :root[data-theme="dark"] .room-map-preview,
+    :root[data-theme="dark"] .before-after-story {
       background:
         radial-gradient(circle at 8% 0%, rgba(52, 196, 176, 0.16), transparent 32%),
         radial-gradient(circle at 96% 12%, rgba(255, 156, 66, 0.16), transparent 34%),
@@ -1630,9 +1803,14 @@
     }
 
     :root[data-theme="dark"] .ritual-card,
+    :root[data-theme="dark"] .mystery-card,
+    :root[data-theme="dark"] .curiosity-sample-card,
     :root[data-theme="dark"] .seasonal-card,
     :root[data-theme="dark"] .triage-card,
-    :root[data-theme="dark"] .journal-room-card {
+    :root[data-theme="dark"] .journal-room-card,
+    :root[data-theme="dark"] .field-note-card,
+    :root[data-theme="dark"] .story-card,
+    :root[data-theme="dark"] .home-pulse-grid span {
       background: rgba(255,255,255,0.04);
     }
 
@@ -3228,6 +3406,7 @@
       .insight-grid,
       .report-columns,
       .evidence-columns,
+      .room-map-shell,
       .home-journal-grid {
         grid-template-columns: 1fr;
       }
@@ -3284,6 +3463,10 @@
       .challenge-result-grid,
       .ritual-today,
       .ritual-grid,
+      .mystery-grid,
+      .curiosity-sample-grid,
+      .field-note-grid,
+      .home-pulse-grid,
       .seasonal-pack-grid,
       .triage-grid,
       .voice-principles {
@@ -3606,6 +3789,28 @@
               <div class="actions" style="margin-bottom: 12px;">
                 <button class="button-link ghost" type="button" data-load-sample="walkthrough">Open the built-in sample report</button>
               </div>
+              <section id="home-pulse-card" class="home-pulse-card" aria-label="Home Pulse">
+                <div class="empty-card">Home Pulse will summarize local room wins once the app loads.</div>
+              </section>
+              <section class="curiosity-dashboard" aria-label="Room Mystery Mode" data-landing-section="room_mystery_mode">
+                <div class="curiosity-head">
+                  <div>
+                    <span class="guide-kicker">Room Mystery Mode</span>
+                    <h4>What will ATLAS notice today?</h4>
+                    <p id="mystery-prompt-copy">Pick a discovery prompt before upload. The report stays evidence-backed and honest about uncertainty.</p>
+                  </div>
+                  <span class="pill">Curiosity layer</span>
+                </div>
+                <div id="mystery-mode-grid" class="mystery-grid" aria-label="Room mystery prompts"></div>
+                <div class="section-head compact">
+                  <div>
+                    <span class="guide-kicker">Curiosity sample gallery</span>
+                    <h4>Explore a room story before uploading.</h4>
+                    <p>Each sample teaches a use case while keeping the product promise narrow: decision support from evidence, not fake certainty.</p>
+                  </div>
+                </div>
+                <div id="curiosity-sample-grid" class="curiosity-sample-grid" aria-label="Curiosity sample gallery"></div>
+              </section>
               <section class="ritual-dashboard" aria-label="Room Ritual dashboard" data-landing-section="room_rituals">
                 <div class="ritual-head">
                   <div>
@@ -3957,6 +4162,14 @@
           <div class="empty-card">Fix Today, Watch Later, and Rescan Needed guidance will appear after a completed scan.</div>
         </section>
 
+        <section id="field-notes-panel" class="field-notes panel" aria-label="ATLAS Field Notes">
+          <div class="empty-card">ATLAS Field Notes will appear after a completed scan.</div>
+        </section>
+
+        <section id="room-map-preview" class="room-map-preview panel" aria-label="Approximate room evidence map">
+          <div class="empty-card">Approximate evidence map will appear after a completed scan.</div>
+        </section>
+
         <section id="room-scorecard" class="scorecard-panel panel" aria-label="Room safety scorecard">
           <div class="empty-card">Room scorecard will appear after a completed scan.</div>
         </section>
@@ -3982,6 +4195,10 @@
             <strong>No room brief yet</strong>
             <p>Run a scan or open the sample report to generate a concise summary with score, top action, confidence, and decision-support wording.</p>
           </article>
+        </section>
+
+        <section id="before-after-story" class="before-after-story panel" aria-label="Before and after story card">
+          <div class="empty-card">Before/after story card will appear after a completed scan.</div>
         </section>
 
         <section class="stats-grid" aria-label="Report summary">

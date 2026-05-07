@@ -48,6 +48,9 @@ try {
     await page.locator('.first-run-rail').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.trust-proof-deck').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.use-case-card').first().waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#home-pulse-card').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#mystery-mode-grid').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#curiosity-sample-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.ritual-dashboard').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#ritual-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#seasonal-pack-grid').waitFor({ state: 'attached', timeout: 3000 });
@@ -58,8 +61,11 @@ try {
     await page.locator('#brief-executive').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#brief-confidence-details').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#brief-triage-strip').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#field-notes-panel').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#room-map-preview').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#report-action-loop').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#share-card-preview').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#before-after-story').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#view-journal').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#home-journal-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('text=Room Safety Brief').first().waitFor({ state: 'attached', timeout: 3000 });
