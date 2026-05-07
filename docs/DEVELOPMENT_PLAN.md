@@ -1308,6 +1308,44 @@ and report-first.
    - backend event tests cover the new daily brand value events so telemetry
      does not silently reject beta learning signals
 
+## Curiosity and Brand Standout Pass
+
+### Status
+
+Implemented. This pass adds a discovery layer that makes ATLAS-0 more
+explorable while preserving the core Safety Brief promise and decision-support
+language.
+
+### Completed
+
+1. Room Mystery Mode
+   - scan onboarding now offers playful-but-safe discovery prompts such as
+     hidden quick fixes, pet knockover checks, tomorrow annoyances, tiny hands,
+     and guest route scans
+   - selecting a mystery mode preloads room label, audience mode, capture
+     guidance, and telemetry without changing the hazard engine
+
+2. Home Pulse and curiosity samples
+   - Home Pulse summarizes local rooms checked, latest room win, next suggested
+     room, and weekly calm score from browser-local history
+   - curiosity sample gallery cards let users open polished sample stories for
+     toddler, pet, renter, guest-ready, and night-path use cases
+
+3. Report exploration layer
+   - Safety Briefs now add ATLAS Field Notes derived from findings, confidence,
+     scan quality, and the active mystery prompt
+   - reports now include an approximate evidence map preview that clearly avoids
+     measured-3D claims
+   - before/after story cards can be copied when same-room comparison data is
+     available
+
+4. Beta learning loop
+   - new public product events cover mystery starts, Home Pulse opens,
+     before/after card copies, field note expands, sample gallery opens, and map
+     preview opens
+   - operator product metrics and beta inbox funnel now expose these curiosity
+     interactions
+
 ---
 
 ## Non-Negotiable Quality Bar

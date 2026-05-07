@@ -77,6 +77,9 @@ What is strong today:
   daily/weekly prompts, seasonal packs, and local streaks.
 - The Home Journal now keeps accountless browser-local room history with last
   checked rooms, score trends, favorite rooms, and rescan reminders.
+- The curiosity layer now includes Room Mystery Mode, Home Pulse, sample
+  gallery cards, Field Notes, approximate evidence maps, and before/after story
+  cards so users have more reasons to explore without weakening trust.
 - The frontend identity now uses a named Warm Trust palette, editorial display
   typography, and calmer body/UI typography to feel less dashboard-like.
 - Upload jobs persist to disk instead of living only in memory.
