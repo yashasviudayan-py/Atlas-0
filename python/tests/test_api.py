@@ -293,6 +293,12 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
         "room_reminder_clicked",
         "seasonal_pack_started",
         "fix_today_copied",
+        "mystery_mode_started",
+        "home_pulse_opened",
+        "before_after_card_copied",
+        "field_note_expanded",
+        "room_map_preview_opened",
+        "sample_gallery_opened",
     ):
         response = client.post(
             "/product/events",
@@ -317,6 +323,12 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
         "room_reminder_clicked",
         "seasonal_pack_started",
         "fix_today_copied",
+        "mystery_mode_started",
+        "home_pulse_opened",
+        "before_after_card_copied",
+        "field_note_expanded",
+        "room_map_preview_opened",
+        "sample_gallery_opened",
     ]
 
 
