@@ -299,6 +299,13 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
         "field_note_expanded",
         "room_map_preview_opened",
         "sample_gallery_opened",
+        "settings_data_cleared",
+        "settings_report_preferences_changed",
+        "settings_accessibility_changed",
+        "settings_default_scan_changed",
+        "settings_local_backup_exported",
+        "settings_local_backup_imported",
+        "settings_feedback_clicked",
     ):
         response = client.post(
             "/product/events",
@@ -329,6 +336,13 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
         "field_note_expanded",
         "room_map_preview_opened",
         "sample_gallery_opened",
+        "settings_data_cleared",
+        "settings_report_preferences_changed",
+        "settings_accessibility_changed",
+        "settings_default_scan_changed",
+        "settings_local_backup_exported",
+        "settings_local_backup_imported",
+        "settings_feedback_clicked",
     ]
 
 
