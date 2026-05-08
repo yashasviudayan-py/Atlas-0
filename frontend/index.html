@@ -115,6 +115,45 @@
       transition-duration: 0.01ms !important;
     }
 
+    :root[data-large-text="true"] {
+      font-size: 17.5px;
+    }
+
+    :root[data-high-contrast="true"] {
+      --ink-soft: #43362b;
+      --ink-muted: #5f4c3d;
+      --line: rgba(40, 26, 18, 0.28);
+      --line-strong: rgba(40, 26, 18, 0.44);
+      --accent: #006f63;
+      --accent-strong: #00574e;
+    }
+
+    :root[data-theme="dark"][data-high-contrast="true"] {
+      --ink: #fffdf7;
+      --ink-soft: #fff0dc;
+      --ink-muted: #dccab3;
+      --line: rgba(255, 247, 235, 0.26);
+      --line-strong: rgba(255, 247, 235, 0.44);
+      --accent: #57ead8;
+      --accent-strong: #b7fff6;
+    }
+
+    :root[data-layout-density="compact"] {
+      --radius-xl: 22px;
+      --radius-lg: 16px;
+      --radius-md: 13px;
+      --radius-sm: 10px;
+    }
+
+    :root[data-always-focus="true"] button:focus,
+    :root[data-always-focus="true"] a:focus,
+    :root[data-always-focus="true"] input:focus,
+    :root[data-always-focus="true"] select:focus,
+    :root[data-always-focus="true"] details:focus-within {
+      outline: 3px solid var(--accent-strong);
+      outline-offset: 3px;
+    }
+
     html, body {
       margin: 0;
       min-height: 100%;
@@ -2829,6 +2868,45 @@
       white-space: nowrap;
     }
 
+    .settings-overview-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .settings-overview-card {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+      padding: 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.54);
+      box-shadow: var(--hairline);
+    }
+
+    .settings-overview-card span,
+    .settings-control-row small {
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .settings-overview-card strong {
+      color: var(--ink);
+      font-size: 1.02rem;
+      letter-spacing: -0.03em;
+      overflow-wrap: anywhere;
+    }
+
+    .settings-overview-card small {
+      color: var(--ink-soft);
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
     .settings-grid,
     .settings-details-grid {
       display: grid;
@@ -2840,6 +2918,11 @@
       display: grid;
       gap: 18px;
       min-height: 210px;
+    }
+
+    .settings-card.full-span,
+    .settings-details.full-span {
+      grid-column: 1 / -1;
     }
 
     .section-head.compact {
@@ -2920,6 +3003,61 @@
       margin-top: auto;
     }
 
+    .settings-control-stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .settings-control-row {
+      display: grid;
+      gap: 8px;
+      padding: 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: linear-gradient(135deg, var(--bg-soft), var(--panel-strong));
+    }
+
+    .settings-control-row label {
+      color: var(--ink);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .settings-input,
+    .settings-select {
+      width: 100%;
+      min-height: 46px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-sm);
+      background: var(--panel-strong);
+      color: var(--ink);
+      font: inherit;
+      padding: 0 12px;
+    }
+
+    .settings-input:focus,
+    .settings-select:focus {
+      outline: 3px solid var(--accent-wash);
+      outline-offset: 2px;
+      border-color: var(--accent);
+    }
+
+    .settings-danger-zone {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(170, 67, 52, 0.22);
+      background: var(--danger-wash);
+    }
+
+    .settings-backup-actions,
+    .settings-support-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
     .settings-details {
       padding: 0;
       overflow: hidden;
@@ -2992,6 +3130,10 @@
 
     .settings-list li + li {
       margin-top: 8px;
+    }
+
+    :root[data-theme="dark"] .settings-overview-card {
+      background: rgba(255,255,255,0.05);
     }
 
     .app-footer {
@@ -3402,6 +3544,7 @@
       .scene-shell,
       .panel-grid,
       .settings-grid,
+      .settings-overview-grid,
       .settings-details-grid,
       .insight-grid,
       .report-columns,
@@ -4465,10 +4608,18 @@
         <section class="settings-hero panel">
           <div>
             <p class="eyebrow">Settings</p>
-            <h3>Make ATLAS-0 feel right for this browser.</h3>
-            <p>These preferences stay local to your device. They tune the interface, report visibility, and quick-access beta controls without changing the underlying scan.</p>
+            <h3>Your ATLAS-0 control center.</h3>
+            <p>Local preferences, privacy controls, scan defaults, accessibility, support shortcuts, and backup tools live here. Nothing here changes the hazard engine or upgrades a report into certification.</p>
           </div>
-          <span class="settings-badge">Local preferences</span>
+          <span id="settings-control-status" class="settings-badge">Local preferences</span>
+        </section>
+
+        <section id="settings-overview-grid" class="settings-overview-grid" aria-label="Settings overview">
+          <article class="settings-overview-card">
+            <span>Loading</span>
+            <strong>Control center</strong>
+            <small>Settings summary will appear after the app loads.</small>
+          </article>
         </section>
 
         <section class="settings-grid">
@@ -4487,13 +4638,21 @@
               <input id="theme-toggle" class="switch-input" type="checkbox" />
               <span class="switch-track" aria-hidden="true"><span></span></span>
             </label>
+            <label class="switch-row" for="settings-high-contrast-toggle">
+              <span>
+                <strong>High contrast</strong>
+                <small>Increase tonal separation for reports, forms, and cards.</small>
+              </span>
+              <input id="settings-high-contrast-toggle" class="switch-input" type="checkbox" />
+              <span class="switch-track" aria-hidden="true"><span></span></span>
+            </label>
           </article>
 
           <article class="settings-card panel">
             <div class="section-head compact">
               <div>
-                <h3>Comfort</h3>
-                <p>Quiet the interface down when you want less motion during report review.</p>
+                <h3>Accessibility & layout</h3>
+                <p>Tune motion, text size, spacing, and focus visibility for calmer review.</p>
               </div>
             </div>
             <label class="switch-row" for="motion-toggle">
@@ -4504,13 +4663,57 @@
               <input id="motion-toggle" class="switch-input" type="checkbox" />
               <span class="switch-track" aria-hidden="true"><span></span></span>
             </label>
+            <label class="switch-row" for="settings-large-text-toggle">
+              <span>
+                <strong>Larger text</strong>
+                <small>Raise the base type size for easier reading.</small>
+              </span>
+              <input id="settings-large-text-toggle" class="switch-input" type="checkbox" />
+              <span class="switch-track" aria-hidden="true"><span></span></span>
+            </label>
+            <label class="switch-row" for="settings-focus-toggle">
+              <span>
+                <strong>Always show focus</strong>
+                <small>Keep keyboard focus rings visible and high contrast.</small>
+              </span>
+              <input id="settings-focus-toggle" class="switch-input" type="checkbox" />
+              <span class="switch-track" aria-hidden="true"><span></span></span>
+            </label>
+            <div class="settings-control-row">
+              <label for="settings-layout-density">Layout density</label>
+              <select id="settings-layout-density" class="settings-select">
+                <option value="spacious">Spacious</option>
+                <option value="compact">Compact</option>
+              </select>
+              <small>Compact mode tightens spacing without hiding content.</small>
+            </div>
           </article>
 
-          <article class="settings-card panel">
+          <article class="settings-card panel full-span">
             <div class="section-head compact">
               <div>
-                <h3>Report defaults</h3>
-                <p>Decide whether lower-confidence findings should appear by default in future report views.</p>
+                <h3>Report preferences</h3>
+                <p>Shape how reports open in this browser while keeping the underlying scan unchanged.</p>
+              </div>
+            </div>
+            <div class="settings-control-stack">
+              <div class="settings-control-row">
+                <label for="settings-report-style">Default report style</label>
+                <select id="settings-report-style" class="settings-select">
+                  <option value="action-first">Action-first</option>
+                  <option value="evidence-detailed">Detailed evidence</option>
+                  <option value="calm-brief">Calm brief</option>
+                </select>
+                <small>Used for report framing, copy prompts, and settings summary.</small>
+              </div>
+              <div class="settings-control-row">
+                <label for="settings-rescan-reminder">Local rescan reminder cadence</label>
+                <select id="settings-rescan-reminder" class="settings-select">
+                  <option value="off">Off</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+                <small>Stored locally for Home Journal copy; no account or notification service is added.</small>
               </div>
             </div>
             <label class="switch-row" for="settings-low-confidence-toggle">
@@ -4526,14 +4729,70 @@
           <article class="settings-card panel">
             <div class="section-head compact">
               <div>
-                <h3>Privacy shortcut</h3>
-                <p>Manage the private-beta token stored in this browser.</p>
+                <h3>Scan defaults</h3>
+                <p>Pre-fill the next upload with your usual room context.</p>
+              </div>
+            </div>
+            <div class="settings-control-stack">
+              <div class="settings-control-row">
+                <label for="settings-default-audience">Default audience mode</label>
+                <select id="settings-default-audience" class="settings-select">
+                  <option value="general">General home safety</option>
+                  <option value="renter">Renter move-in</option>
+                  <option value="toddler">Toddler-aware</option>
+                  <option value="pet">Pet-aware</option>
+                </select>
+              </div>
+              <div class="settings-control-row">
+                <label for="settings-default-room-label">Default room label</label>
+                <input id="settings-default-room-label" class="settings-input" type="text" maxlength="80" placeholder="Living room, nursery, entry path" />
+              </div>
+              <div class="settings-control-row">
+                <label for="settings-default-mystery">Default Mystery Mode</label>
+                <select id="settings-default-mystery" class="settings-select">
+                  <option value="">Daily rotating prompt</option>
+                </select>
+              </div>
+            </div>
+          </article>
+
+          <article class="settings-card panel">
+            <div class="section-head compact">
+              <div>
+                <h3>Privacy & local data</h3>
+                <p>Clear browser-local ATLAS-0 data. Server-side scan artifacts are deleted only from the report delete control.</p>
               </div>
             </div>
             <div class="settings-action-row">
               <span id="settings-token-status" class="settings-status">Checking token status</span>
               <button id="settings-token-clear" class="button-link ghost" type="button">Clear saved token</button>
             </div>
+            <div class="settings-danger-zone">
+              <button id="settings-clear-journal" class="button-link ghost danger" type="button">Clear Home Journal</button>
+              <button id="settings-clear-rituals" class="button-link ghost danger" type="button">Clear rituals and streaks</button>
+              <button id="settings-clear-defaults" class="button-link ghost danger" type="button">Clear saved defaults</button>
+              <button id="settings-clear-all-local" class="button-link ghost danger" type="button">Clear all local ATLAS-0 data</button>
+            </div>
+            <div class="settings-action-row">
+              <button id="settings-open-current-report" class="button-link ghost" type="button">Open current report</button>
+              <button id="settings-delete-current-report" class="button-link ghost danger" type="button">Delete current report</button>
+            </div>
+          </article>
+
+          <article class="settings-card panel full-span">
+            <div class="section-head compact">
+              <div>
+                <h3>Local backup</h3>
+                <p>Export or import browser-local settings, Home Journal entries, favorites, streaks, and defaults.</p>
+              </div>
+            </div>
+            <div class="settings-backup-actions">
+              <button id="settings-export-backup" class="button-link" type="button">Export local backup</button>
+              <button id="settings-import-backup" class="button-link ghost" type="button">Import local backup</button>
+              <button id="settings-privacy-summary" class="button-link ghost" type="button">Download privacy summary</button>
+              <input id="settings-import-file" type="file" accept="application/json,.json" />
+            </div>
+            <p class="meta-copy">Backups never include uploaded videos, PDFs, evidence crops, or server artifacts.</p>
           </article>
         </section>
 
@@ -4546,6 +4805,23 @@
             <div class="settings-detail-body">
               <p>ATLAS-0 is a report-first room safety scan: upload a 20-60 second walkthrough and get hazards, evidence frames, confidence signals, recommendations, and a PDF report.</p>
               <p>It is decision support, not a safety certification. The honest product promise is to help people notice fixable room risks faster.</p>
+            </div>
+          </details>
+
+          <details class="settings-details panel" open>
+            <summary>
+              <span>Beta feedback & support</span>
+              <small>Tell us what helped, broke, or felt confusing</small>
+            </summary>
+            <div class="settings-detail-body">
+              <p>Use these shortcuts while testing. They are intentionally simple for the accountless beta.</p>
+              <div class="settings-support-actions">
+                <button id="settings-feedback-copy" class="button-link" type="button">Copy feedback template</button>
+                <button id="settings-bad-result" class="button-link ghost" type="button">Report bad result</button>
+                <button id="settings-feature-request" class="button-link ghost" type="button">Request feature</button>
+                <button id="settings-beta-invite" class="button-link ghost" type="button">Copy beta invite</button>
+                <button id="settings-waitlist" class="button-link ghost" type="button">Join beta updates</button>
+              </div>
             </div>
           </details>
 
@@ -4571,16 +4847,16 @@
 
           <details class="settings-details panel">
             <summary>
-              <span>Production readiness lens</span>
-              <small>What operators should watch before opening the beta wider</small>
+              <span>Version, changelog, and limits</span>
+              <small>What changed recently and what ATLAS-0 still does not claim</small>
             </summary>
             <div class="settings-detail-body">
-              <p>ATLAS-0 is strongest when the product loop stays narrow: one room, one report, one fix, one rescan. The operator panels above should stay healthy before inviting more beta users.</p>
+              <p>Current beta status: upload-first Room Safety Brief with Home Journal, Room Rituals, Mystery Mode, Field Notes, evidence maps, PDF export, and local settings controls.</p>
               <ul class="settings-list">
-                <li>Upload success rate should stay high before increasing traffic.</li>
-                <li>Report usefulness and wrong/duplicate feedback should be reviewed every beta batch.</li>
-                <li>Object-store artifacts, worker health, and retention cleanup should be checked before hosted demos.</li>
-                <li>Low-confidence findings should remain hidden by default unless users ask for the rawer review mode.</li>
+                <li>Reports are evidence-backed decision support, not safety certification.</li>
+                <li>Approximate maps are orientation aids, not measured 3D reconstruction.</li>
+                <li>Local reminders do not schedule OS notifications or create accounts.</li>
+                <li>Operator health, object-store artifacts, and upload success rate should stay healthy before inviting bigger beta batches.</li>
               </ul>
             </div>
           </details>

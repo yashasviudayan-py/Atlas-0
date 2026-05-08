@@ -71,6 +71,14 @@ try {
     await page.locator('text=Room Safety Brief').first().waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('text=Warm Trust voice guide').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#view-settings').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#settings-overview-grid').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#settings-report-style').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#settings-default-audience').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#settings-high-contrast-toggle').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#settings-clear-journal').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#settings-export-backup').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('text=Beta feedback & support').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('text=Version, changelog, and limits').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('footer.app-footer').waitFor({ timeout: 3000 });
 
     const overflow = await page.evaluate(() => {

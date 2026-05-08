@@ -31,6 +31,39 @@ const RITUAL_SELECTION_STORAGE_KEY = 'atlas0.selectedRitual';
 const HOME_JOURNAL_STORAGE_KEY = 'atlas0.homeJournal';
 const FAVORITE_ROOMS_STORAGE_KEY = 'atlas0.favoriteRooms';
 const MYSTERY_MODE_STORAGE_KEY = 'atlas0.selectedMysteryMode';
+const REPORT_STYLE_STORAGE_KEY = 'atlas0.reportStyle';
+const DEFAULT_AUDIENCE_STORAGE_KEY = 'atlas0.defaultAudienceMode';
+const DEFAULT_ROOM_LABEL_STORAGE_KEY = 'atlas0.defaultRoomLabel';
+const DEFAULT_MYSTERY_MODE_STORAGE_KEY = 'atlas0.defaultMysteryMode';
+const RESCAN_REMINDER_STORAGE_KEY = 'atlas0.rescanReminderCadence';
+const LARGE_TEXT_STORAGE_KEY = 'atlas0.largeText';
+const HIGH_CONTRAST_STORAGE_KEY = 'atlas0.highContrast';
+const LAYOUT_DENSITY_STORAGE_KEY = 'atlas0.layoutDensity';
+const FOCUS_MODE_STORAGE_KEY = 'atlas0.alwaysShowFocus';
+
+const SETTINGS_LOCAL_KEYS = [
+  THEME_STORAGE_KEY,
+  MOTION_STORAGE_KEY,
+  LOW_CONFIDENCE_STORAGE_KEY,
+  MISSION_STORAGE_KEY,
+  CHALLENGE_SELECTION_STORAGE_KEY,
+  CHALLENGE_JOB_STORAGE_KEY,
+  FIX_CHECKLIST_STORAGE_KEY,
+  RITUAL_STORAGE_KEY,
+  RITUAL_SELECTION_STORAGE_KEY,
+  HOME_JOURNAL_STORAGE_KEY,
+  FAVORITE_ROOMS_STORAGE_KEY,
+  MYSTERY_MODE_STORAGE_KEY,
+  REPORT_STYLE_STORAGE_KEY,
+  DEFAULT_AUDIENCE_STORAGE_KEY,
+  DEFAULT_ROOM_LABEL_STORAGE_KEY,
+  DEFAULT_MYSTERY_MODE_STORAGE_KEY,
+  RESCAN_REMINDER_STORAGE_KEY,
+  LARGE_TEXT_STORAGE_KEY,
+  HIGH_CONTRAST_STORAGE_KEY,
+  LAYOUT_DENSITY_STORAGE_KEY,
+  FOCUS_MODE_STORAGE_KEY,
+];
 
 function readStoredPreference(key) {
   try {
@@ -43,6 +76,12 @@ function readStoredPreference(key) {
 function writeStoredPreference(key, value) {
   try {
     window.localStorage.setItem(key, value);
+  } catch {}
+}
+
+function removeStoredPreference(key) {
+  try {
+    window.localStorage.removeItem(key);
   } catch {}
 }
 
@@ -195,6 +234,32 @@ const motionStatus = document.getElementById('motion-status');
 const settingsTokenStatus = document.getElementById('settings-token-status');
 const settingsTokenClear = /** @type {HTMLButtonElement} */ (document.getElementById('settings-token-clear'));
 const settingsSampleBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-sample-btn'));
+const settingsOverviewGrid = document.getElementById('settings-overview-grid');
+const settingsControlStatus = document.getElementById('settings-control-status');
+const settingsReportStyleInput = /** @type {HTMLSelectElement} */ (document.getElementById('settings-report-style'));
+const settingsDefaultAudienceInput = /** @type {HTMLSelectElement} */ (document.getElementById('settings-default-audience'));
+const settingsDefaultRoomLabelInput = /** @type {HTMLInputElement} */ (document.getElementById('settings-default-room-label'));
+const settingsDefaultMysteryInput = /** @type {HTMLSelectElement} */ (document.getElementById('settings-default-mystery'));
+const settingsRescanReminderInput = /** @type {HTMLSelectElement} */ (document.getElementById('settings-rescan-reminder'));
+const settingsLargeTextToggle = /** @type {HTMLInputElement} */ (document.getElementById('settings-large-text-toggle'));
+const settingsHighContrastToggle = /** @type {HTMLInputElement} */ (document.getElementById('settings-high-contrast-toggle'));
+const settingsLayoutDensityInput = /** @type {HTMLSelectElement} */ (document.getElementById('settings-layout-density'));
+const settingsFocusToggle = /** @type {HTMLInputElement} */ (document.getElementById('settings-focus-toggle'));
+const settingsClearJournalBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-journal'));
+const settingsClearRitualsBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-rituals'));
+const settingsClearDefaultsBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-defaults'));
+const settingsClearAllLocalBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-all-local'));
+const settingsOpenCurrentReportBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-open-current-report'));
+const settingsDeleteCurrentReportBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-delete-current-report'));
+const settingsFeedbackCopyBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-feedback-copy'));
+const settingsBadResultBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-bad-result'));
+const settingsFeatureRequestBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-feature-request'));
+const settingsBetaInviteBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-beta-invite'));
+const settingsWaitlistBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-waitlist'));
+const settingsExportBackupBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-export-backup'));
+const settingsImportBackupBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-import-backup'));
+const settingsImportFileInput = /** @type {HTMLInputElement} */ (document.getElementById('settings-import-file'));
+const settingsPrivacySummaryBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-privacy-summary'));
 const dailyMissionTitle = document.getElementById('daily-mission-title');
 const dailyMissionCopy = document.getElementById('daily-mission-copy');
 const dailyMissionSteps = document.getElementById('daily-mission-steps');
@@ -371,6 +436,308 @@ function applyMotionPreference(reduced) {
   }
 }
 
+function storedBoolean(key) {
+  return readStoredPreference(key) === 'true';
+}
+
+function storedChoice(key, allowed, fallback) {
+  const value = readStoredPreference(key);
+  return allowed.includes(value) ? value : fallback;
+}
+
+function currentReportStyle() {
+  return storedChoice(REPORT_STYLE_STORAGE_KEY, ['action-first', 'evidence-detailed', 'calm-brief'], 'action-first');
+}
+
+function currentDefaultAudience() {
+  return storedChoice(DEFAULT_AUDIENCE_STORAGE_KEY, Object.keys(CAPTURE_COACH_MODES), 'general');
+}
+
+function currentLayoutDensity() {
+  return storedChoice(LAYOUT_DENSITY_STORAGE_KEY, ['spacious', 'compact'], 'spacious');
+}
+
+function currentRescanReminder() {
+  return storedChoice(RESCAN_REMINDER_STORAGE_KEY, ['off', 'weekly', 'monthly'], 'off');
+}
+
+function currentDefaultMysteryMode() {
+  const value = readStoredPreference(DEFAULT_MYSTERY_MODE_STORAGE_KEY);
+  return ROOM_MYSTERY_MODES.some((mode) => mode.id === value) ? value : '';
+}
+
+function setRootDatasetFlag(name, enabled) {
+  if (enabled) {
+    document.documentElement.dataset[name] = 'true';
+  } else {
+    delete document.documentElement.dataset[name];
+  }
+}
+
+function applyAccessibilityPreferences() {
+  setRootDatasetFlag('largeText', storedBoolean(LARGE_TEXT_STORAGE_KEY));
+  setRootDatasetFlag('highContrast', storedBoolean(HIGH_CONTRAST_STORAGE_KEY));
+  setRootDatasetFlag('alwaysFocus', storedBoolean(FOCUS_MODE_STORAGE_KEY));
+  document.documentElement.dataset.layoutDensity = currentLayoutDensity();
+
+  if (settingsLargeTextToggle) {
+    settingsLargeTextToggle.checked = storedBoolean(LARGE_TEXT_STORAGE_KEY);
+  }
+  if (settingsHighContrastToggle) {
+    settingsHighContrastToggle.checked = storedBoolean(HIGH_CONTRAST_STORAGE_KEY);
+  }
+  if (settingsFocusToggle) {
+    settingsFocusToggle.checked = storedBoolean(FOCUS_MODE_STORAGE_KEY);
+  }
+  if (settingsLayoutDensityInput) {
+    settingsLayoutDensityInput.value = currentLayoutDensity();
+  }
+}
+
+function syncSettingsPreferenceControls() {
+  if (settingsReportStyleInput) {
+    settingsReportStyleInput.value = currentReportStyle();
+  }
+  if (settingsDefaultAudienceInput) {
+    settingsDefaultAudienceInput.value = currentDefaultAudience();
+  }
+  if (settingsDefaultRoomLabelInput) {
+    settingsDefaultRoomLabelInput.value = readStoredPreference(DEFAULT_ROOM_LABEL_STORAGE_KEY) || '';
+  }
+  if (settingsDefaultMysteryInput) {
+    settingsDefaultMysteryInput.innerHTML = [
+      '<option value="">Daily rotating prompt</option>',
+      ...ROOM_MYSTERY_MODES.map((mode) => (
+        `<option value="${escapeHtml(mode.id)}">${escapeHtml(mode.title)}</option>`
+      )),
+    ].join('');
+    settingsDefaultMysteryInput.value = currentDefaultMysteryMode();
+  }
+  if (settingsRescanReminderInput) {
+    settingsRescanReminderInput.value = currentRescanReminder();
+  }
+  applyAccessibilityPreferences();
+}
+
+function applyDefaultScanPreferences(force = false) {
+  const defaultAudience = currentDefaultAudience();
+  const defaultLabel = readStoredPreference(DEFAULT_ROOM_LABEL_STORAGE_KEY) || '';
+  const defaultMystery = currentDefaultMysteryMode();
+
+  if (audienceModeInput && (force || !audienceModeInput.value || audienceModeInput.value === 'general')) {
+    audienceModeInput.value = defaultAudience;
+  }
+  if (roomLabelInput && defaultLabel && (force || !roomLabelInput.value.trim())) {
+    roomLabelInput.value = defaultLabel;
+  }
+  if (defaultMystery) {
+    state.activeMysteryModeId = defaultMystery;
+    writeStoredPreference(MYSTERY_MODE_STORAGE_KEY, defaultMystery);
+  }
+  renderMysteryModes();
+  renderCaptureCoach();
+  renderSettingsControlCenter();
+}
+
+function localDataCounts() {
+  const journal = Object.values(readHomeJournal());
+  const favorites = readFavoriteRooms();
+  const ritualState = readRitualState();
+  const challengeRaw = readStoredPreference(CHALLENGE_JOB_STORAGE_KEY);
+  let challengeCount = 0;
+  try {
+    challengeCount = Object.keys(JSON.parse(challengeRaw || '{}')).length;
+  } catch {
+    challengeCount = 0;
+  }
+  return {
+    rooms: journal.length,
+    favorites: favorites.size,
+    rituals: ritualState.completedDates.length,
+    challengeJobs: challengeCount,
+  };
+}
+
+function reportStyleLabel(style = currentReportStyle()) {
+  return {
+    'action-first': 'Action-first',
+    'evidence-detailed': 'Detailed evidence',
+    'calm-brief': 'Calm brief',
+  }[style] || 'Action-first';
+}
+
+function renderSettingsControlCenter() {
+  if (!settingsOverviewGrid) {
+    return;
+  }
+  const counts = localDataCounts();
+  const active = activeJob();
+  const privacy = state.privacyPolicy;
+  const tokenStored = Boolean(api.getAccessToken());
+  const theme = readStoredPreference(THEME_STORAGE_KEY) || document.documentElement.dataset.theme || 'light';
+  const motion = storedBoolean(MOTION_STORAGE_KEY) ? 'Reduced' : 'On';
+  const accessibility = [
+    storedBoolean(LARGE_TEXT_STORAGE_KEY) ? 'Large text' : null,
+    storedBoolean(HIGH_CONTRAST_STORAGE_KEY) ? 'High contrast' : null,
+    currentLayoutDensity() === 'compact' ? 'Compact' : null,
+    storedBoolean(FOCUS_MODE_STORAGE_KEY) ? 'Focus always visible' : null,
+  ].filter(Boolean).join(' · ') || 'Standard';
+  settingsOverviewGrid.innerHTML = [
+    { label: 'Interface', value: `${capitalize(theme)} · ${motion}`, detail: accessibility },
+    { label: 'Report default', value: reportStyleLabel(), detail: state.showLowConfidence ? 'Lower-confidence findings visible' : 'Cleaner high-confidence view' },
+    { label: 'Scan default', value: CAPTURE_COACH_MODES[currentDefaultAudience()]?.title || 'General home safety', detail: readStoredPreference(DEFAULT_ROOM_LABEL_STORAGE_KEY) || 'No default room label' },
+    { label: 'Local journal', value: `${counts.rooms} room${counts.rooms === 1 ? '' : 's'}`, detail: `${counts.favorites} favorite${counts.favorites === 1 ? '' : 's'} · ${counts.rituals} ritual day${counts.rituals === 1 ? '' : 's'}` },
+    { label: 'Privacy posture', value: privacy ? `${privacy.retention_days} day retention` : 'Policy unavailable', detail: privacy?.delete_supported ? 'Delete controls available' : 'Report delete status unknown' },
+    { label: 'Access', value: tokenStored ? 'Token stored locally' : 'No token stored', detail: active?.status === 'complete' ? 'Current report ready' : 'No completed active report' },
+  ].map((item) => `
+    <article class="settings-overview-card">
+      <span>${escapeHtml(item.label)}</span>
+      <strong>${escapeHtml(item.value)}</strong>
+      <small>${escapeHtml(item.detail)}</small>
+    </article>
+  `).join('');
+
+  if (settingsControlStatus) {
+    settingsControlStatus.textContent = `Local only · ${counts.rooms} room journal entr${counts.rooms === 1 ? 'y' : 'ies'} · ${currentRescanReminder()} reminders`;
+  }
+  if (settingsOpenCurrentReportBtn) {
+    settingsOpenCurrentReportBtn.disabled = !active;
+  }
+  if (settingsDeleteCurrentReportBtn) {
+    settingsDeleteCurrentReportBtn.disabled = !active || Boolean(active.is_sample);
+  }
+}
+
+function clearLocalKeys(keys) {
+  keys.forEach(removeStoredPreference);
+}
+
+function resetLocalRuntimeState() {
+  state.activeChallengeId = null;
+  state.activeRitualId = null;
+  state.activeMysteryModeId = null;
+  state.pendingUploadChallengeId = null;
+  state.showLowConfidence = false;
+  syncLowConfidenceControls();
+  renderDailyMission();
+  renderChallengeLibrary();
+  renderRoomRituals();
+  renderMysteryModes();
+  renderHomeJournal();
+  renderHomePulse();
+  renderCaptureCoach();
+  renderSettingsControlCenter();
+}
+
+function localBackupPayload() {
+  const preferences = {};
+  SETTINGS_LOCAL_KEYS.forEach((key) => {
+    const value = readStoredPreference(key);
+    if (value !== null) {
+      preferences[key] = value;
+    }
+  });
+  return {
+    product: 'ATLAS-0',
+    schema: 'settings-local-backup-v1',
+    exportedAt: new Date().toISOString(),
+    preferences,
+    homeJournal: readHomeJournal(),
+    favoriteRooms: [...readFavoriteRooms()],
+  };
+}
+
+function downloadTextFile(filename, text, type = 'application/json') {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function newestJournalEntry(existing, incoming) {
+  const existingTs = Date.parse(existing?.lastCheckedAt || '');
+  const incomingTs = Date.parse(incoming?.lastCheckedAt || '');
+  return Number.isFinite(incomingTs) && (!Number.isFinite(existingTs) || incomingTs >= existingTs)
+    ? incoming
+    : existing;
+}
+
+function importLocalBackup(payload) {
+  if (!payload || payload.product !== 'ATLAS-0' || payload.schema !== 'settings-local-backup-v1') {
+    throw new Error('This is not a valid ATLAS-0 local backup.');
+  }
+  const preferences = payload.preferences && typeof payload.preferences === 'object' ? payload.preferences : {};
+  Object.entries(preferences).forEach(([key, value]) => {
+    if (SETTINGS_LOCAL_KEYS.includes(key) && typeof value === 'string') {
+      writeStoredPreference(key, value);
+    }
+  });
+
+  const currentJournal = readHomeJournal();
+  const incomingJournal = payload.homeJournal && typeof payload.homeJournal === 'object' && !Array.isArray(payload.homeJournal)
+    ? payload.homeJournal
+    : {};
+  Object.entries(incomingJournal).forEach(([key, entry]) => {
+    if (entry && typeof entry === 'object') {
+      currentJournal[key] = newestJournalEntry(currentJournal[key], entry);
+    }
+  });
+  writeHomeJournal(currentJournal);
+
+  if (Array.isArray(payload.favoriteRooms)) {
+    writeFavoriteRooms(new Set([...readFavoriteRooms(), ...payload.favoriteRooms.filter((item) => typeof item === 'string')]));
+  }
+
+  state.showLowConfidence = storedBoolean(LOW_CONFIDENCE_STORAGE_KEY);
+  state.activeChallengeId = readStoredPreference(CHALLENGE_SELECTION_STORAGE_KEY) || null;
+  state.activeRitualId = readStoredPreference(RITUAL_SELECTION_STORAGE_KEY) || null;
+  state.activeMysteryModeId = readStoredPreference(MYSTERY_MODE_STORAGE_KEY) || currentDefaultMysteryMode() || null;
+  applyThemePreference(readStoredPreference(THEME_STORAGE_KEY) || 'light');
+  applyMotionPreference(storedBoolean(MOTION_STORAGE_KEY));
+  applyAccessibilityPreferences();
+  syncSettingsPreferenceControls();
+  applyDefaultScanPreferences(true);
+  syncLowConfidenceControls();
+  renderDailyMission();
+  renderChallengeLibrary();
+  renderRoomRituals();
+  renderMysteryModes();
+  renderHomeJournal();
+  renderHomePulse();
+  renderReport(activeJob());
+  renderSettingsControlCenter();
+}
+
+function privacySummaryText() {
+  const privacy = state.privacyPolicy;
+  return [
+    'ATLAS-0 privacy summary',
+    '',
+    'ATLAS-0 is decision support, not safety certification.',
+    privacy?.summary || 'Privacy policy is unavailable from the API right now.',
+    `Retention window: ${privacy?.retention_days ?? 'unknown'} day(s).`,
+    `Original uploads saved: ${privacy?.save_original_uploads ? 'yes' : 'no by default'}.`,
+    `Text redaction: ${privacy?.text_redaction_enabled ? 'enabled' : 'unknown'}.`,
+    `Delete support: ${privacy?.delete_supported ? 'available from report view' : 'unknown'}.`,
+    '',
+    'Local settings, Home Journal, rituals, and streaks live only in this browser unless you export a local backup.',
+  ].join('\n');
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Could not read the selected backup file.'));
+    reader.readAsText(file);
+  });
+}
+
 function syncLowConfidenceControls() {
   if (lowConfidenceToggle) {
     lowConfidenceToggle.checked = state.showLowConfidence;
@@ -399,6 +766,7 @@ function syncSettingsAccessStatus() {
   if (settingsTokenClear) {
     settingsTokenClear.disabled = !tokenStored;
   }
+  renderSettingsControlCenter();
 }
 
 async function loadSampleReport() {
@@ -940,6 +1308,7 @@ function renderHomeJournal() {
     `;
   }).join('');
   renderHomePulse();
+  renderSettingsControlCenter();
 }
 
 function renderDailyMission() {
@@ -1224,6 +1593,7 @@ function setActiveJob(jobId) {
   renderProcessing(activeJob());
   renderReport(activeJob());
   renderHomeJournal();
+  renderSettingsControlCenter();
   syncUrlState();
 }
 
@@ -1257,6 +1627,7 @@ function removeJob(jobId) {
   renderProcessing(activeJob());
   renderReport(activeJob());
   renderHomeJournal();
+  renderSettingsControlCenter();
 }
 
 function renderUploads() {
@@ -2581,6 +2952,7 @@ function renderAccessPanels(errorMessage = '') {
   const settings = state.operatorSettings;
   const tokenStored = Boolean(api.getAccessToken());
 
+  renderSettingsControlCenter();
   accessTokenClear.disabled = !tokenStored;
   syncSettingsAccessStatus();
 
@@ -3094,6 +3466,9 @@ const uploadView = new UploadView({
 uploadView.init();
 applyThemePreference(readStoredPreference(THEME_STORAGE_KEY) || document.documentElement.dataset.theme || 'light');
 applyMotionPreference(readStoredPreference(MOTION_STORAGE_KEY) === 'true');
+syncSettingsPreferenceControls();
+applyAccessibilityPreferences();
+applyDefaultScanPreferences(false);
 syncLowConfidenceControls();
 syncSettingsAccessStatus();
 renderDailyMission();
@@ -3118,6 +3493,11 @@ lowConfidenceToggle?.addEventListener('change', (event) => {
 
 settingsLowConfidenceToggle?.addEventListener('change', (event) => {
   setLowConfidenceVisibility(/** @type {HTMLInputElement} */ (event.currentTarget).checked);
+  trackProductEvent('settings_report_preferences_changed', {
+    preference: 'show_low_confidence',
+    enabled: state.showLowConfidence,
+  });
+  renderSettingsControlCenter();
 });
 
 themeToggle?.addEventListener('change', (event) => {
@@ -3130,6 +3510,84 @@ motionToggle?.addEventListener('change', (event) => {
   const enabled = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
   applyMotionPreference(enabled);
   trackProductEvent('settings_motion_changed', { reduced_motion: enabled });
+  trackProductEvent('settings_accessibility_changed', { preference: 'reduced_motion', enabled });
+  renderSettingsControlCenter();
+});
+
+settingsReportStyleInput?.addEventListener('change', (event) => {
+  const value = /** @type {HTMLSelectElement} */ (event.currentTarget).value;
+  writeStoredPreference(REPORT_STYLE_STORAGE_KEY, value);
+  trackProductEvent('settings_report_preferences_changed', { preference: 'report_style', value });
+  renderSettingsControlCenter();
+  showToast(`${reportStyleLabel(value)} report style saved locally.`);
+});
+
+settingsRescanReminderInput?.addEventListener('change', (event) => {
+  const value = /** @type {HTMLSelectElement} */ (event.currentTarget).value;
+  writeStoredPreference(RESCAN_REMINDER_STORAGE_KEY, value);
+  trackProductEvent('settings_report_preferences_changed', { preference: 'rescan_reminder', value });
+  renderSettingsControlCenter();
+});
+
+settingsDefaultAudienceInput?.addEventListener('change', (event) => {
+  const value = /** @type {HTMLSelectElement} */ (event.currentTarget).value;
+  writeStoredPreference(DEFAULT_AUDIENCE_STORAGE_KEY, value);
+  applyDefaultScanPreferences(false);
+  trackProductEvent('settings_default_scan_changed', { preference: 'audience_mode', value });
+});
+
+settingsDefaultRoomLabelInput?.addEventListener('change', (event) => {
+  const value = /** @type {HTMLInputElement} */ (event.currentTarget).value.trim().slice(0, 80);
+  if (value) {
+    writeStoredPreference(DEFAULT_ROOM_LABEL_STORAGE_KEY, value);
+  } else {
+    removeStoredPreference(DEFAULT_ROOM_LABEL_STORAGE_KEY);
+  }
+  applyDefaultScanPreferences(false);
+  trackProductEvent('settings_default_scan_changed', { preference: 'room_label', room_labeled: Boolean(value) });
+});
+
+settingsDefaultMysteryInput?.addEventListener('change', (event) => {
+  const value = /** @type {HTMLSelectElement} */ (event.currentTarget).value;
+  if (value) {
+    writeStoredPreference(DEFAULT_MYSTERY_MODE_STORAGE_KEY, value);
+  } else {
+    removeStoredPreference(DEFAULT_MYSTERY_MODE_STORAGE_KEY);
+  }
+  applyDefaultScanPreferences(false);
+  trackProductEvent('settings_default_scan_changed', { preference: 'mystery_mode', mystery_mode_id: value || null });
+});
+
+settingsLargeTextToggle?.addEventListener('change', (event) => {
+  const enabled = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
+  writeStoredPreference(LARGE_TEXT_STORAGE_KEY, enabled ? 'true' : 'false');
+  applyAccessibilityPreferences();
+  trackProductEvent('settings_accessibility_changed', { preference: 'large_text', enabled });
+  renderSettingsControlCenter();
+});
+
+settingsHighContrastToggle?.addEventListener('change', (event) => {
+  const enabled = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
+  writeStoredPreference(HIGH_CONTRAST_STORAGE_KEY, enabled ? 'true' : 'false');
+  applyAccessibilityPreferences();
+  trackProductEvent('settings_accessibility_changed', { preference: 'high_contrast', enabled });
+  renderSettingsControlCenter();
+});
+
+settingsFocusToggle?.addEventListener('change', (event) => {
+  const enabled = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
+  writeStoredPreference(FOCUS_MODE_STORAGE_KEY, enabled ? 'true' : 'false');
+  applyAccessibilityPreferences();
+  trackProductEvent('settings_accessibility_changed', { preference: 'always_focus', enabled });
+  renderSettingsControlCenter();
+});
+
+settingsLayoutDensityInput?.addEventListener('change', (event) => {
+  const value = /** @type {HTMLSelectElement} */ (event.currentTarget).value;
+  writeStoredPreference(LAYOUT_DENSITY_STORAGE_KEY, value);
+  applyAccessibilityPreferences();
+  trackProductEvent('settings_accessibility_changed', { preference: 'layout_density', value });
+  renderSettingsControlCenter();
 });
 
 briefConfidenceDetails?.addEventListener('toggle', () => {
@@ -3153,6 +3611,209 @@ settingsSampleBtn?.addEventListener('click', () => {
   });
   trackProductEvent('settings_sample_opened');
   loadSampleReport();
+});
+
+settingsClearJournalBtn?.addEventListener('click', () => {
+  if (!window.confirm('Clear the local Home Journal and favorite rooms from this browser?')) {
+    return;
+  }
+  clearLocalKeys([HOME_JOURNAL_STORAGE_KEY, FAVORITE_ROOMS_STORAGE_KEY]);
+  renderHomeJournal();
+  renderHomePulse();
+  renderSettingsControlCenter();
+  trackProductEvent('settings_data_cleared', { scope: 'home_journal' });
+  showToast('Local Home Journal cleared.');
+});
+
+settingsClearRitualsBtn?.addEventListener('click', () => {
+  if (!window.confirm('Clear local missions, rituals, streaks, challenge progress, and scan checklist progress?')) {
+    return;
+  }
+  clearLocalKeys([
+    MISSION_STORAGE_KEY,
+    CHALLENGE_SELECTION_STORAGE_KEY,
+    CHALLENGE_JOB_STORAGE_KEY,
+    FIX_CHECKLIST_STORAGE_KEY,
+    RITUAL_STORAGE_KEY,
+    RITUAL_SELECTION_STORAGE_KEY,
+  ]);
+  resetLocalRuntimeState();
+  trackProductEvent('settings_data_cleared', { scope: 'rituals_and_streaks' });
+  showToast('Local rituals and streaks cleared.');
+});
+
+settingsClearDefaultsBtn?.addEventListener('click', () => {
+  if (!window.confirm('Clear saved report and scan defaults from this browser?')) {
+    return;
+  }
+  clearLocalKeys([
+    LOW_CONFIDENCE_STORAGE_KEY,
+    REPORT_STYLE_STORAGE_KEY,
+    DEFAULT_AUDIENCE_STORAGE_KEY,
+    DEFAULT_ROOM_LABEL_STORAGE_KEY,
+    DEFAULT_MYSTERY_MODE_STORAGE_KEY,
+    RESCAN_REMINDER_STORAGE_KEY,
+    MYSTERY_MODE_STORAGE_KEY,
+  ]);
+  state.showLowConfidence = false;
+  state.activeMysteryModeId = null;
+  syncLowConfidenceControls();
+  syncSettingsPreferenceControls();
+  applyDefaultScanPreferences(false);
+  renderReport(activeJob());
+  trackProductEvent('settings_data_cleared', { scope: 'saved_defaults' });
+  showToast('Report and scan defaults cleared.');
+});
+
+settingsClearAllLocalBtn?.addEventListener('click', async () => {
+  if (!window.confirm('Clear all local ATLAS-0 browser data, including settings, journal, streaks, session, and token?')) {
+    return;
+  }
+  await trackProductEvent('settings_data_cleared', { scope: 'all_local_data' });
+  clearLocalKeys([...SETTINGS_LOCAL_KEYS, SESSION_STORAGE_KEY]);
+  api.clearAccessToken();
+  applyThemePreference('light');
+  removeStoredPreference(THEME_STORAGE_KEY);
+  applyMotionPreference(false);
+  removeStoredPreference(MOTION_STORAGE_KEY);
+  syncSettingsPreferenceControls();
+  applyAccessibilityPreferences();
+  resetLocalRuntimeState();
+  await refreshOperatorState();
+  showToast('All local ATLAS-0 browser data cleared.');
+});
+
+settingsOpenCurrentReportBtn?.addEventListener('click', () => {
+  if (!activeJob()) {
+    showToast('No current report is available yet.');
+    return;
+  }
+  switchView('report');
+});
+
+settingsDeleteCurrentReportBtn?.addEventListener('click', async () => {
+  const job = activeJob();
+  if (!job || job.is_sample) {
+    showToast('Only non-sample reports can be deleted here.');
+    return;
+  }
+  if (!window.confirm('Delete this server-side report and its artifacts?')) {
+    return;
+  }
+  try {
+    await api.deleteJob(job.job_id);
+    removeJob(job.job_id);
+    await refreshOperatorState();
+    trackProductEvent('settings_data_cleared', { scope: 'current_report', job_id: job.job_id });
+    showToast('Current report deleted.');
+    switchView('scan');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not delete current report.', 3600);
+  }
+});
+
+settingsFeedbackCopyBtn?.addEventListener('click', async () => {
+  const job = activeJob();
+  const template = [
+    'ATLAS-0 beta feedback',
+    `Surface: settings`,
+    `Report: ${job?.job_id || 'no active report'}`,
+    `Audience mode: ${selectedAudienceMode()}`,
+    '',
+    'What I tried:',
+    'What felt useful:',
+    'What felt confusing or wrong:',
+    'What I expected next:',
+  ].join('\n');
+  try {
+    await copyText(template);
+    await trackProductEvent('settings_feedback_clicked', { feedback_type: 'general_template' });
+    showToast('Feedback template copied.');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not copy feedback template.', 3600);
+  }
+});
+
+settingsBadResultBtn?.addEventListener('click', async () => {
+  const job = activeJob();
+  try {
+    await copyText([
+      'ATLAS-0 bad result report',
+      `Report: ${job?.job_id || 'no active report'}`,
+      `Room: ${job?.room_label || roomLabelInput?.value || 'unknown'}`,
+      '',
+      'What ATLAS-0 got wrong:',
+      'What evidence frame should be reviewed:',
+      'What hazard was missed or overstated:',
+    ].join('\n'));
+    await trackProductEvent('settings_feedback_clicked', { feedback_type: 'bad_result', job_id: job?.job_id || null });
+    showToast('Bad-result template copied.');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not copy bad-result template.', 3600);
+  }
+});
+
+settingsFeatureRequestBtn?.addEventListener('click', async () => {
+  try {
+    await copyText([
+      'ATLAS-0 feature request',
+      '',
+      'I wish ATLAS-0 could:',
+      'This would help because:',
+      'My room/use case is:',
+    ].join('\n'));
+    await trackProductEvent('settings_feedback_clicked', { feedback_type: 'feature_request' });
+    showToast('Feature request template copied.');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not copy feature request.', 3600);
+  }
+});
+
+settingsBetaInviteBtn?.addEventListener('click', async () => {
+  try {
+    await copyBetaInvite('settings_support');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not copy beta invite.', 3600);
+  }
+});
+
+settingsWaitlistBtn?.addEventListener('click', () => {
+  trackProductEvent('settings_feedback_clicked', { feedback_type: 'waitlist_shortcut' });
+  switchView('scan');
+  waitlistEmailInput?.focus();
+  showToast('Beta waitlist is ready in the scan view.');
+});
+
+settingsExportBackupBtn?.addEventListener('click', () => {
+  downloadTextFile(`atlas-0-local-backup-${localDateKey()}.json`, JSON.stringify(localBackupPayload(), null, 2));
+  trackProductEvent('settings_local_backup_exported');
+  showToast('Local backup downloaded.');
+});
+
+settingsImportBackupBtn?.addEventListener('click', () => {
+  settingsImportFileInput?.click();
+});
+
+settingsImportFileInput?.addEventListener('change', async (event) => {
+  const input = /** @type {HTMLInputElement} */ (event.currentTarget);
+  const file = input.files?.[0];
+  if (!file) {
+    return;
+  }
+  try {
+    const text = await readFileAsText(file);
+    importLocalBackup(JSON.parse(text));
+    await trackProductEvent('settings_local_backup_imported');
+    showToast('Local backup imported.');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not import local backup.', 4200);
+  } finally {
+    input.value = '';
+  }
+});
+
+settingsPrivacySummaryBtn?.addEventListener('click', () => {
+  downloadTextFile(`atlas-0-privacy-summary-${localDateKey()}.txt`, privacySummaryText(), 'text/plain');
 });
 
 copyBetaInviteBtn?.addEventListener('click', async () => {
@@ -3257,6 +3918,9 @@ waitlistSubmitBtn?.addEventListener('click', async () => {
 deleteJobBtn?.addEventListener('click', async () => {
   const job = activeJob();
   if (!job) {
+    return;
+  }
+  if (!window.confirm('Delete this report and its artifacts?')) {
     return;
   }
 
