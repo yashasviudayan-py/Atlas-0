@@ -1346,6 +1346,49 @@ language.
    - operator product metrics and beta inbox funnel now expose these curiosity
      interactions
 
+## Room Companion Standout Pass
+
+### Status
+
+Implemented. This pass turns the existing Warm Trust beta into a more memorable
+Room Companion experience while keeping the hazard engine and report payload
+stable.
+
+### Completed
+
+1. Room identity and guided starts
+   - added a replayable Beta Welcome Tour for first-run confidence
+   - added Guided Room Playbooks for Baby Visit Prep, Pet Chaos Check, Renter
+     Move-in Proof, Night Path Reset, and Guest-ready Scan
+   - playbooks prefill audience mode, room label, mystery mode, ritual framing,
+     and capture guidance without changing model behavior
+
+2. Room Health Passport and Fix Verification Mode
+   - reports now include a local Room Health Passport with Calm Score trend,
+     recurring attention area, completed fixes, favorite posture, next check
+     due, and copyable room summary
+   - Fix Verification Mode compares local checklist progress and same-room score
+     deltas into fixed / still watch / rescan needed guidance
+
+3. Evidence Timeline 2.0 and confidence explainers
+   - evidence timeline cards now show severity, confidence, why the frame
+     matters, active-frame focus, and a clear low-evidence empty state
+   - each finding now has a Confidence Explainer with evidence count, finding
+     confidence, location confidence, uncertainty notes, and act/watch/rescan
+     guidance
+
+4. Shareable Room Card Studio and Calm Score language
+   - report sharing now supports quick room win, family, landlord,
+     before/after, and private PDF wording styles
+   - visible report scoring is now branded as Calm Score with Attention Areas,
+     Fix Today, Watch Later, and Rescan Needed language
+
+5. Verification coverage
+   - public product-event allowlist and API tests cover the new Room Companion
+     interactions
+   - frontend smoke coverage checks welcome tour, playbooks, passport,
+     verification, share studio, and responsive shell anchors
+
 ---
 
 ## Non-Negotiable Quality Bar
