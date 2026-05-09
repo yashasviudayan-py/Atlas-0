@@ -9,6 +9,7 @@ import {
   CURIOSITY_SAMPLE_GALLERY,
   REPORT_DECISION_STEPS,
   ROOM_MYSTERY_MODES,
+  ROOM_PLAYBOOKS,
   ROOM_RITUALS,
   SAFETY_MISSIONS,
   SEASONAL_RITUAL_PACKS,
@@ -40,6 +41,11 @@ const LARGE_TEXT_STORAGE_KEY = 'atlas0.largeText';
 const HIGH_CONTRAST_STORAGE_KEY = 'atlas0.highContrast';
 const LAYOUT_DENSITY_STORAGE_KEY = 'atlas0.layoutDensity';
 const FOCUS_MODE_STORAGE_KEY = 'atlas0.alwaysShowFocus';
+const ROOM_PLAYBOOK_STORAGE_KEY = 'atlas0.selectedRoomPlaybook';
+const WELCOME_TOUR_STORAGE_KEY = 'atlas0.welcomeTourDismissed';
+const SHARE_CARD_STYLE_STORAGE_KEY = 'atlas0.shareCardStyle';
+const ACTIVE_EVIDENCE_STORAGE_KEY = 'atlas0.activeEvidenceFrame';
+const VERIFICATION_STORAGE_KEY = 'atlas0.fixVerificationState';
 
 const SETTINGS_LOCAL_KEYS = [
   THEME_STORAGE_KEY,
@@ -63,6 +69,11 @@ const SETTINGS_LOCAL_KEYS = [
   HIGH_CONTRAST_STORAGE_KEY,
   LAYOUT_DENSITY_STORAGE_KEY,
   FOCUS_MODE_STORAGE_KEY,
+  ROOM_PLAYBOOK_STORAGE_KEY,
+  WELCOME_TOUR_STORAGE_KEY,
+  SHARE_CARD_STYLE_STORAGE_KEY,
+  ACTIVE_EVIDENCE_STORAGE_KEY,
+  VERIFICATION_STORAGE_KEY,
 ];
 
 function readStoredPreference(key) {
@@ -127,6 +138,8 @@ const state = {
   activeChallengeId: readStoredPreference(CHALLENGE_SELECTION_STORAGE_KEY) || null,
   activeRitualId: readStoredPreference(RITUAL_SELECTION_STORAGE_KEY) || null,
   activeMysteryModeId: readStoredPreference(MYSTERY_MODE_STORAGE_KEY) || null,
+  activeRoomPlaybookId: readStoredPreference(ROOM_PLAYBOOK_STORAGE_KEY) || null,
+  activeEvidenceIndex: Number(readStoredPreference(ACTIVE_EVIDENCE_STORAGE_KEY) || 0),
   pendingUploadChallengeId: null,
 };
 
@@ -165,6 +178,9 @@ const uploadGuidanceCopy = document.getElementById('upload-guidance-copy');
 const uploadDurationPill = document.getElementById('upload-duration-pill');
 const uploadSizePill = document.getElementById('upload-size-pill');
 const scanWizardStatus = document.getElementById('scan-wizard-status');
+const welcomeTourCard = document.getElementById('welcome-tour-card');
+const welcomeTourCompleteBtn = /** @type {HTMLButtonElement} */ (document.getElementById('welcome-tour-complete'));
+const roomPlaybookGrid = document.getElementById('room-playbook-grid');
 const challengeLibraryGrid = document.getElementById('challenge-library-grid');
 const challengeStreakSummary = document.getElementById('challenge-streak-summary');
 const privacyPolicy = document.getElementById('privacy-policy');
@@ -199,7 +215,9 @@ const summarySeverity = document.getElementById('summary-severity');
 const summaryConfidence = document.getElementById('summary-confidence');
 const summaryCoverage = document.getElementById('summary-coverage');
 const summarySource = document.getElementById('summary-source');
+const roomPassportPanel = document.getElementById('room-passport-panel');
 const roomScorecard = document.getElementById('room-scorecard');
+const fixVerificationPanel = document.getElementById('fix-verification-panel');
 const reportActionLoop = document.getElementById('report-action-loop');
 const fixFirstList = document.getElementById('fix-first-list');
 const scanQualityCard = document.getElementById('scan-quality-card');
@@ -226,6 +244,7 @@ const exportPdfBtn = /** @type {HTMLAnchorElement} */ (document.getElementById('
 const copyShareBtn = /** @type {HTMLButtonElement} */ (document.getElementById('copy-share-btn'));
 const deleteJobBtn = /** @type {HTMLButtonElement} */ (document.getElementById('delete-job-btn'));
 const copyShareCardBtn = /** @type {HTMLButtonElement} */ (document.getElementById('copy-share-card-btn'));
+const shareCardStyleInput = /** @type {HTMLSelectElement} */ (document.getElementById('share-card-style'));
 const shareCardCopy = document.getElementById('share-card-copy');
 const themeToggle = /** @type {HTMLInputElement} */ (document.getElementById('theme-toggle'));
 const themeStatus = document.getElementById('theme-status');
@@ -256,6 +275,7 @@ const settingsBadResultBtn = /** @type {HTMLButtonElement} */ (document.getEleme
 const settingsFeatureRequestBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-feature-request'));
 const settingsBetaInviteBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-beta-invite'));
 const settingsWaitlistBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-waitlist'));
+const settingsReplayWelcomeBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-replay-welcome-tour'));
 const settingsExportBackupBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-export-backup'));
 const settingsImportBackupBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-import-backup'));
 const settingsImportFileInput = /** @type {HTMLInputElement} */ (document.getElementById('settings-import-file'));
@@ -516,6 +536,9 @@ function syncSettingsPreferenceControls() {
   if (settingsRescanReminderInput) {
     settingsRescanReminderInput.value = currentRescanReminder();
   }
+  if (shareCardStyleInput) {
+    shareCardStyleInput.value = currentShareCardStyle();
+  }
   applyAccessibilityPreferences();
 }
 
@@ -616,6 +639,7 @@ function resetLocalRuntimeState() {
   state.activeChallengeId = null;
   state.activeRitualId = null;
   state.activeMysteryModeId = null;
+  state.activeRoomPlaybookId = null;
   state.pendingUploadChallengeId = null;
   state.showLowConfidence = false;
   syncLowConfidenceControls();
@@ -623,6 +647,8 @@ function resetLocalRuntimeState() {
   renderChallengeLibrary();
   renderRoomRituals();
   renderMysteryModes();
+  renderRoomPlaybooks();
+  renderWelcomeTour();
   renderHomeJournal();
   renderHomePulse();
   renderCaptureCoach();
@@ -697,6 +723,7 @@ function importLocalBackup(payload) {
   state.activeChallengeId = readStoredPreference(CHALLENGE_SELECTION_STORAGE_KEY) || null;
   state.activeRitualId = readStoredPreference(RITUAL_SELECTION_STORAGE_KEY) || null;
   state.activeMysteryModeId = readStoredPreference(MYSTERY_MODE_STORAGE_KEY) || currentDefaultMysteryMode() || null;
+  state.activeRoomPlaybookId = readStoredPreference(ROOM_PLAYBOOK_STORAGE_KEY) || null;
   applyThemePreference(readStoredPreference(THEME_STORAGE_KEY) || 'light');
   applyMotionPreference(storedBoolean(MOTION_STORAGE_KEY));
   applyAccessibilityPreferences();
@@ -707,6 +734,8 @@ function importLocalBackup(payload) {
   renderChallengeLibrary();
   renderRoomRituals();
   renderMysteryModes();
+  renderRoomPlaybooks();
+  renderWelcomeTour();
   renderHomeJournal();
   renderHomePulse();
   renderReport(activeJob());
@@ -1130,6 +1159,81 @@ function renderCuriositySampleGallery() {
   `).join('');
 }
 
+function roomPlaybookById(id) {
+  return ROOM_PLAYBOOKS.find((playbook) => playbook.id === id) || null;
+}
+
+function activeRoomPlaybook() {
+  return roomPlaybookById(state.activeRoomPlaybookId) || null;
+}
+
+function renderWelcomeTour() {
+  if (!welcomeTourCard) {
+    return;
+  }
+  const dismissed = readStoredPreference(WELCOME_TOUR_STORAGE_KEY) === 'true';
+  welcomeTourCard.classList.toggle('is-dismissed', dismissed);
+  welcomeTourCard.hidden = dismissed;
+}
+
+function completeWelcomeTour() {
+  writeStoredPreference(WELCOME_TOUR_STORAGE_KEY, 'true');
+  renderWelcomeTour();
+  trackProductEvent('welcome_tour_completed', {
+    surface: 'scan_onboarding',
+    playbook_id: activeRoomPlaybook()?.id || null,
+  });
+  showToast('Welcome tour tucked away. You can replay it from Settings.');
+}
+
+function renderRoomPlaybooks() {
+  if (!roomPlaybookGrid) {
+    return;
+  }
+  const active = activeRoomPlaybook();
+  roomPlaybookGrid.innerHTML = ROOM_PLAYBOOKS.map((playbook) => `
+    <button class="room-playbook-card ${active?.id === playbook.id ? 'active' : ''}" type="button" data-room-playbook="${escapeHtml(playbook.id)}">
+      <span class="ritual-icon" aria-hidden="true">${escapeHtml(playbook.badge.slice(0, 2))}</span>
+      <span class="guide-kicker">${escapeHtml(playbook.badge)}</span>
+      <strong>${escapeHtml(playbook.title)}</strong>
+      <span>${escapeHtml(playbook.prompt)}</span>
+      <small>${escapeHtml(playbook.captureFocus)}</small>
+    </button>
+  `).join('');
+}
+
+function startRoomPlaybook(playbook, source = 'playbook_grid') {
+  markFirstRunStarted(source);
+  state.activeRoomPlaybookId = playbook.id;
+  state.activeMysteryModeId = playbook.mysteryModeId;
+  state.activeRitualId = playbook.ritualId;
+  writeStoredPreference(ROOM_PLAYBOOK_STORAGE_KEY, playbook.id);
+  writeStoredPreference(MYSTERY_MODE_STORAGE_KEY, playbook.mysteryModeId);
+  writeStoredPreference(RITUAL_SELECTION_STORAGE_KEY, playbook.ritualId);
+  if (audienceModeInput) {
+    audienceModeInput.value = playbook.audienceMode;
+  }
+  if (roomLabelInput) {
+    roomLabelInput.value = playbook.roomLabel;
+  }
+  if (uploadGuidanceCopy) {
+    uploadGuidanceCopy.textContent = playbook.captureFocus;
+  }
+  renderRoomPlaybooks();
+  renderMysteryModes();
+  renderRoomRituals();
+  renderCaptureCoach();
+  trackProductEvent('room_playbook_started', {
+    surface: source,
+    playbook_id: playbook.id,
+    audience_mode: playbook.audienceMode,
+    room_label: playbook.roomLabel,
+    room_labeled: true,
+  });
+  switchView('scan');
+  showToast(`${playbook.title} loaded. Record with the same room label for cleaner before/after checks.`);
+}
+
 function renderHomePulse() {
   if (!homePulseCard) {
     return;
@@ -1269,8 +1373,8 @@ function renderHomeJournal() {
       <span class="guide-kicker">Local home rhythm</span>
       <strong>${scannedRooms} room${scannedRooms === 1 ? '' : 's'} checked locally</strong>
       <p>${escapeHtml(favoriteCount
-        ? `${favoriteCount} favorite room${favoriteCount === 1 ? '' : 's'} pinned. Average latest score ${avgScore === null ? 'pending' : `${Math.round(avgScore)}/100`}.`
-        : `Average latest score ${avgScore === null ? 'pending' : `${Math.round(avgScore)}/100`}. Favorite a room to make the next check faster.`)}</p>
+        ? `${favoriteCount} favorite room${favoriteCount === 1 ? '' : 's'} pinned. Average Calm Score ${avgScore === null ? 'pending' : `${Math.round(avgScore)}/100`}.`
+        : `Average Calm Score ${avgScore === null ? 'pending' : `${Math.round(avgScore)}/100`}. Favorite a room to make the next check faster.`)}</p>
       <div class="journal-meta">
         <span class="soft-badge">${escapeHtml(ritualStreakCopy())}</span>
         <span class="soft-badge">Local browser history</span>
@@ -1290,17 +1394,19 @@ function renderHomeJournal() {
     const checked = entry.lastCheckedAt ? new Date(entry.lastCheckedAt).toLocaleDateString() : 'Recently';
     return `
       <article class="journal-room-card" data-journal-room="${escapeHtml(entry.key)}">
-        <span class="guide-kicker">${escapeHtml(isFavorite ? 'Favorite room' : entry.audienceLabel || 'Room')}</span>
+        <span class="guide-kicker">${escapeHtml(isFavorite ? 'Favorite passport' : 'Room Health Passport')}</span>
         <h4 class="journal-room-title">${escapeHtml(entry.roomLabel || 'Room')}</h4>
         <p>${escapeHtml(entry.topAction || 'Review the Safety Brief')}</p>
         <div class="journal-meta">
-          <span class="soft-badge">${escapeHtml(entry.lastScore === null || entry.lastScore === undefined ? 'Score pending' : `${entry.lastScore}/100`)}</span>
+          <span class="soft-badge">${escapeHtml(entry.lastScore === null || entry.lastScore === undefined ? 'Calm Score pending' : `${entry.lastScore}/100 Calm Score`)}</span>
           <span class="soft-badge">${escapeHtml(trend ? `${trend > 0 ? '+' : ''}${trend} trend` : 'Baseline')}</span>
-          <span class="soft-badge">${escapeHtml(`${entry.hazardCount || 0} findings`)}</span>
+          <span class="soft-badge">${escapeHtml(`${entry.hazardCount || 0} attention areas`)}</span>
+          <span class="soft-badge">${escapeHtml(`${entry.completedFixes || 0} fixes`)}</span>
         </div>
         <p>${escapeHtml(`Last checked ${checked}. ${entry.rescanRecommended ? 'Rescan recommended.' : 'Ready for a calm follow-up.'}`)}</p>
         <div class="journal-actions">
           <button class="button-link ghost" type="button" data-open-journal-report="${escapeHtml(entry.lastJobId || '')}" data-sample-key="${escapeHtml(entry.sampleKey || '')}">Open report</button>
+          <button class="button-link ghost" type="button" data-copy-journal-passport="${escapeHtml(entry.key)}">Copy passport</button>
           <button class="button-link ghost" type="button" data-favorite-room="${escapeHtml(entry.key)}">${isFavorite ? 'Unfavorite' : 'Favorite'}</button>
           <button class="button-link ghost" type="button" data-room-reminder="${escapeHtml(entry.key)}">Plan reminder</button>
         </div>
@@ -1740,6 +1846,8 @@ function renderReport(job) {
     renderRoomMapPreview(null);
     renderBeforeAfterStory(null);
     renderShareCardPreview(null);
+    renderRoomPassport(null);
+    renderFixVerification(null);
     summaryObjects.textContent = '0';
     summaryHazards.textContent = '0';
     summarySeverity.textContent = '—';
@@ -1752,7 +1860,7 @@ function renderReport(job) {
     reportEvalCard.innerHTML = emptyMarkup('Feedback and review coverage will appear here after a completed scan.');
     weekendFixList.innerHTML = emptyMarkup('Weekend-friendly fixes will appear here after a completed scan.');
     roomWinsList.innerHTML = emptyMarkup('Positive scan signals will appear here after a completed scan.');
-    roomScorecard.innerHTML = emptyMarkup('Room scorecard will appear after a completed scan.');
+    roomScorecard.innerHTML = emptyMarkup('Calm Score card will appear after a completed scan.');
     renderChallengeResultCard(null);
     reportActionLoop.innerHTML = emptyMarkup('The fix-and-rescan loop will appear after a completed scan.');
     fixChecklistList.innerHTML = emptyMarkup('Checklist items will appear after a completed scan.');
@@ -1816,6 +1924,8 @@ function renderReport(job) {
   renderRoomMapPreview(job, summary, visibleHazards, evidence);
   renderBeforeAfterStory(job, summary, visibleHazards, fixFirst, recommendations, comparison);
   renderShareCardPreview(job);
+  renderRoomPassport(job, summary, visibleHazards, fixFirst, comparison);
+  renderFixVerification(job, summary, visibleHazards, fixFirst, recommendations, comparison);
 
   summaryObjects.textContent = String(summary.object_count || 0);
   summaryHazards.textContent = String(summary.hazard_count || 0);
@@ -1918,6 +2028,7 @@ function renderReport(job) {
           </ul>
           ${renderReplayPreview(risk)}
           ${renderReasoningPanel(risk)}
+          ${renderConfidenceExplainer(risk, job, evidence)}
           <div class="report-card-meta">
             <span>${Math.round((risk.risk_score || 0) * 100)} risk score</span>
             <span>${escapeHtml(risk.location_label || 'Approximate location')}</span>
@@ -1968,7 +2079,7 @@ function renderReport(job) {
 
   fixChecklistList.innerHTML = renderFixChecklist(job, fixFirst, recommendations, visibleHazards);
 
-  evidenceTimeline.innerHTML = renderEvidenceTimeline(evidence);
+  evidenceTimeline.innerHTML = renderEvidenceTimeline(evidence, visibleHazards);
   reportEvidence.innerHTML = evidence.length
     ? evidence.map((frame, index) => `
         <article class="evidence-card" data-evidence-card="${index}">
@@ -2012,6 +2123,7 @@ function renderReport(job) {
   }
   attachFixChecklistHandlers(job.job_id);
   attachEvidenceTimelineHandlers();
+  attachConfidenceExplainerHandlers(job);
 }
 
 function renderHeroBadges(summary, roomLabel, comparison, resolution, isSample) {
@@ -2028,7 +2140,7 @@ function renderHeroBadges(summary, roomLabel, comparison, resolution, isSample) 
     badges.unshift(roomLabel);
   }
   if (typeof summary.room_score === 'number') {
-    badges.push(`${summary.room_score}/100 room score`);
+    badges.push(`${summary.room_score}/100 Calm Score`);
   }
   if (Number(resolution?.resolved_count || 0) > 0) {
     badges.push(`${resolution.resolved_count} resolved`);
@@ -2090,7 +2202,7 @@ function renderBriefExecutive(job, summary = {}, hazards = [], fixFirst = [], re
     : 'This brief is ready for practical next steps. Keep the confidence notes visible before making bigger decisions.';
 
   briefExecutiveTitle.textContent = `${roomLabel} Safety Brief`;
-  briefExecutiveCopy.textContent = `${score} room score. Start with "${topAction}" and use the evidence rail to confirm what ATLAS-0 saw before acting.`;
+  briefExecutiveCopy.textContent = `${score} Calm Score. Start with "${topAction}" and use the evidence rail to confirm what ATLAS-0 saw before acting.`;
   briefExecutiveActions.innerHTML = `
     <span class="soft-badge">${escapeHtml(topAction)}</span>
     <span class="soft-badge">${hazardCount} finding${hazardCount === 1 ? '' : 's'}</span>
@@ -2360,6 +2472,197 @@ function fixDifficultyLabel(item, index = 0) {
   return index === 0 ? 'Start here' : 'Review';
 }
 
+function roomPassportStorageKey(jobId) {
+  return `${VERIFICATION_STORAGE_KEY}.${jobId}`;
+}
+
+function readVerificationState(jobId) {
+  const raw = readStoredPreference(roomPassportStorageKey(jobId));
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeVerificationState(jobId, nextState) {
+  writeStoredPreference(roomPassportStorageKey(jobId), JSON.stringify(nextState));
+}
+
+function roomPassportSummary(job, summary = {}, hazards = [], fixFirst = [], comparison = null) {
+  const roomLabel = job?.room_label || summary.room_label || 'Room';
+  const journal = readHomeJournal();
+  const key = roomJournalKey({
+    room_label: roomLabel,
+    summary: { room_label: roomLabel, audience_label: summary.audience_label || job?.audience_mode || 'general' },
+  });
+  const entry = journal[key] || {};
+  const scores = Array.isArray(entry.scores) ? entry.scores : [];
+  const recurringRisk = entry.topAction || hazards[0]?.hazard_title || summary.top_hazard_label || 'No recurring risk yet';
+  const completedFixes = Number(entry.completedFixes || 0);
+  const favorite = readFavoriteRooms().has(key);
+  const nextDue = currentRescanReminder() === 'off'
+    ? 'No reminder set'
+    : currentRescanReminder() === 'weekly'
+      ? 'Check again next week'
+      : 'Check again next month';
+  return {
+    key,
+    roomLabel,
+    favorite,
+    recurringRisk,
+    completedFixes,
+    nextDue,
+    lastChecked: entry.lastCheckedAt || new Date().toISOString(),
+    trend: scores.length >= 2 ? `${scores.at(-2)} → ${scores.at(-1)}` : (typeof summary.room_score === 'number' ? `${summary.room_score}/100 baseline` : 'Baseline pending'),
+    topAction: fixFirst[0]?.title || recurringRisk,
+    delta: comparison && typeof comparison.score_delta === 'number'
+      ? `${comparison.score_delta > 0 ? '+' : ''}${comparison.score_delta}`
+      : 'baseline',
+  };
+}
+
+function buildRoomPassportText(job) {
+  const summary = job.summary || {};
+  const passport = roomPassportSummary(job, summary, job.risks || [], job.fix_first || [], job.room_comparison || null);
+  return [
+    `ATLAS-0 Room Health Passport: ${passport.roomLabel}`,
+    `Calm Score trend: ${passport.trend}.`,
+    `Recurring attention area: ${passport.recurringRisk}.`,
+    `Completed fixes tracked locally: ${passport.completedFixes}.`,
+    `Next check: ${passport.nextDue}. Decision support only, not safety certification.`,
+  ].join('\n');
+}
+
+function renderRoomPassport(job, summary = {}, hazards = [], fixFirst = [], comparison = null) {
+  if (!roomPassportPanel) {
+    return;
+  }
+  if (!job || job.status !== 'complete') {
+    roomPassportPanel.innerHTML = emptyMarkup('Room Health Passport appears after a completed scan and keeps the room history local to this browser.');
+    return;
+  }
+  const passport = roomPassportSummary(job, summary, hazards, fixFirst, comparison);
+  roomPassportPanel.innerHTML = `
+    <div class="section-head compact">
+      <div>
+        <span class="guide-kicker">Room Health Passport</span>
+        <h3>${escapeHtml(passport.roomLabel)} companion card.</h3>
+        <p>Per-room identity, trend, recurring attention area, completed fixes, and next-check posture without accounts.</p>
+      </div>
+      <span class="pill">${passport.favorite ? 'Favorite room' : 'Local passport'}</span>
+    </div>
+    <div class="passport-grid">
+      <article class="passport-card">
+        <span class="room-motif" aria-hidden="true"></span>
+        <span class="guide-kicker">Calm Score trend</span>
+        <strong>${escapeHtml(passport.trend)}</strong>
+        <p>${escapeHtml(passport.delta === 'baseline' ? 'First saved baseline for this room.' : `${passport.delta} score movement from the previous matching room label.`)}</p>
+      </article>
+      <article class="passport-card">
+        <span class="room-motif evidence" aria-hidden="true"></span>
+        <span class="guide-kicker">Recurring attention area</span>
+        <strong>${escapeHtml(passport.recurringRisk)}</strong>
+        <p>Watch whether this appears again after a same-room rescan.</p>
+      </article>
+      <article class="passport-card">
+        <span class="room-motif fix" aria-hidden="true"></span>
+        <span class="guide-kicker">Completed fixes</span>
+        <strong>${passport.completedFixes}</strong>
+        <p>${escapeHtml(passport.completedFixes ? 'Local checklist progress is feeding the room story.' : 'Mark one fix done to make the next scan more meaningful.')}</p>
+      </article>
+      <article class="passport-card">
+        <span class="room-motif playbook" aria-hidden="true"></span>
+        <span class="guide-kicker">Next check due</span>
+        <strong>${escapeHtml(passport.nextDue)}</strong>
+        <p>${escapeHtml(activeRoomPlaybook()?.title || activeMysteryMode().title)}</p>
+      </article>
+    </div>
+    <div class="report-loop-actions">
+      <button class="button-link ghost" type="button" data-copy-room-passport="true">Copy room summary</button>
+      <button class="button-link ghost" type="button" data-start-rescan="true">Rescan same room</button>
+      <button class="button-link ghost" type="button" data-jump-view="journal">Open Home Journal</button>
+    </div>
+  `;
+}
+
+function buildFixVerificationText(job) {
+  const summary = job.summary || {};
+  const progress = checklistProgress(job, job.fix_first || [], job.recommendations || [], job.risks || []);
+  const comparison = job.room_comparison || null;
+  const status = comparison && Number(comparison.score_delta || 0) > 0
+    ? 'fixed or improved'
+    : progress.done > 0
+      ? 'still watch after local fix'
+      : 'rescan needed after one fix';
+  return [
+    `ATLAS-0 fix verification for ${job.room_label || summary.room_label || 'Room'}`,
+    `Status: ${status}. Checklist: ${progress.done}/${progress.total}.`,
+    comparison?.summary || 'Reuse the same room label for before/after validation.',
+    'Decision support only, not safety certification.',
+  ].join('\n');
+}
+
+function renderFixVerification(job, summary = {}, hazards = [], fixFirst = [], recommendations = [], comparison = null) {
+  if (!fixVerificationPanel) {
+    return;
+  }
+  if (!job || job.status !== 'complete') {
+    fixVerificationPanel.innerHTML = emptyMarkup('Fix Verification Mode appears after a completed scan.');
+    return;
+  }
+  const progress = checklistProgress(job, fixFirst, recommendations, hazards);
+  const scoreDelta = comparison && typeof comparison.score_delta === 'number' ? comparison.score_delta : null;
+  const verification = readVerificationState(job.job_id);
+  const status = scoreDelta !== null && scoreDelta > 0
+    ? 'fixed'
+    : progress.done > 0
+      ? 'still-watch'
+      : 'rescan-needed';
+  const copy = status === 'fixed'
+    ? 'The same-room comparison improved. Still confirm evidence before declaring the room done.'
+    : status === 'still-watch'
+      ? 'You marked local checklist progress. A same-room rescan can show whether the evidence changed.'
+      : 'Pick one fix, then rescan with the same room label for before/after validation.';
+  writeVerificationState(job.job_id, { ...verification, status, updatedAt: new Date().toISOString() });
+  fixVerificationPanel.innerHTML = `
+    <div class="section-head compact">
+      <div>
+        <span class="guide-kicker">Fix Verification Mode</span>
+        <h3>${escapeHtml(status === 'fixed' ? 'Fixed signal detected.' : status === 'still-watch' ? 'Fix logged. Verification pending.' : 'Rescan needed after one fix.')}</h3>
+        <p>${escapeHtml(copy)}</p>
+      </div>
+      <span class="pill">${escapeHtml(status.replace('-', ' '))}</span>
+    </div>
+    <div class="verification-grid">
+      <article class="verification-card">
+        <span class="guide-kicker">Checklist progress</span>
+        <strong>${progress.done}/${progress.total || 0}</strong>
+        <p>${escapeHtml(progress.total ? 'Local checklist state is stored in this browser.' : 'No checklist items were generated for this report.')}</p>
+      </article>
+      <article class="verification-card">
+        <span class="guide-kicker">Score delta</span>
+        <strong>${scoreDelta === null ? 'Baseline' : `${scoreDelta > 0 ? '+' : ''}${scoreDelta}`}</strong>
+        <p>${escapeHtml(comparison?.summary || 'Same-room comparison unlocks when the room label is reused.')}</p>
+      </article>
+      <article class="verification-card">
+        <span class="guide-kicker">Next posture</span>
+        <strong>${escapeHtml(status === 'fixed' ? 'Fixed' : status === 'still-watch' ? 'Still watch' : 'Rescan needed')}</strong>
+        <p>Use this as a verification prompt, not proof of certification.</p>
+      </article>
+    </div>
+    <div class="report-loop-actions">
+      <button class="button-link ghost" type="button" data-start-fix-verification="true">Start verification</button>
+      <button class="button-link ghost" type="button" data-copy-fix-verification="true">Copy verification note</button>
+      <button class="button-link ghost" type="button" data-start-rescan="true">Prepare same-room rescan</button>
+    </div>
+  `;
+}
+
 function renderRoomScorecard(job, summary, hazards, fixFirst, recommendations, comparison, scanQuality) {
   const score = typeof summary.room_score === 'number' ? Math.round(summary.room_score) : null;
   const scoreLabel = score === null ? 'Pending' : `${score}/100`;
@@ -2373,14 +2676,14 @@ function renderRoomScorecard(job, summary, hazards, fixFirst, recommendations, c
   return `
     <div class="section-head compact">
       <div>
-        <h3>Room safety scorecard</h3>
-        <p>A shareable, human-readable summary of what changed, what matters, and what to do first.</p>
+        <h3>Calm Score card</h3>
+        <p>A shareable, human-readable summary of what changed, attention areas, and what to fix today.</p>
       </div>
       <span class="pill">${escapeHtml(job.is_sample ? 'Sample scorecard' : 'Share-ready')}</span>
     </div>
     <div class="scorecard-grid">
       <article class="score-tile">
-        <span>Room score</span>
+        <span>Calm Score</span>
         <strong>${escapeHtml(scoreLabel)}</strong>
         <p>${escapeHtml(summary.room_score_summary || summary.room_score_band || 'Score appears after a completed scan.')}</p>
       </article>
@@ -2390,7 +2693,7 @@ function renderRoomScorecard(job, summary, hazards, fixFirst, recommendations, c
         <p>${escapeHtml(comparison?.summary || 'Reuse the same room label to compare before and after scans.')}</p>
       </article>
       <article class="score-tile">
-        <span>Top risk</span>
+        <span>Attention area</span>
         <strong>${escapeHtml(topRisk)}</strong>
         <p>${escapeHtml(summary.top_severity ? `${capitalize(summary.top_severity)} severity` : 'No high-confidence severity yet.')}</p>
       </article>
@@ -2597,9 +2900,27 @@ function renderFixChecklist(job, fixFirst, recommendations, hazards) {
   }).join('');
 }
 
-function renderEvidenceTimeline(evidence) {
+function renderEvidenceWhy(frame, index, hazards = []) {
+  const matchingRisk = hazards.find((risk) => (
+    risk.object_id && frame.object_id && risk.object_id === frame.object_id
+  )) || hazards[index % Math.max(1, hazards.length)] || {};
+  if (frame.caption) {
+    return frame.caption;
+  }
+  if (matchingRisk.hazard_title || matchingRisk.object_label) {
+    return `${matchingRisk.hazard_title || matchingRisk.object_label} support frame`;
+  }
+  return 'Evidence crop supporting the current room brief.';
+}
+
+function renderEvidenceTimeline(evidence, hazards = []) {
   if (!evidence.length) {
-    return '';
+    return `
+      <div class="timeline-empty">
+        <strong>No evidence timeline yet</strong>
+        <span>Low-evidence reports should be treated as prompts to rescan, not proof.</span>
+      </div>
+    `;
   }
   return evidence.map((frame, index) => {
     const label = typeof frame.timestamp_s === 'number'
@@ -2607,13 +2928,53 @@ function renderEvidenceTimeline(evidence) {
       : typeof frame.frame_index === 'number'
         ? `Frame ${frame.frame_index}`
         : `Frame ${index + 1}`;
+    const confidence = typeof frame.confidence === 'number' ? `${Math.round(frame.confidence * 100)}%` : 'approx';
+    const severity = (hazards[index]?.severity || frame.severity || 'low').toLowerCase();
+    const active = Number(state.activeEvidenceIndex || 0) === index;
     return `
-      <button class="timeline-marker" type="button" data-evidence-target="${index}">
+      <button class="timeline-marker ${escapeHtml(severity)} ${active ? 'active' : ''}" type="button" data-evidence-target="${index}">
         <span class="timeline-dot"></span>
-        <span>${escapeHtml(label)}</span>
+        <span class="timeline-copy">
+          <strong>${escapeHtml(label)}</strong>
+          <small>${escapeHtml(confidence)} · ${escapeHtml(renderEvidenceWhy(frame, index, hazards))}</small>
+        </span>
       </button>
     `;
   }).join('');
+}
+
+function renderConfidenceExplainer(risk, job, evidence = []) {
+  const reasoning = risk?.reasoning || {};
+  const evidenceIds = Array.isArray(reasoning.evidence_ids) ? reasoning.evidence_ids : [];
+  const evidenceCount = evidenceIds.length || evidence.filter((frame) => (
+    risk.object_id && frame.object_id && risk.object_id === frame.object_id
+  )).length || Number(risk.replay?.frame_count || 0);
+  const confidence = typeof risk.confidence === 'number'
+    ? `${Math.round(risk.confidence * 100)}%`
+    : risk.confidence_label || 'Approximate';
+  const locationConfidence = risk.location_confidence_label || risk.location_label || 'Approximate location';
+  const uncertainty = Array.isArray(reasoning.confidence_reasons) && reasoning.confidence_reasons.length
+    ? reasoning.confidence_reasons.slice(0, 2).join(' ')
+    : isLowConfidenceRisk(risk)
+      ? 'Limited evidence or scan quality makes this finding weaker.'
+      : 'Confidence is based on available evidence frames and rule support.';
+  const action = job?.summary?.rescan_recommended || isLowConfidenceRisk(risk)
+    ? 'Rescan or watch before acting on small details.'
+    : risk.severity === 'high'
+      ? 'Act on the top fix after confirming the evidence frame.'
+      : 'Review, fix if easy, and keep it on the watch list.';
+  return `
+    <details class="confidence-explainer" data-confidence-explainer="${escapeHtml(risk.hazard_code || risk.object_id || risk.hazard_title || 'finding')}">
+      <summary>Confidence explainer</summary>
+      <div class="confidence-explainer-grid">
+        <span><strong>${evidenceCount}</strong><small>evidence references</small></span>
+        <span><strong>${escapeHtml(confidence)}</strong><small>finding confidence</small></span>
+        <span><strong>${escapeHtml(locationConfidence)}</strong><small>location confidence</small></span>
+      </div>
+      <p>${escapeHtml(uncertainty)}</p>
+      <p><strong>Act / watch / rescan:</strong> ${escapeHtml(action)}</p>
+    </details>
+  `;
 }
 
 function renderEvidenceFrameOverlay(frame) {
@@ -2669,27 +3030,75 @@ function buildChallengeWinText(job) {
   ].join('\n');
 }
 
-function buildShareCardText(job) {
+function currentShareCardStyle() {
+  const style = readStoredPreference(SHARE_CARD_STYLE_STORAGE_KEY) || 'quick-win';
+  return ['landlord', 'family', 'quick-win', 'before-after', 'private-pdf'].includes(style) ? style : 'quick-win';
+}
+
+function shareStyleLabel(style = currentShareCardStyle()) {
+  return {
+    landlord: 'Landlord summary',
+    family: 'Family summary',
+    'quick-win': 'Quick room win',
+    'before-after': 'Before/after card',
+    'private-pdf': 'Private PDF wording',
+  }[style] || 'Quick room win';
+}
+
+function buildShareCardText(job, style = currentShareCardStyle()) {
   if (!job || job.status !== 'complete') {
     return 'ATLAS-0 Room Safety Brief: upload one room walkthrough to get top actions, evidence frames, confidence signals, and a decision-support PDF.';
   }
 
   const summary = job.summary || {};
   const roomLabel = job.room_label || summary.room_label || 'Room';
-  const score = typeof summary.room_score === 'number' ? `${summary.room_score}/100` : 'screened';
+  const score = typeof summary.room_score === 'number' ? `${summary.room_score}/100 Calm Score` : 'screened';
   const topAction = (job.fix_first || [])[0]?.title
     || (job.recommendations || [])[0]?.title
     || summary.top_hazard_label
     || 'review the top finding';
   const confidence = summary.confidence_label || summary.scan_quality_label || 'approximate confidence';
   const link = reportDeepLink(job);
-  return [
-    `ATLAS-0 Room Safety Brief for ${roomLabel}`,
-    `Score: ${score}. Top action: ${topAction}.`,
-    `Room win: fix one thing, then rescan with the same room label to show progress.`,
-    `Confidence: ${confidence}. Decision support only, not safety certification.`,
-    link ? `Report: ${link}` : '',
-  ].filter(Boolean).join('\n');
+  const comparison = job.room_comparison || null;
+  const delta = comparison && typeof comparison.score_delta === 'number'
+    ? `${comparison.score_delta > 0 ? '+' : ''}${comparison.score_delta}`
+    : 'baseline';
+  const templates = {
+    landlord: [
+      `ATLAS-0 room note for ${roomLabel}`,
+      `Calm Score: ${score}. Main attention area: ${topAction}.`,
+      'This is a tenant-generated decision-support note with evidence references, not a certification or inspection.',
+      link ? `Report/PDF: ${link}` : '',
+    ],
+    family: [
+      `Room check for ${roomLabel}`,
+      `Top thing to fix: ${topAction}.`,
+      `Confidence: ${confidence}. Please confirm the evidence frame before acting.`,
+      'ATLAS-0 helps prioritize, but it does not certify safety.',
+      link ? `Report: ${link}` : '',
+    ],
+    'quick-win': [
+      `ATLAS-0 room win: ${roomLabel}`,
+      `Calm Score: ${score}. Quick fix: ${topAction}.`,
+      'Fix one thing, then rescan with the same room label to show progress.',
+      `Confidence: ${confidence}. Decision support only.`,
+      link ? `Report: ${link}` : '',
+    ],
+    'before-after': [
+      `ATLAS-0 before/after card: ${roomLabel}`,
+      `Current Calm Score: ${score}. Change: ${delta}.`,
+      `Top action: ${topAction}.`,
+      comparison?.summary || 'Reuse this same room label after a fix to unlock a comparison.',
+      'Decision support only, not safety certification.',
+    ],
+    'private-pdf': [
+      `Private ATLAS-0 Safety Brief: ${roomLabel}`,
+      `Calm Score: ${score}. Top action: ${topAction}. Confidence: ${confidence}.`,
+      'Keep this wording private unless you want to share the PDF. Uploaded/report artifacts follow the configured retention policy.',
+      link ? `PDF/report: ${link}` : '',
+    ],
+  };
+  return (templates[style] || templates['quick-win']).filter(Boolean).join('\n');
 }
 
 function renderShareCardPreview(job) {
@@ -2711,9 +3120,13 @@ function renderShareCardPreview(job) {
     || (job.recommendations || [])[0]?.title
     || summary.top_hazard_label
     || 'Review the top finding';
-  const score = typeof summary.room_score === 'number' ? `${summary.room_score}/100` : 'Screened';
+  const score = typeof summary.room_score === 'number' ? `${summary.room_score}/100 Calm Score` : 'Screened';
+  const style = currentShareCardStyle();
+  if (shareCardStyleInput) {
+    shareCardStyleInput.value = style;
+  }
   shareCardCopy.innerHTML = `
-    <span class="guide-kicker">ATLAS-0 Room Safety Brief</span>
+    <span class="guide-kicker">ATLAS-0 ${escapeHtml(shareStyleLabel(style))}</span>
     <strong>${escapeHtml(roomLabel)} · ${escapeHtml(score)}</strong>
     <p>${escapeHtml(topAction)}. ${escapeHtml(summary.confidence_label || 'Approximate grounding')}. Decision support only, not safety certification.</p>
   `;
@@ -3112,6 +3525,14 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Sample gallery opens', value: String(settings.product.sample_gallery_events || 0) },
       { label: 'Field note expands', value: String(settings.product.field_note_events || 0) },
       { label: 'Map preview opens', value: String(settings.product.room_map_preview_events || 0) },
+      { label: 'Room Passport opens', value: String(settings.product.room_passport_events || 0) },
+      { label: 'Room Playbooks starts', value: String(settings.product.room_playbook_events || 0) },
+      { label: 'Fix verification starts', value: String(settings.product.fix_verification_events || 0) },
+      { label: 'Fix verification copies', value: String(settings.product.fix_verification_copy_events || 0) },
+      { label: 'Evidence frame focuses', value: String(settings.product.evidence_frame_focus_events || 0) },
+      { label: 'Share studio copies', value: String(settings.product.share_card_studio_events || 0) },
+      { label: 'Confidence explainers', value: String(settings.product.confidence_explainer_events || 0) },
+      { label: 'Welcome tour completions', value: String(settings.product.welcome_tour_events || 0) },
       { label: 'Home Pulse opens', value: String(settings.product.home_pulse_events || 0) },
       { label: 'Daily mission starts', value: String(settings.product.daily_mission_events || 0) },
       { label: 'Room ritual starts', value: String(settings.product.room_ritual_events || 0) },
@@ -3156,6 +3577,12 @@ function renderBetaInbox(inbox) {
       { label: 'Before/after copies', value: String(funnel.before_after_card_copied || 0) },
       { label: 'Field note expands', value: String(funnel.field_note_expanded || 0) },
       { label: 'Map preview opens', value: String(funnel.room_map_preview_opened || 0) },
+      { label: 'Room Passport opens', value: String(funnel.room_passport_opened || 0) },
+      { label: 'Room Playbook starts', value: String(funnel.room_playbook_started || 0) },
+      { label: 'Fix verification starts', value: String(funnel.fix_verification_started || 0) },
+      { label: 'Share studio copies', value: String(funnel.share_card_studio_copied || 0) },
+      { label: 'Confidence explainers', value: String(funnel.confidence_explainer_opened || 0) },
+      { label: 'Welcome tours done', value: String(funnel.welcome_tour_completed || 0) },
       { label: 'Home Pulse opens', value: String(funnel.home_pulse_opened || 0) },
       { label: 'Room ritual starts', value: String(funnel.room_ritual_started || 0) },
       { label: 'Room ritual done', value: String(funnel.room_ritual_completed || 0) },
@@ -3336,6 +3763,14 @@ ritualGrid?.addEventListener('click', (event) => {
     startRoomRitual(ritual, 'ritual_grid');
   }
 });
+welcomeTourCompleteBtn?.addEventListener('click', completeWelcomeTour);
+roomPlaybookGrid?.addEventListener('click', (event) => {
+  const button = event.target instanceof Element ? event.target.closest('[data-room-playbook]') : null;
+  const playbook = roomPlaybookById(button?.dataset.roomPlaybook);
+  if (playbook) {
+    startRoomPlaybook(playbook, 'room_playbook_grid');
+  }
+});
 mysteryModeGrid?.addEventListener('click', (event) => {
   const button = event.target instanceof Element ? event.target.closest('[data-mystery-mode]') : null;
   const mode = mysteryModeById(button?.dataset.mysteryMode);
@@ -3421,6 +3856,8 @@ const uploadView = new UploadView({
       mission_id: state.pendingUploadChallengeId,
       challenge_id: state.pendingUploadChallengeId,
       ritual_id: activeRitual().id,
+      playbook_id: activeRoomPlaybook()?.id || null,
+      mystery_mode_id: activeMysteryMode().id,
       room_label: metadata.roomLabel || null,
       room_labeled: Boolean(metadata.roomLabel),
     });
@@ -3441,6 +3878,8 @@ const uploadView = new UploadView({
         mission_id: challengeForJob(job).id,
         challenge_id: challengeForJob(job).id,
         ritual_id: activeRitual().id,
+        playbook_id: activeRoomPlaybook()?.id || null,
+        mystery_mode_id: activeMysteryMode().id,
         audience_mode: job.audience_mode || selectedAudienceMode(),
         room_label: job.room_label || job.summary?.room_label || null,
         room_labeled: Boolean(job.room_label || job.summary?.room_label),
@@ -3474,6 +3913,8 @@ syncSettingsAccessStatus();
 renderDailyMission();
 renderChallengeLibrary();
 renderRoomRituals();
+renderWelcomeTour();
+renderRoomPlaybooks();
 renderMysteryModes();
 renderCuriositySampleGallery();
 renderCaptureCoach();
@@ -3558,6 +3999,18 @@ settingsDefaultMysteryInput?.addEventListener('change', (event) => {
   trackProductEvent('settings_default_scan_changed', { preference: 'mystery_mode', mystery_mode_id: value || null });
 });
 
+shareCardStyleInput?.addEventListener('change', (event) => {
+  const value = /** @type {HTMLSelectElement} */ (event.currentTarget).value;
+  writeStoredPreference(SHARE_CARD_STYLE_STORAGE_KEY, value);
+  renderShareCardPreview(activeJob());
+  trackProductEvent('share_card_style_changed', {
+    share_style: value,
+    job_id: activeJob()?.job_id || null,
+    sample_key: activeJob()?.sample_key || null,
+  });
+  showToast(`${shareStyleLabel(value)} saved for this browser.`);
+});
+
 settingsLargeTextToggle?.addEventListener('change', (event) => {
   const enabled = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
   writeStoredPreference(LARGE_TEXT_STORAGE_KEY, enabled ? 'true' : 'false');
@@ -3634,6 +4087,8 @@ settingsClearRitualsBtn?.addEventListener('click', () => {
     CHALLENGE_SELECTION_STORAGE_KEY,
     CHALLENGE_JOB_STORAGE_KEY,
     FIX_CHECKLIST_STORAGE_KEY,
+    VERIFICATION_STORAGE_KEY,
+    ACTIVE_EVIDENCE_STORAGE_KEY,
     RITUAL_STORAGE_KEY,
     RITUAL_SELECTION_STORAGE_KEY,
   ]);
@@ -3654,12 +4109,16 @@ settingsClearDefaultsBtn?.addEventListener('click', () => {
     DEFAULT_MYSTERY_MODE_STORAGE_KEY,
     RESCAN_REMINDER_STORAGE_KEY,
     MYSTERY_MODE_STORAGE_KEY,
+    ROOM_PLAYBOOK_STORAGE_KEY,
+    SHARE_CARD_STYLE_STORAGE_KEY,
   ]);
   state.showLowConfidence = false;
   state.activeMysteryModeId = null;
+  state.activeRoomPlaybookId = null;
   syncLowConfidenceControls();
   syncSettingsPreferenceControls();
   applyDefaultScanPreferences(false);
+  renderRoomPlaybooks();
   renderReport(activeJob());
   trackProductEvent('settings_data_cleared', { scope: 'saved_defaults' });
   showToast('Report and scan defaults cleared.');
@@ -3782,6 +4241,15 @@ settingsWaitlistBtn?.addEventListener('click', () => {
   switchView('scan');
   waitlistEmailInput?.focus();
   showToast('Beta waitlist is ready in the scan view.');
+});
+
+settingsReplayWelcomeBtn?.addEventListener('click', () => {
+  removeStoredPreference(WELCOME_TOUR_STORAGE_KEY);
+  renderWelcomeTour();
+  switchView('scan');
+  welcomeTourCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  trackProductEvent('settings_feedback_clicked', { feedback_type: 'replay_welcome_tour' });
+  showToast('Welcome tour is back in the scan view.');
 });
 
 settingsExportBackupBtn?.addEventListener('click', () => {
@@ -3990,7 +4458,14 @@ copyShareCardBtn?.addEventListener('click', async () => {
       job_id: job.job_id,
       sample_key: job.sample_key || null,
       audience_mode: job.audience_mode || 'general',
+      share_style: currentShareCardStyle(),
       room_labeled: Boolean(job.room_label || job.summary?.room_label),
+    });
+    await trackProductEvent('share_card_studio_copied', {
+      job_id: job.job_id,
+      sample_key: job.sample_key || null,
+      share_style: currentShareCardStyle(),
+      audience_mode: job.audience_mode || 'general',
     });
     showToast('Share card copied.');
   } catch (error) {
@@ -4022,6 +4497,14 @@ function attachFixChecklistHandlers(jobId) {
           job.evidence_frames || [],
           job.room_comparison || null,
         );
+        renderFixVerification(
+          job,
+          job.summary || {},
+          state.showLowConfidence ? job.risks || [] : (job.risks || []).filter((risk) => !isLowConfidenceRisk(risk)),
+          job.fix_first || [],
+          job.recommendations || [],
+          job.room_comparison || null,
+        );
         upsertHomeJournalFromJob(job);
         renderHomeJournal();
       }
@@ -4037,8 +4520,44 @@ function attachFixChecklistHandlers(jobId) {
 function attachEvidenceTimelineHandlers() {
   evidenceTimeline.querySelectorAll('[data-evidence-target]').forEach((button) => {
     button.addEventListener('click', () => {
+      const index = Number(button.dataset.evidenceTarget || 0);
+      state.activeEvidenceIndex = index;
+      writeStoredPreference(ACTIVE_EVIDENCE_STORAGE_KEY, String(index));
+      evidenceTimeline.querySelectorAll('[data-evidence-target]').forEach((marker) => {
+        marker.classList.toggle('active', marker === button);
+      });
       const target = reportEvidence.querySelector(`[data-evidence-card="${button.dataset.evidenceTarget}"]`);
       target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const job = activeJob();
+      trackProductEvent('evidence_frame_focused', {
+        job_id: job?.job_id || null,
+        sample_key: job?.sample_key || null,
+        evidence_index: index,
+        audience_mode: job?.audience_mode || selectedAudienceMode(),
+      });
+    });
+  });
+}
+
+function attachConfidenceExplainerHandlers(job) {
+  reportHazards.querySelectorAll('[data-confidence-explainer]').forEach((details) => {
+    details.addEventListener('toggle', () => {
+      if (!details.open) {
+        return;
+      }
+      trackProductEvent('confidence_explainer_opened', {
+        job_id: job.job_id,
+        sample_key: job.sample_key || null,
+        finding_id: details.dataset.confidenceExplainer || null,
+        audience_mode: job.audience_mode || 'general',
+      });
+      trackProductEvent('confidence_inspector_opened', {
+        surface: 'finding_card',
+        job_id: job.job_id,
+        sample_key: job.sample_key || null,
+        audience_mode: job.audience_mode || 'general',
+        room_labeled: Boolean(job.room_label || job.summary?.room_label),
+      });
     });
   });
 }
@@ -4062,6 +4581,72 @@ document.addEventListener('click', async (event) => {
     showToast('Room win copied.');
   } catch (error) {
     showToast(error instanceof Error ? error.message : 'Could not copy room win.', 3600);
+  }
+});
+
+document.addEventListener('click', async (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const jump = target?.closest('[data-jump-view]');
+  if (jump instanceof HTMLElement) {
+    switchView(jump.dataset.jumpView || 'scan');
+    return;
+  }
+
+  const copyPassport = target?.closest('[data-copy-room-passport]');
+  if (copyPassport) {
+    const job = activeJob();
+    if (!job || job.status !== 'complete') {
+      return;
+    }
+    try {
+      await copyText(buildRoomPassportText(job));
+      await trackProductEvent('room_passport_opened', {
+        surface: 'copy_passport',
+        job_id: job.job_id,
+        sample_key: job.sample_key || null,
+        audience_mode: job.audience_mode || 'general',
+      });
+      showToast('Room passport summary copied.');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not copy room passport.', 3600);
+    }
+    return;
+  }
+
+  const startVerification = target?.closest('[data-start-fix-verification]');
+  if (startVerification) {
+    const job = activeJob();
+    if (!job || job.status !== 'complete') {
+      return;
+    }
+    writeVerificationState(job.job_id, { startedAt: new Date().toISOString(), status: 'started' });
+    renderFixVerification(job, job.summary || {}, job.risks || [], job.fix_first || [], job.recommendations || [], job.room_comparison || null);
+    await trackProductEvent('fix_verification_started', {
+      job_id: job.job_id,
+      sample_key: job.sample_key || null,
+      audience_mode: job.audience_mode || 'general',
+    });
+    showToast('Fix Verification Mode started. Reuse this room label after your fix.');
+    return;
+  }
+
+  const copyVerification = target?.closest('[data-copy-fix-verification]');
+  if (copyVerification) {
+    const job = activeJob();
+    if (!job || job.status !== 'complete') {
+      return;
+    }
+    try {
+      await copyText(buildFixVerificationText(job));
+      await trackProductEvent('fix_verification_copied', {
+        job_id: job.job_id,
+        sample_key: job.sample_key || null,
+        audience_mode: job.audience_mode || 'general',
+      });
+      showToast('Fix verification note copied.');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not copy verification note.', 3600);
+    }
   }
 });
 
@@ -4184,6 +4769,35 @@ document.addEventListener('click', async (event) => {
       } catch (error) {
         showToast(error instanceof Error ? error.message : 'Could not open journal report.', 3600);
       }
+    }
+    return;
+  }
+
+  const copyJournalPassportButton = target.closest('[data-copy-journal-passport]');
+  if (copyJournalPassportButton) {
+    const roomKey = copyJournalPassportButton.dataset.copyJournalPassport;
+    const entry = readHomeJournal()[roomKey];
+    if (!entry) {
+      showToast('No local room passport found yet.');
+      return;
+    }
+    try {
+      await copyText([
+        `ATLAS-0 Room Health Passport: ${entry.roomLabel || 'Room'}`,
+        `Calm Score: ${entry.lastScore === null || entry.lastScore === undefined ? 'pending' : `${entry.lastScore}/100`}.`,
+        `Recurring attention area: ${entry.topAction || 'Review the Safety Brief'}.`,
+        `Completed fixes: ${entry.completedFixes || 0}. Last checked: ${entry.lastCheckedAt ? new Date(entry.lastCheckedAt).toLocaleDateString() : 'recently'}.`,
+        'Decision support only, not safety certification.',
+      ].join('\n'));
+      await trackProductEvent('room_passport_opened', {
+        surface: 'home_journal_copy',
+        room_key: roomKey || null,
+        room_label: entry.roomLabel || null,
+        room_labeled: Boolean(entry.roomLabel),
+      });
+      showToast('Room passport copied.');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not copy room passport.', 3600);
     }
     return;
   }

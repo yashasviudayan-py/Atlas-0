@@ -1475,10 +1475,14 @@
 
     .ritual-dashboard,
     .curiosity-dashboard,
+    .room-playbook-dashboard,
+    .welcome-tour-card,
     .home-journal-shell,
     .brief-triage,
     .field-notes,
     .room-map-preview,
+    .room-passport,
+    .fix-verification,
     .before-after-story {
       display: grid;
       gap: 16px;
@@ -1549,10 +1553,13 @@
     }
 
     .ritual-grid,
+    .room-playbook-grid,
     .mystery-grid,
     .curiosity-sample-grid,
     .field-note-grid,
     .seasonal-pack-grid,
+    .passport-grid,
+    .verification-grid,
     .triage-grid {
       display: grid;
       gap: 10px;
@@ -1564,12 +1571,15 @@
     }
 
     .ritual-card,
+    .room-playbook-card,
     .mystery-card,
     .curiosity-sample-card,
     .seasonal-card,
     .triage-card,
     .journal-room-card,
     .field-note-card,
+    .passport-card,
+    .verification-card,
     .story-card {
       display: grid;
       gap: 10px;
@@ -1582,6 +1592,7 @@
     }
 
     .ritual-card,
+    .room-playbook-card,
     .mystery-card,
     .curiosity-sample-card,
     .seasonal-card {
@@ -1594,6 +1605,8 @@
 
     .ritual-card:hover,
     .ritual-card.active,
+    .room-playbook-card:hover,
+    .room-playbook-card.active,
     .mystery-card:hover,
     .mystery-card.active,
     .curiosity-sample-card:hover,
@@ -1619,11 +1632,14 @@
     }
 
     .ritual-card strong,
+    .room-playbook-card strong,
     .mystery-card strong,
     .curiosity-sample-card strong,
     .seasonal-card strong,
     .triage-card strong,
     .field-note-card summary,
+    .passport-card strong,
+    .verification-card strong,
     .story-card strong {
       color: var(--ink);
       font-size: 1rem;
@@ -1680,6 +1696,10 @@
     }
 
     .home-pulse-grid small,
+    .room-playbook-card span,
+    .room-playbook-card small,
+    .passport-card p,
+    .verification-card p,
     .mystery-card span,
     .curiosity-sample-card span,
     .field-note-card p {
@@ -1689,6 +1709,94 @@
 
     .field-note-card {
       cursor: pointer;
+    }
+
+    .welcome-tour-card {
+      grid-template-columns: minmax(0, 0.9fr) minmax(260px, 0.7fr) auto;
+      align-items: center;
+      background:
+        radial-gradient(circle at 92% 10%, rgba(217, 139, 123, 0.22), transparent 32%),
+        linear-gradient(135deg, rgba(255,255,255,0.82), rgba(220, 232, 199, 0.44)),
+        var(--paper);
+    }
+
+    .welcome-tour-card[hidden],
+    .welcome-tour-card.is-dismissed {
+      display: none;
+    }
+
+    .welcome-tour-card h4 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: clamp(1.25rem, 2.2vw, 1.75rem);
+      letter-spacing: -0.055em;
+    }
+
+    .welcome-tour-card p,
+    .welcome-tour-steps span {
+      margin: 0;
+      color: var(--ink-soft);
+      line-height: 1.5;
+    }
+
+    .welcome-tour-steps {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .welcome-tour-steps span {
+      min-height: 44px;
+      display: grid;
+      place-items: center;
+      padding: 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.72);
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+    }
+
+    .room-playbook-card {
+      min-height: 212px;
+    }
+
+    .room-playbook-card small {
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+
+    .room-motif {
+      width: 46px;
+      height: 46px;
+      display: inline-block;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(90deg, transparent 44%, var(--accent) 45% 55%, transparent 56%),
+        linear-gradient(0deg, transparent 44%, var(--gold) 45% 55%, transparent 56%),
+        var(--accent-wash);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .room-motif.evidence {
+      background:
+        radial-gradient(circle at 50% 50%, var(--accent) 0 18%, transparent 19%),
+        linear-gradient(135deg, var(--paper), var(--accent-wash));
+    }
+
+    .room-motif.fix {
+      background:
+        linear-gradient(135deg, transparent 42%, var(--gold) 43% 56%, transparent 57%),
+        var(--gold-wash);
+    }
+
+    .room-motif.playbook {
+      background:
+        radial-gradient(circle at 30% 30%, var(--rose) 0 16%, transparent 17%),
+        radial-gradient(circle at 70% 64%, var(--accent) 0 14%, transparent 15%),
+        var(--paper);
     }
 
     .field-note-card summary {
@@ -1830,10 +1938,14 @@
 
     :root[data-theme="dark"] .ritual-dashboard,
     :root[data-theme="dark"] .curiosity-dashboard,
+    :root[data-theme="dark"] .room-playbook-dashboard,
+    :root[data-theme="dark"] .welcome-tour-card,
     :root[data-theme="dark"] .home-journal-shell,
     :root[data-theme="dark"] .brief-triage,
     :root[data-theme="dark"] .field-notes,
     :root[data-theme="dark"] .room-map-preview,
+    :root[data-theme="dark"] .room-passport,
+    :root[data-theme="dark"] .fix-verification,
     :root[data-theme="dark"] .before-after-story {
       background:
         radial-gradient(circle at 8% 0%, rgba(52, 196, 176, 0.16), transparent 32%),
@@ -1842,12 +1954,15 @@
     }
 
     :root[data-theme="dark"] .ritual-card,
+    :root[data-theme="dark"] .room-playbook-card,
     :root[data-theme="dark"] .mystery-card,
     :root[data-theme="dark"] .curiosity-sample-card,
     :root[data-theme="dark"] .seasonal-card,
     :root[data-theme="dark"] .triage-card,
     :root[data-theme="dark"] .journal-room-card,
     :root[data-theme="dark"] .field-note-card,
+    :root[data-theme="dark"] .passport-card,
+    :root[data-theme="dark"] .verification-card,
     :root[data-theme="dark"] .story-card,
     :root[data-theme="dark"] .home-pulse-grid span {
       background: rgba(255,255,255,0.04);
@@ -2502,6 +2617,14 @@
       line-height: 1.55;
     }
 
+    .share-studio-actions {
+      display: flex;
+      align-items: flex-end;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
     .score-tile span,
     .room-win-card span {
       color: var(--ink-muted);
@@ -2714,14 +2837,16 @@
       font-size: 0.74rem;
     }
 
-    .reasoning-panel {
+    .reasoning-panel,
+    .confidence-explainer {
       border: 1px solid rgba(42, 33, 27, 0.08);
       border-radius: 18px;
       background: rgba(255,255,255,0.7);
       overflow: hidden;
     }
 
-    .reasoning-panel summary {
+    .reasoning-panel summary,
+    .confidence-explainer summary {
       cursor: pointer;
       list-style: none;
       padding: 14px 16px;
@@ -2729,13 +2854,52 @@
       color: var(--ink);
     }
 
-    .reasoning-panel summary::-webkit-details-marker {
+    .reasoning-panel summary::-webkit-details-marker,
+    .confidence-explainer summary::-webkit-details-marker {
       display: none;
     }
 
-    .reasoning-panel[open] summary {
+    .reasoning-panel[open] summary,
+    .confidence-explainer[open] summary {
       border-bottom: 1px solid rgba(42, 33, 27, 0.08);
       background: rgba(12, 128, 116, 0.05);
+    }
+
+    .confidence-explainer {
+      background:
+        linear-gradient(135deg, rgba(217, 139, 123, 0.10), rgba(255,255,255,0.72)),
+        var(--panel-strong);
+    }
+
+    .confidence-explainer-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      padding: 14px 16px 0;
+    }
+
+    .confidence-explainer-grid span {
+      display: grid;
+      gap: 4px;
+      padding: 10px;
+      border-radius: var(--radius-sm);
+      background: rgba(255,255,255,0.72);
+      border: 1px solid var(--line);
+    }
+
+    .confidence-explainer-grid strong {
+      color: var(--ink);
+    }
+
+    .confidence-explainer-grid small,
+    .confidence-explainer p {
+      color: var(--ink-soft);
+      line-height: 1.45;
+    }
+
+    .confidence-explainer p {
+      margin: 0;
+      padding: 10px 16px 16px;
     }
 
     .reasoning-grid {
@@ -3176,8 +3340,9 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 9px 12px;
-      border-radius: 999px;
+      min-width: 180px;
+      padding: 10px 12px;
+      border-radius: 18px;
       border: 1px solid var(--line);
       background: var(--panel-strong);
       color: var(--ink-soft);
@@ -3192,6 +3357,50 @@
       border-color: rgba(12, 128, 116, 0.28);
       background: var(--accent-wash);
       color: var(--ink);
+    }
+
+    .timeline-marker.active {
+      border-color: rgba(13, 111, 97, 0.44);
+      background: var(--accent-wash);
+      color: var(--ink);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .timeline-marker.high .timeline-dot {
+      background: var(--danger);
+      box-shadow: 0 0 0 4px var(--danger-wash);
+    }
+
+    .timeline-marker.medium .timeline-dot {
+      background: var(--gold);
+      box-shadow: 0 0 0 4px var(--gold-wash);
+    }
+
+    .timeline-copy {
+      display: grid;
+      gap: 2px;
+      text-align: left;
+    }
+
+    .timeline-copy strong {
+      color: var(--ink);
+      font-size: 0.88rem;
+    }
+
+    .timeline-copy small,
+    .timeline-empty span {
+      color: var(--ink-soft);
+      line-height: 1.35;
+      font-size: 0.78rem;
+    }
+
+    .timeline-empty {
+      display: grid;
+      gap: 4px;
+      padding: 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: var(--rose-wash);
     }
 
     .timeline-dot {
@@ -3550,7 +3759,8 @@
       .report-columns,
       .evidence-columns,
       .room-map-shell,
-      .home-journal-grid {
+      .home-journal-grid,
+      .welcome-tour-card {
         grid-template-columns: 1fr;
       }
 
@@ -3596,6 +3806,7 @@
       .use-case-grid,
       .first-run-rail,
       .trust-proof-deck,
+      .welcome-tour-steps,
       .challenge-grid,
       .wizard-grid,
       .premium-stepper,
@@ -3606,9 +3817,13 @@
       .challenge-result-grid,
       .ritual-today,
       .ritual-grid,
+      .room-playbook-grid,
       .mystery-grid,
       .curiosity-sample-grid,
       .field-note-grid,
+      .passport-grid,
+      .verification-grid,
+      .confidence-explainer-grid,
       .home-pulse-grid,
       .seasonal-pack-grid,
       .triage-grid,
@@ -3653,6 +3868,7 @@
       .ritual-head,
       .journal-head,
       .triage-head,
+      .share-studio-actions,
       .challenge-library-head,
       .challenge-result-head {
         flex-direction: column;
@@ -3925,6 +4141,24 @@
             </div>
 
             <div class="welcome-band">
+              <section id="welcome-tour-card" class="welcome-tour-card" aria-label="Beta welcome tour">
+                <div>
+                  <span class="guide-kicker">Beta welcome tour</span>
+                  <h4>Try sample, pick playbook, scan one room, fix one thing.</h4>
+                  <p>ATLAS-0 works best when the first run is simple: learn from a sample brief, choose the room story, record a steady walkthrough, then use the report as decision support.</p>
+                </div>
+                <div class="welcome-tour-steps" aria-label="Welcome tour steps">
+                  <span>Try sample</span>
+                  <span>Pick playbook</span>
+                  <span>Record like this</span>
+                  <span>Read Safety Brief</span>
+                  <span>Fix one thing</span>
+                </div>
+                <div class="actions">
+                  <button class="button-link ghost" type="button" data-load-sample="walkthrough">Try sample report</button>
+                  <button id="welcome-tour-complete" class="button-link" type="button">I know the flow</button>
+                </div>
+              </section>
               <div>
                 <h4>Make the first scan feel easy.</h4>
                 <p>First-run confidence comes from knowing what to record, why it matters, and what a useful Safety Brief looks like before uploading.</p>
@@ -3934,6 +4168,17 @@
               </div>
               <section id="home-pulse-card" class="home-pulse-card" aria-label="Home Pulse">
                 <div class="empty-card">Home Pulse will summarize local room wins once the app loads.</div>
+              </section>
+              <section class="room-playbook-dashboard" aria-label="Guided Room Playbooks" data-landing-section="room_playbooks">
+                <div class="curiosity-head">
+                  <div>
+                    <span class="guide-kicker">Guided Room Playbooks</span>
+                    <h4>Give the scan a useful story before upload.</h4>
+                    <p>Playbooks prefill audience mode, room label, capture guidance, and the discovery framing without changing the hazard engine.</p>
+                  </div>
+                  <span class="pill">Room Companion</span>
+                </div>
+                <div id="room-playbook-grid" class="room-playbook-grid" aria-label="Guided room playbook cards"></div>
               </section>
               <section class="curiosity-dashboard" aria-label="Room Mystery Mode" data-landing-section="room_mystery_mode">
                 <div class="curiosity-head">
@@ -4313,30 +4558,48 @@
           <div class="empty-card">Approximate evidence map will appear after a completed scan.</div>
         </section>
 
+        <section id="room-passport-panel" class="room-passport panel" aria-label="Room Health Passport">
+          <div class="empty-card">Room Health Passport appears after a completed scan and keeps the room history local to this browser.</div>
+        </section>
+
         <section id="room-scorecard" class="scorecard-panel panel" aria-label="Room safety scorecard">
-          <div class="empty-card">Room scorecard will appear after a completed scan.</div>
+          <div class="empty-card">Calm Score card will appear after a completed scan.</div>
         </section>
 
         <section id="challenge-result-card" class="challenge-result panel" aria-label="Completed challenge card">
           <div class="empty-card">Complete a scan from a Room Safety Challenge to unlock a shareable room-win card.</div>
         </section>
 
+        <section id="fix-verification-panel" class="fix-verification panel" aria-label="Fix Verification Mode">
+          <div class="empty-card">Fix Verification Mode appears after a completed scan.</div>
+        </section>
+
         <section id="report-action-loop" class="report-loop panel" aria-label="Fix, rescan, and share loop">
           <div class="empty-card">The fix-and-rescan loop will appear after a completed scan.</div>
         </section>
 
-        <section id="share-card-preview" class="share-preview" aria-label="Shareable room summary">
+        <section id="share-card-preview" class="share-preview" aria-label="Shareable Room Card Studio">
           <div class="section-head compact">
             <div>
-              <span class="guide-kicker">Share card</span>
-              <h3>Make the useful part easy to pass along.</h3>
-              <p>A clean, copyable room summary for partners, landlords, care teams, or the person who will do the fix.</p>
+              <span class="guide-kicker">Shareable Room Card Studio</span>
+              <h3>Choose the right room artifact for the audience.</h3>
+              <p>Landlord summary, family note, quick room win, before/after card, or private PDF wording. Always decision support, never certification.</p>
             </div>
-            <button id="copy-share-card-btn" class="button-link ghost disabled" type="button" disabled>Copy share card</button>
+            <div class="share-studio-actions">
+              <label class="field-label" for="share-card-style">Style</label>
+              <select id="share-card-style" class="settings-select">
+                <option value="quick-win">Quick room win</option>
+                <option value="family">Family summary</option>
+                <option value="landlord">Landlord summary</option>
+                <option value="before-after">Before/after card</option>
+                <option value="private-pdf">Private PDF wording</option>
+              </select>
+              <button id="copy-share-card-btn" class="button-link ghost disabled" type="button" disabled>Copy share card</button>
+            </div>
           </div>
           <article id="share-card-copy" class="share-preview-card">
             <strong>No room brief yet</strong>
-            <p>Run a scan or open the sample report to generate a concise summary with score, top action, confidence, and decision-support wording.</p>
+            <p>Run a scan or open the sample report to generate a concise summary with Calm Score, top action, confidence, and decision-support wording.</p>
           </article>
         </section>
 
@@ -4821,6 +5084,7 @@
                 <button id="settings-feature-request" class="button-link ghost" type="button">Request feature</button>
                 <button id="settings-beta-invite" class="button-link ghost" type="button">Copy beta invite</button>
                 <button id="settings-waitlist" class="button-link ghost" type="button">Join beta updates</button>
+                <button id="settings-replay-welcome-tour" class="button-link ghost" type="button">Replay welcome tour</button>
               </div>
             </div>
           </details>

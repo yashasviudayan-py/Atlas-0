@@ -46,9 +46,11 @@ try {
     await page.locator('#capture-coach-title').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.hero-artifact').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.first-run-rail').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#welcome-tour-card').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.trust-proof-deck').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.use-case-card').first().waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#home-pulse-card').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#room-playbook-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#mystery-mode-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#curiosity-sample-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.ritual-dashboard').waitFor({ state: 'attached', timeout: 3000 });
@@ -63,8 +65,11 @@ try {
     await page.locator('#brief-triage-strip').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#field-notes-panel').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#room-map-preview').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#room-passport-panel').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#report-action-loop').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#fix-verification-panel').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#share-card-preview').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#share-card-style').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#before-after-story').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#view-journal').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#home-journal-grid').waitFor({ state: 'attached', timeout: 3000 });
@@ -78,6 +83,7 @@ try {
     await page.locator('#settings-clear-journal').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#settings-export-backup').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('text=Beta feedback & support').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#settings-replay-welcome-tour').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('text=Version, changelog, and limits').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('footer.app-footer').waitFor({ timeout: 3000 });
 
