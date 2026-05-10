@@ -1391,6 +1391,56 @@ stable.
 
 ---
 
+## Home Companion 2.0 Fun + Useful Expansion
+
+### Status
+
+Implemented. This pass adds repeat-use, curiosity, and weekly home-care loops
+without accounts, social feeds, fake smart-home behavior, or stronger hazard
+claims.
+
+### Completed
+
+1. Home Companion layer
+   - added Room Personality Profiles derived from local room label, audience
+     mode, recurring top action, Calm Score, completed fixes, and rescan state
+   - added Weekly Home Pulse Recap with rooms checked, best score change,
+     recurring attention area, completed fixes, suggested next room, and a
+     copyable weekly home win
+   - added Calm Home Bingo tasks for small behavior loops like scan hallway,
+     clear cord, rescan room, copy room win, complete one Fix Quest, try a
+     playbook, open journal, choose a seasonal pack, and pick a personal mode
+
+2. Report and journal loops
+   - added Fix Quest Cards from fix-first actions, recommendations, and
+     findings with local completion state
+   - added Room Compare Mode for same-room comparison plus lightweight
+     room-vs-room prioritization from Home Journal entries
+   - added Smart Rescan Coach with same-label, same-route, in-frame guidance
+     and expected visible improvement language
+   - added Evidence Story Mode that turns stored frames into a short,
+     uncertainty-aware "what ATLAS noticed" sequence
+
+3. Seasonal and personal usefulness
+   - expanded Seasonal Safety Packs to cover monsoon entryway, festival/guest
+     prep, summer cord heat, winter night path, moving day, new pet week, and
+     baby visit weekend
+   - added Personal Safety Modes for elderly parent visit, roommate move-in,
+     Airbnb/guest reset, new puppy, baby crawling soon, party cleanup, and home
+     office cable reset
+   - added Beautiful Report Themes: Calm Brief, Family Note, Renter Proof, Pet
+     Check, and Guest Ready; themes change presentation only, not findings
+
+4. Settings and beta learning loop
+   - added Settings controls for default report theme, clearing Home Companion
+     progress, and replaying the weekly recap
+   - added public product events and operator funnel metrics for the new Home
+     Companion interactions
+   - frontend smoke coverage now checks the new companion, quest, compare,
+     story, coach, theme, personality, and settings anchors
+
+---
+
 ## Non-Negotiable Quality Bar
 
 Before calling the product usable:
