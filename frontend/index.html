@@ -1483,6 +1483,12 @@
     .room-map-preview,
     .room-passport,
     .fix-verification,
+    .home-companion-panel,
+    .report-theme-panel,
+    .fix-quest-panel,
+    .room-compare-panel,
+    .smart-rescan-coach,
+    .evidence-story-panel,
     .before-after-story {
       display: grid;
       gap: 16px;
@@ -1515,6 +1521,8 @@
 
     .ritual-today-card,
     .ritual-streak-card,
+    .companion-card,
+    .theme-copy-card,
     .journal-summary-card {
       display: grid;
       gap: 10px;
@@ -1526,6 +1534,7 @@
     }
 
     .ritual-today-card h4,
+    .companion-card h4,
     .journal-summary-card strong {
       margin: 0;
       font-family: var(--font-display);
@@ -1538,6 +1547,8 @@
     .journal-summary-card p,
     .ritual-card span,
     .seasonal-card span,
+    .companion-card p,
+    .theme-copy-card p,
     .triage-card p,
     .journal-room-card p {
       margin: 0;
@@ -1556,6 +1567,13 @@
     .room-playbook-grid,
     .mystery-grid,
     .curiosity-sample-grid,
+    .companion-grid,
+    .home-bingo-grid,
+    .personal-mode-grid,
+    .room-personality-grid,
+    .fix-quest-grid,
+    .room-compare-grid,
+    .evidence-story-grid,
     .field-note-grid,
     .seasonal-pack-grid,
     .passport-grid,
@@ -1575,6 +1593,12 @@
     .mystery-card,
     .curiosity-sample-card,
     .seasonal-card,
+    .bingo-card,
+    .personal-mode-card,
+    .personality-card,
+    .fix-quest-card,
+    .compare-card,
+    .story-step-card,
     .triage-card,
     .journal-room-card,
     .field-note-card,
@@ -1616,6 +1640,34 @@
       box-shadow: var(--shadow), var(--hairline);
     }
 
+    .bingo-card,
+    .personal-mode-card,
+    .fix-quest-card {
+      cursor: pointer;
+      color: inherit;
+      text-align: left;
+      font: inherit;
+      transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    .bingo-card:hover,
+    .personal-mode-card:hover,
+    .fix-quest-card:hover,
+    .bingo-card.done,
+    .personal-mode-card.active,
+    .fix-quest-card.done {
+      transform: translateY(-1px);
+      border-color: rgba(13, 111, 97, 0.32);
+      box-shadow: var(--shadow), var(--hairline);
+    }
+
+    .bingo-card.done,
+    .fix-quest-card.done {
+      background:
+        radial-gradient(circle at top left, rgba(13, 111, 97, 0.16), transparent 36%),
+        rgba(255,255,255,0.78);
+    }
+
     .ritual-icon {
       width: 42px;
       height: 42px;
@@ -1636,6 +1688,12 @@
     .mystery-card strong,
     .curiosity-sample-card strong,
     .seasonal-card strong,
+    .bingo-card strong,
+    .personal-mode-card strong,
+    .personality-card strong,
+    .fix-quest-card strong,
+    .compare-card strong,
+    .story-step-card strong,
     .triage-card strong,
     .field-note-card summary,
     .passport-card strong,
@@ -1906,6 +1964,83 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
+    .room-personality-panel {
+      display: grid;
+      gap: 12px;
+    }
+
+    .companion-grid {
+      grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+    }
+
+    .home-bingo-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .personal-mode-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .fix-quest-grid,
+    .room-compare-grid,
+    .evidence-story-grid,
+    .room-personality-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .story-step-card,
+    .personality-card {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .story-step-card::after,
+    .personality-card::after {
+      content: "";
+      position: absolute;
+      inset: auto 14px 14px auto;
+      width: 46px;
+      height: 46px;
+      border-radius: 18px;
+      border: 1px solid rgba(13, 111, 97, 0.15);
+      background:
+        linear-gradient(90deg, rgba(13, 111, 97, 0.12) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(212, 111, 44, 0.10) 1px, transparent 1px);
+      background-size: 12px 12px;
+      opacity: 0.55;
+    }
+
+    .companion-stat {
+      display: grid;
+      gap: 4px;
+      padding: 10px;
+      border-radius: var(--radius-sm);
+      background: linear-gradient(135deg, var(--accent-wash), rgba(255,255,255,0.72));
+      border: 1px solid var(--line);
+    }
+
+    .companion-stat strong {
+      color: var(--ink);
+      font-size: 1.1rem;
+    }
+
+    .rescan-coach-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .rescan-coach-list li {
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.58);
+      color: var(--ink-soft);
+      line-height: 1.5;
+    }
+
     .journal-room-card {
       min-height: 190px;
     }
@@ -1946,6 +2081,12 @@
     :root[data-theme="dark"] .room-map-preview,
     :root[data-theme="dark"] .room-passport,
     :root[data-theme="dark"] .fix-verification,
+    :root[data-theme="dark"] .home-companion-panel,
+    :root[data-theme="dark"] .report-theme-panel,
+    :root[data-theme="dark"] .fix-quest-panel,
+    :root[data-theme="dark"] .room-compare-panel,
+    :root[data-theme="dark"] .smart-rescan-coach,
+    :root[data-theme="dark"] .evidence-story-panel,
     :root[data-theme="dark"] .before-after-story {
       background:
         radial-gradient(circle at 8% 0%, rgba(52, 196, 176, 0.16), transparent 32%),
@@ -1958,6 +2099,14 @@
     :root[data-theme="dark"] .mystery-card,
     :root[data-theme="dark"] .curiosity-sample-card,
     :root[data-theme="dark"] .seasonal-card,
+    :root[data-theme="dark"] .bingo-card,
+    :root[data-theme="dark"] .personal-mode-card,
+    :root[data-theme="dark"] .personality-card,
+    :root[data-theme="dark"] .fix-quest-card,
+    :root[data-theme="dark"] .compare-card,
+    :root[data-theme="dark"] .story-step-card,
+    :root[data-theme="dark"] .companion-card,
+    :root[data-theme="dark"] .theme-copy-card,
     :root[data-theme="dark"] .triage-card,
     :root[data-theme="dark"] .journal-room-card,
     :root[data-theme="dark"] .field-note-card,
@@ -3820,6 +3969,13 @@
       .room-playbook-grid,
       .mystery-grid,
       .curiosity-sample-grid,
+      .companion-grid,
+      .home-bingo-grid,
+      .personal-mode-grid,
+      .room-personality-grid,
+      .fix-quest-grid,
+      .room-compare-grid,
+      .evidence-story-grid,
       .field-note-grid,
       .passport-grid,
       .verification-grid,
@@ -4168,6 +4324,34 @@
               </div>
               <section id="home-pulse-card" class="home-pulse-card" aria-label="Home Pulse">
                 <div class="empty-card">Home Pulse will summarize local room wins once the app loads.</div>
+              </section>
+              <section id="home-companion-panel" class="home-companion-panel" aria-label="Home Companion dashboard" data-landing-section="home_companion">
+                <div class="curiosity-head">
+                  <div>
+                    <span class="guide-kicker">Home Companion 2.0</span>
+                    <h4>Make this week’s room care feel small and satisfying.</h4>
+                    <p>Weekly recap, local bingo, seasonal packs, and personal scan modes stay in this browser and point back to one honest Safety Brief.</p>
+                  </div>
+                  <span class="pill">Local-first</span>
+                </div>
+                <div class="companion-grid">
+                  <article id="weekly-recap-card" class="companion-card">
+                    <div class="empty-card">Weekly recap will appear after the app reads your local Home Journal.</div>
+                  </article>
+                  <article class="companion-card">
+                    <span class="guide-kicker">Calm Home Bingo</span>
+                    <h4>Turn small fixes into a little game.</h4>
+                    <div id="home-bingo-grid" class="home-bingo-grid" aria-label="Calm Home Bingo tasks"></div>
+                  </article>
+                </div>
+                <div class="section-head compact">
+                  <div>
+                    <span class="guide-kicker">Personal Safety Modes</span>
+                    <h4>Scan for the life event you actually care about.</h4>
+                    <p>These modes change guidance, copy, and defaults only. The hazard engine stays the same.</p>
+                  </div>
+                </div>
+                <div id="personal-mode-grid" class="personal-mode-grid" aria-label="Personal safety modes"></div>
               </section>
               <section class="room-playbook-dashboard" aria-label="Guided Room Playbooks" data-landing-section="room_playbooks">
                 <div class="curiosity-head">
@@ -4574,6 +4758,44 @@
           <div class="empty-card">Fix Verification Mode appears after a completed scan.</div>
         </section>
 
+        <section id="report-theme-panel" class="report-theme-panel panel" aria-label="Beautiful report themes">
+          <div class="section-head compact">
+            <div>
+              <span class="guide-kicker">Beautiful Report Themes</span>
+              <h3>Change the framing, not the facts.</h3>
+              <p>Theme the brief for a family note, renter proof, pet check, guest reset, or private calm review. Findings and confidence stay unchanged.</p>
+            </div>
+            <label class="field-label" for="report-theme-style">Theme</label>
+          </div>
+          <select id="report-theme-style" class="settings-select">
+            <option value="calm-brief">Calm Brief</option>
+            <option value="family-note">Family Note</option>
+            <option value="renter-proof">Renter Proof</option>
+            <option value="pet-check">Pet Check</option>
+            <option value="guest-ready">Guest Ready</option>
+          </select>
+          <div id="report-theme-copy" class="theme-copy-card">
+            <strong>Theme preview will appear after a report is ready.</strong>
+            <p>Report themes are presentation choices only.</p>
+          </div>
+        </section>
+
+        <section id="fix-quest-panel" class="fix-quest-panel panel" aria-label="Fix Quest Cards">
+          <div class="empty-card">Fix Quest Cards will appear after a completed scan.</div>
+        </section>
+
+        <section id="room-compare-panel" class="room-compare-panel panel" aria-label="Room Compare Mode">
+          <div class="empty-card">Room Compare Mode appears when a report or Home Journal has a useful comparison.</div>
+        </section>
+
+        <section id="smart-rescan-coach" class="smart-rescan-coach panel" aria-label="Smart Rescan Coach">
+          <div class="empty-card">Smart Rescan Coach will explain how to repeat the scan after a fix.</div>
+        </section>
+
+        <section id="evidence-story-panel" class="evidence-story-panel panel" aria-label="Evidence Story Mode">
+          <div class="empty-card">Evidence Story Mode will turn evidence frames into a short what-ATLAS-noticed sequence.</div>
+        </section>
+
         <section id="report-action-loop" class="report-loop panel" aria-label="Fix, rescan, and share loop">
           <div class="empty-card">The fix-and-rescan loop will appear after a completed scan.</div>
         </section>
@@ -4816,6 +5038,9 @@
             <strong>No rooms saved yet</strong>
             <p>Run a scan with a room label and completed reports will become local room journal entries.</p>
           </div>
+          <section id="room-personality-panel" class="room-personality-panel" aria-label="Room Personality Profiles">
+            <div class="empty-card">Room Personality Profiles will appear once you save at least one room locally.</div>
+          </section>
           <div id="home-journal-empty" class="empty-card">No room history yet. Start with one room label like Kitchen, Nursery, Hallway, or Pet corner.</div>
           <div id="home-journal-grid" class="home-journal-grid"></div>
         </section>
@@ -4978,6 +5203,17 @@
                 </select>
                 <small>Stored locally for Home Journal copy; no account or notification service is added.</small>
               </div>
+              <div class="settings-control-row">
+                <label for="settings-report-theme">Default report theme</label>
+                <select id="settings-report-theme" class="settings-select">
+                  <option value="calm-brief">Calm Brief</option>
+                  <option value="family-note">Family Note</option>
+                  <option value="renter-proof">Renter Proof</option>
+                  <option value="pet-check">Pet Check</option>
+                  <option value="guest-ready">Guest Ready</option>
+                </select>
+                <small>Changes report copy framing only; it never changes findings or confidence.</small>
+              </div>
             </div>
             <label class="switch-row" for="settings-low-confidence-toggle">
               <span>
@@ -5033,6 +5269,7 @@
             <div class="settings-danger-zone">
               <button id="settings-clear-journal" class="button-link ghost danger" type="button">Clear Home Journal</button>
               <button id="settings-clear-rituals" class="button-link ghost danger" type="button">Clear rituals and streaks</button>
+              <button id="settings-clear-companion" class="button-link ghost danger" type="button">Clear Home Companion progress</button>
               <button id="settings-clear-defaults" class="button-link ghost danger" type="button">Clear saved defaults</button>
               <button id="settings-clear-all-local" class="button-link ghost danger" type="button">Clear all local ATLAS-0 data</button>
             </div>
@@ -5085,6 +5322,7 @@
                 <button id="settings-beta-invite" class="button-link ghost" type="button">Copy beta invite</button>
                 <button id="settings-waitlist" class="button-link ghost" type="button">Join beta updates</button>
                 <button id="settings-replay-welcome-tour" class="button-link ghost" type="button">Replay welcome tour</button>
+                <button id="settings-replay-weekly-recap" class="button-link ghost" type="button">Replay weekly recap</button>
               </div>
             </div>
           </details>

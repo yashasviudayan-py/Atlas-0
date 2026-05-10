@@ -7,8 +7,13 @@ import {
   BETA_SHARE_PROMPTS,
   CAPTURE_COACH_MODES,
   CURIOSITY_SAMPLE_GALLERY,
+  FIX_QUEST_TEMPLATES,
+  HOME_BINGO_TASKS,
+  PERSONAL_SAFETY_MODES,
   REPORT_DECISION_STEPS,
+  REPORT_THEMES,
   ROOM_MYSTERY_MODES,
+  ROOM_PERSONALITIES,
   ROOM_PLAYBOOKS,
   ROOM_RITUALS,
   SAFETY_MISSIONS,
@@ -46,6 +51,10 @@ const WELCOME_TOUR_STORAGE_KEY = 'atlas0.welcomeTourDismissed';
 const SHARE_CARD_STYLE_STORAGE_KEY = 'atlas0.shareCardStyle';
 const ACTIVE_EVIDENCE_STORAGE_KEY = 'atlas0.activeEvidenceFrame';
 const VERIFICATION_STORAGE_KEY = 'atlas0.fixVerificationState';
+const HOME_BINGO_STORAGE_KEY = 'atlas0.homeBingo';
+const FIX_QUEST_STORAGE_KEY = 'atlas0.fixQuests';
+const PERSONAL_MODE_STORAGE_KEY = 'atlas0.selectedPersonalMode';
+const REPORT_THEME_STORAGE_KEY = 'atlas0.reportTheme';
 
 const SETTINGS_LOCAL_KEYS = [
   THEME_STORAGE_KEY,
@@ -74,6 +83,10 @@ const SETTINGS_LOCAL_KEYS = [
   SHARE_CARD_STYLE_STORAGE_KEY,
   ACTIVE_EVIDENCE_STORAGE_KEY,
   VERIFICATION_STORAGE_KEY,
+  HOME_BINGO_STORAGE_KEY,
+  FIX_QUEST_STORAGE_KEY,
+  PERSONAL_MODE_STORAGE_KEY,
+  REPORT_THEME_STORAGE_KEY,
 ];
 
 function readStoredPreference(key) {
@@ -139,6 +152,7 @@ const state = {
   activeRitualId: readStoredPreference(RITUAL_SELECTION_STORAGE_KEY) || null,
   activeMysteryModeId: readStoredPreference(MYSTERY_MODE_STORAGE_KEY) || null,
   activeRoomPlaybookId: readStoredPreference(ROOM_PLAYBOOK_STORAGE_KEY) || null,
+  activePersonalModeId: readStoredPreference(PERSONAL_MODE_STORAGE_KEY) || null,
   activeEvidenceIndex: Number(readStoredPreference(ACTIVE_EVIDENCE_STORAGE_KEY) || 0),
   pendingUploadChallengeId: null,
 };
@@ -256,6 +270,7 @@ const settingsSampleBtn = /** @type {HTMLButtonElement} */ (document.getElementB
 const settingsOverviewGrid = document.getElementById('settings-overview-grid');
 const settingsControlStatus = document.getElementById('settings-control-status');
 const settingsReportStyleInput = /** @type {HTMLSelectElement} */ (document.getElementById('settings-report-style'));
+const settingsReportThemeInput = /** @type {HTMLSelectElement} */ (document.getElementById('settings-report-theme'));
 const settingsDefaultAudienceInput = /** @type {HTMLSelectElement} */ (document.getElementById('settings-default-audience'));
 const settingsDefaultRoomLabelInput = /** @type {HTMLInputElement} */ (document.getElementById('settings-default-room-label'));
 const settingsDefaultMysteryInput = /** @type {HTMLSelectElement} */ (document.getElementById('settings-default-mystery'));
@@ -266,6 +281,7 @@ const settingsLayoutDensityInput = /** @type {HTMLSelectElement} */ (document.ge
 const settingsFocusToggle = /** @type {HTMLInputElement} */ (document.getElementById('settings-focus-toggle'));
 const settingsClearJournalBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-journal'));
 const settingsClearRitualsBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-rituals'));
+const settingsClearCompanionBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-companion'));
 const settingsClearDefaultsBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-defaults'));
 const settingsClearAllLocalBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-all-local'));
 const settingsOpenCurrentReportBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-open-current-report'));
@@ -276,6 +292,7 @@ const settingsFeatureRequestBtn = /** @type {HTMLButtonElement} */ (document.get
 const settingsBetaInviteBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-beta-invite'));
 const settingsWaitlistBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-waitlist'));
 const settingsReplayWelcomeBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-replay-welcome-tour'));
+const settingsReplayWeeklyBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-replay-weekly-recap'));
 const settingsExportBackupBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-export-backup'));
 const settingsImportBackupBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-import-backup'));
 const settingsImportFileInput = /** @type {HTMLInputElement} */ (document.getElementById('settings-import-file'));
@@ -296,6 +313,10 @@ const seasonalPackGrid = document.getElementById('seasonal-pack-grid');
 const ritualStartBtn = /** @type {HTMLButtonElement} */ (document.getElementById('ritual-start-btn'));
 const ritualCompleteBtn = /** @type {HTMLButtonElement} */ (document.getElementById('ritual-complete-btn'));
 const homePulseCard = document.getElementById('home-pulse-card');
+const homeCompanionPanel = document.getElementById('home-companion-panel');
+const weeklyRecapCard = document.getElementById('weekly-recap-card');
+const homeBingoGrid = document.getElementById('home-bingo-grid');
+const personalModeGrid = document.getElementById('personal-mode-grid');
 const mysteryModeGrid = document.getElementById('mystery-mode-grid');
 const mysteryPromptCopy = document.getElementById('mystery-prompt-copy');
 const curiositySampleGrid = document.getElementById('curiosity-sample-grid');
@@ -312,7 +333,15 @@ const briefTriageStrip = document.getElementById('brief-triage-strip');
 const fieldNotesPanel = document.getElementById('field-notes-panel');
 const roomMapPreview = document.getElementById('room-map-preview');
 const beforeAfterStory = document.getElementById('before-after-story');
+const reportThemePanel = document.getElementById('report-theme-panel');
+const reportThemeInput = /** @type {HTMLSelectElement} */ (document.getElementById('report-theme-style'));
+const reportThemeCopy = document.getElementById('report-theme-copy');
+const fixQuestPanel = document.getElementById('fix-quest-panel');
+const roomComparePanel = document.getElementById('room-compare-panel');
+const smartRescanCoach = document.getElementById('smart-rescan-coach');
+const evidenceStoryPanel = document.getElementById('evidence-story-panel');
 const homeJournalSummary = document.getElementById('home-journal-summary');
+const roomPersonalityPanel = document.getElementById('room-personality-panel');
 const homeJournalGrid = document.getElementById('home-journal-grid');
 const homeJournalEmpty = document.getElementById('home-journal-empty');
 
@@ -481,6 +510,10 @@ function currentRescanReminder() {
   return storedChoice(RESCAN_REMINDER_STORAGE_KEY, ['off', 'weekly', 'monthly'], 'off');
 }
 
+function currentReportTheme() {
+  return storedChoice(REPORT_THEME_STORAGE_KEY, REPORT_THEMES.map((theme) => theme.id), 'calm-brief');
+}
+
 function currentDefaultMysteryMode() {
   const value = readStoredPreference(DEFAULT_MYSTERY_MODE_STORAGE_KEY);
   return ROOM_MYSTERY_MODES.some((mode) => mode.id === value) ? value : '';
@@ -517,6 +550,12 @@ function applyAccessibilityPreferences() {
 function syncSettingsPreferenceControls() {
   if (settingsReportStyleInput) {
     settingsReportStyleInput.value = currentReportStyle();
+  }
+  if (settingsReportThemeInput) {
+    settingsReportThemeInput.value = currentReportTheme();
+  }
+  if (reportThemeInput) {
+    reportThemeInput.value = currentReportTheme();
   }
   if (settingsDefaultAudienceInput) {
     settingsDefaultAudienceInput.value = currentDefaultAudience();
@@ -573,11 +612,18 @@ function localDataCounts() {
   } catch {
     challengeCount = 0;
   }
+  let bingoDone = 0;
+  try {
+    bingoDone = Object.keys(JSON.parse(readStoredPreference(HOME_BINGO_STORAGE_KEY) || '{}')).length;
+  } catch {
+    bingoDone = 0;
+  }
   return {
     rooms: journal.length,
     favorites: favorites.size,
     rituals: ritualState.completedDates.length,
     challengeJobs: challengeCount,
+    bingoDone,
   };
 }
 
@@ -607,9 +653,9 @@ function renderSettingsControlCenter() {
   ].filter(Boolean).join(' · ') || 'Standard';
   settingsOverviewGrid.innerHTML = [
     { label: 'Interface', value: `${capitalize(theme)} · ${motion}`, detail: accessibility },
-    { label: 'Report default', value: reportStyleLabel(), detail: state.showLowConfidence ? 'Lower-confidence findings visible' : 'Cleaner high-confidence view' },
+    { label: 'Report default', value: reportStyleLabel(), detail: `${reportThemeLabel()} · ${state.showLowConfidence ? 'Lower-confidence findings visible' : 'Cleaner high-confidence view'}` },
     { label: 'Scan default', value: CAPTURE_COACH_MODES[currentDefaultAudience()]?.title || 'General home safety', detail: readStoredPreference(DEFAULT_ROOM_LABEL_STORAGE_KEY) || 'No default room label' },
-    { label: 'Local journal', value: `${counts.rooms} room${counts.rooms === 1 ? '' : 's'}`, detail: `${counts.favorites} favorite${counts.favorites === 1 ? '' : 's'} · ${counts.rituals} ritual day${counts.rituals === 1 ? '' : 's'}` },
+    { label: 'Local journal', value: `${counts.rooms} room${counts.rooms === 1 ? '' : 's'}`, detail: `${counts.favorites} favorite${counts.favorites === 1 ? '' : 's'} · ${counts.rituals} ritual day${counts.rituals === 1 ? '' : 's'} · ${counts.bingoDone} bingo` },
     { label: 'Privacy posture', value: privacy ? `${privacy.retention_days} day retention` : 'Policy unavailable', detail: privacy?.delete_supported ? 'Delete controls available' : 'Report delete status unknown' },
     { label: 'Access', value: tokenStored ? 'Token stored locally' : 'No token stored', detail: active?.status === 'complete' ? 'Current report ready' : 'No completed active report' },
   ].map((item) => `
@@ -635,11 +681,20 @@ function clearLocalKeys(keys) {
   keys.forEach(removeStoredPreference);
 }
 
+function clearLocalPrefixes(prefixes) {
+  try {
+    Object.keys(window.localStorage)
+      .filter((key) => prefixes.some((prefix) => key === prefix || key.startsWith(`${prefix}.`)))
+      .forEach((key) => window.localStorage.removeItem(key));
+  } catch {}
+}
+
 function resetLocalRuntimeState() {
   state.activeChallengeId = null;
   state.activeRitualId = null;
   state.activeMysteryModeId = null;
   state.activeRoomPlaybookId = null;
+  state.activePersonalModeId = null;
   state.pendingUploadChallengeId = null;
   state.showLowConfidence = false;
   syncLowConfidenceControls();
@@ -648,6 +703,7 @@ function resetLocalRuntimeState() {
   renderRoomRituals();
   renderMysteryModes();
   renderRoomPlaybooks();
+  renderHomeCompanion();
   renderWelcomeTour();
   renderHomeJournal();
   renderHomePulse();
@@ -724,6 +780,7 @@ function importLocalBackup(payload) {
   state.activeRitualId = readStoredPreference(RITUAL_SELECTION_STORAGE_KEY) || null;
   state.activeMysteryModeId = readStoredPreference(MYSTERY_MODE_STORAGE_KEY) || currentDefaultMysteryMode() || null;
   state.activeRoomPlaybookId = readStoredPreference(ROOM_PLAYBOOK_STORAGE_KEY) || null;
+  state.activePersonalModeId = readStoredPreference(PERSONAL_MODE_STORAGE_KEY) || null;
   applyThemePreference(readStoredPreference(THEME_STORAGE_KEY) || 'light');
   applyMotionPreference(storedBoolean(MOTION_STORAGE_KEY));
   applyAccessibilityPreferences();
@@ -735,6 +792,7 @@ function importLocalBackup(payload) {
   renderRoomRituals();
   renderMysteryModes();
   renderRoomPlaybooks();
+  renderHomeCompanion();
   renderWelcomeTour();
   renderHomeJournal();
   renderHomePulse();
@@ -1234,6 +1292,221 @@ function startRoomPlaybook(playbook, source = 'playbook_grid') {
   showToast(`${playbook.title} loaded. Record with the same room label for cleaner before/after checks.`);
 }
 
+function reportThemeById(id) {
+  return REPORT_THEMES.find((theme) => theme.id === id) || REPORT_THEMES[0];
+}
+
+function reportThemeLabel(id = currentReportTheme()) {
+  return reportThemeById(id)?.title || 'Calm Brief';
+}
+
+function personalModeById(id) {
+  return PERSONAL_SAFETY_MODES.find((mode) => mode.id === id) || null;
+}
+
+function renderPersonalModes() {
+  if (!personalModeGrid) {
+    return;
+  }
+  const activeId = state.activePersonalModeId;
+  personalModeGrid.innerHTML = PERSONAL_SAFETY_MODES.map((mode) => `
+    <button class="personal-mode-card ${mode.id === activeId ? 'active' : ''}" type="button" data-personal-mode="${escapeHtml(mode.id)}">
+      <span class="guide-kicker">${escapeHtml(CAPTURE_COACH_MODES[mode.audienceMode]?.title || 'Personal mode')}</span>
+      <strong>${escapeHtml(mode.title)}</strong>
+      <span>${escapeHtml(mode.copy)}</span>
+      <small>${escapeHtml(mode.captureFocus)}</small>
+    </button>
+  `).join('');
+}
+
+function startPersonalMode(mode) {
+  markFirstRunStarted('personal_safety_mode');
+  state.activePersonalModeId = mode.id;
+  state.activeMysteryModeId = mode.mysteryModeId;
+  writeStoredPreference(PERSONAL_MODE_STORAGE_KEY, mode.id);
+  writeStoredPreference(MYSTERY_MODE_STORAGE_KEY, mode.mysteryModeId);
+  markBingoTask('personal-mode');
+  if (audienceModeInput) {
+    audienceModeInput.value = mode.audienceMode;
+  }
+  if (roomLabelInput) {
+    roomLabelInput.value = mode.roomLabel;
+  }
+  if (uploadGuidanceCopy) {
+    uploadGuidanceCopy.textContent = mode.captureFocus;
+  }
+  renderPersonalModes();
+  renderMysteryModes();
+  renderCaptureCoach();
+  renderHomeCompanion();
+  trackProductEvent('personal_mode_selected', {
+    personal_mode_id: mode.id,
+    audience_mode: mode.audienceMode,
+    room_label: mode.roomLabel,
+    room_labeled: true,
+  });
+  switchView('scan');
+  showToast(`${mode.title} loaded. The scan guidance is tuned, but the report stays honest.`);
+}
+
+function readBingoState() {
+  const raw = readStoredPreference(HOME_BINGO_STORAGE_KEY);
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeBingoState(nextState) {
+  writeStoredPreference(HOME_BINGO_STORAGE_KEY, JSON.stringify(nextState));
+}
+
+function markBingoTask(taskId, shouldTrack = false) {
+  if (!HOME_BINGO_TASKS.some((task) => task.id === taskId)) {
+    return;
+  }
+  const stateMap = readBingoState();
+  if (!stateMap[taskId]) {
+    stateMap[taskId] = new Date().toISOString();
+    writeBingoState(stateMap);
+    if (shouldTrack) {
+      trackProductEvent('home_bingo_task_completed', { task_id: taskId });
+    }
+  }
+}
+
+function journalEntries() {
+  return Object.values(readHomeJournal())
+    .sort((a, b) => String(b.lastCheckedAt || '').localeCompare(String(a.lastCheckedAt || '')));
+}
+
+function roomPersonalityForEntry(entry = {}) {
+  const haystack = [
+    entry.roomLabel,
+    entry.audienceLabel,
+    entry.topAction,
+    entry.confidenceLabel,
+    entry.rescanRecommended ? 'rescan' : '',
+    (entry.lastScore || 0) < 70 ? 'high watch rescan' : 'calm',
+  ].join(' ').toLowerCase();
+  return ROOM_PERSONALITIES.find((personality) => (
+    personality.match.some((token) => haystack.includes(token))
+  )) || ROOM_PERSONALITIES[0];
+}
+
+function weeklyRecapData() {
+  const entries = journalEntries();
+  const scoreDeltas = entries.map((entry) => {
+    const scores = Array.isArray(entry.scores) ? entry.scores : [];
+    return {
+      entry,
+      delta: scores.length >= 2 ? scores[scores.length - 1] - scores[0] : 0,
+    };
+  });
+  const best = scoreDeltas.sort((a, b) => b.delta - a.delta)[0] || null;
+  const attentionCounts = {};
+  entries.forEach((entry) => {
+    const key = entry.topAction || 'Review the Safety Brief';
+    attentionCounts[key] = (attentionCounts[key] || 0) + 1;
+  });
+  const commonAttention = Object.entries(attentionCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'No recurring attention area yet';
+  const completedFixes = entries.reduce((sum, entry) => sum + Number(entry.completedFixes || 0), 0);
+  const nextRoom = entries.find((entry) => entry.rescanRecommended)?.roomLabel
+    || entries[0]?.roomLabel
+    || activeMysteryMode().roomLabel;
+  return {
+    entries,
+    roomsChecked: entries.length,
+    bestRoom: best?.entry?.roomLabel || 'No room trend yet',
+    bestDelta: best?.delta || 0,
+    commonAttention,
+    completedFixes,
+    nextRoom,
+  };
+}
+
+function buildWeeklyRecapText() {
+  const recap = weeklyRecapData();
+  if (!recap.roomsChecked) {
+    return 'ATLAS-0 weekly home win: I am starting with one room scan, one evidence-backed Safety Brief, and one small fix.';
+  }
+  const delta = recap.bestDelta ? ` (${recap.bestDelta > 0 ? '+' : ''}${recap.bestDelta} Calm Score)` : '';
+  return `ATLAS-0 weekly home win: checked ${recap.roomsChecked} room${recap.roomsChecked === 1 ? '' : 's'}, logged ${recap.completedFixes} fix${recap.completedFixes === 1 ? '' : 'es'}, top attention area was "${recap.commonAttention}", and next suggested room is ${recap.nextRoom}.${delta}`;
+}
+
+function renderHomeCompanion() {
+  if (!homeCompanionPanel) {
+    return;
+  }
+  const recap = weeklyRecapData();
+  if (weeklyRecapCard) {
+    weeklyRecapCard.innerHTML = `
+      <span class="guide-kicker">Weekly Home Pulse Recap</span>
+      <h4>${escapeHtml(recap.roomsChecked ? `${recap.roomsChecked} room${recap.roomsChecked === 1 ? '' : 's'} checked` : 'Start this week with one room')}</h4>
+      <div class="home-pulse-grid">
+        <span class="companion-stat"><strong>${escapeHtml(recap.bestDelta ? `${recap.bestDelta > 0 ? '+' : ''}${recap.bestDelta}` : '—')}</strong><small>Best Calm Score change</small></span>
+        <span class="companion-stat"><strong>${escapeHtml(String(recap.completedFixes))}</strong><small>Completed local fixes</small></span>
+        <span class="companion-stat"><strong>${escapeHtml(recap.nextRoom || 'Pick a room')}</strong><small>Next room</small></span>
+      </div>
+      <p>${escapeHtml(recap.commonAttention)}</p>
+      <button class="button-link ghost" type="button" data-copy-weekly-recap="true">Copy weekly home win</button>
+    `;
+  }
+  if (homeBingoGrid) {
+    const done = readBingoState();
+    homeBingoGrid.innerHTML = HOME_BINGO_TASKS.map((task) => `
+      <button class="bingo-card ${done[task.id] ? 'done' : ''}" type="button" data-home-bingo-task="${escapeHtml(task.id)}">
+        <span class="guide-kicker">${done[task.id] ? 'Done' : 'Try'}</span>
+        <strong>${escapeHtml(task.title)}</strong>
+        <span>${escapeHtml(task.copy)}</span>
+      </button>
+    `).join('');
+  }
+  renderPersonalModes();
+}
+
+function renderRoomPersonalityPanel() {
+  if (!roomPersonalityPanel) {
+    return;
+  }
+  const entries = journalEntries();
+  if (!entries.length) {
+    roomPersonalityPanel.innerHTML = emptyMarkup('Room Personality Profiles will appear once you save at least one room locally.');
+    return;
+  }
+  roomPersonalityPanel.innerHTML = `
+    <div class="section-head compact">
+      <div>
+        <span class="guide-kicker">Room Personality Profiles</span>
+        <h4>Saved rooms now have a small local identity.</h4>
+        <p>Profiles are derived from room label, mode, recurring top risk, Calm Score, completed fixes, and rescan state.</p>
+      </div>
+    </div>
+    <div class="room-personality-grid">
+      ${entries.slice(0, 6).map((entry) => {
+        const personality = roomPersonalityForEntry(entry);
+        return `
+          <article class="personality-card">
+            <span class="guide-kicker">${escapeHtml(personality.badge)}</span>
+            <strong>${escapeHtml(entry.roomLabel || 'Saved room')} · ${escapeHtml(personality.title)}</strong>
+            <p>${escapeHtml(personality.copy)}</p>
+            <p>${escapeHtml(personality.nextPrompt)}</p>
+            <div class="journal-meta">
+              <span class="soft-badge">${escapeHtml(entry.lastScore === null || entry.lastScore === undefined ? 'Calm Score pending' : `${entry.lastScore}/100 Calm Score`)}</span>
+              <span class="soft-badge">${escapeHtml(`${entry.completedFixes || 0} fixes`)}</span>
+            </div>
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
 function renderHomePulse() {
   if (!homePulseCard) {
     return;
@@ -1344,6 +1617,9 @@ function upsertHomeJournalFromJob(job) {
     scores: score === null ? previousScores.slice(-6) : [...previousScores, score].slice(-6),
     lastScore: score,
     rescanRecommended: Boolean(summary.rescan_recommended || job.scan_quality?.rescan_recommended),
+    activePlaybookId: state.activeRoomPlaybookId || existing.activePlaybookId || null,
+    activePersonalModeId: state.activePersonalModeId || existing.activePersonalModeId || null,
+    reportThemeId: currentReportTheme(),
   };
   writeHomeJournal(journal);
 }
@@ -1677,6 +1953,10 @@ function switchView(id) {
   if (id === 'journal') {
     renderHomeJournal();
     trackProductEvent('home_journal_opened', { surface: 'journal_nav' });
+    trackProductEvent('room_personality_viewed', {
+      surface: 'journal_nav',
+      room_count: journalEntries().length,
+    });
   }
   syncUrlState();
 }
@@ -1848,6 +2128,11 @@ function renderReport(job) {
     renderShareCardPreview(null);
     renderRoomPassport(null);
     renderFixVerification(null);
+    renderReportThemePanel(null);
+    renderFixQuestPanel(null);
+    renderRoomComparePanel(null);
+    renderSmartRescanCoach(null);
+    renderEvidenceStoryPanel(null);
     summaryObjects.textContent = '0';
     summaryHazards.textContent = '0';
     summarySeverity.textContent = '—';
@@ -1926,6 +2211,11 @@ function renderReport(job) {
   renderShareCardPreview(job);
   renderRoomPassport(job, summary, visibleHazards, fixFirst, comparison);
   renderFixVerification(job, summary, visibleHazards, fixFirst, recommendations, comparison);
+  renderReportThemePanel(job);
+  renderFixQuestPanel(job, summary, visibleHazards, fixFirst, recommendations);
+  renderRoomComparePanel(job, summary, visibleHazards, comparison);
+  renderSmartRescanCoach(job, summary, visibleHazards, fixFirst, recommendations, scanQuality, comparison);
+  renderEvidenceStoryPanel(job, summary, visibleHazards, evidence, scanQuality);
 
   summaryObjects.textContent = String(summary.object_count || 0);
   summaryHazards.textContent = String(summary.hazard_count || 0);
@@ -2663,6 +2953,230 @@ function renderFixVerification(job, summary = {}, hazards = [], fixFirst = [], r
   `;
 }
 
+function fixQuestStorageKey(jobId) {
+  return `${FIX_QUEST_STORAGE_KEY}.${jobId}`;
+}
+
+function readFixQuestState(jobId) {
+  const raw = readStoredPreference(fixQuestStorageKey(jobId));
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeFixQuestState(jobId, nextState) {
+  writeStoredPreference(fixQuestStorageKey(jobId), JSON.stringify(nextState));
+}
+
+function buildFixQuests(job, fixFirst = [], recommendations = [], hazards = []) {
+  const items = buildChecklistItems(fixFirst, recommendations, hazards);
+  const source = items.length ? items : [{
+    title: job?.summary?.top_hazard_label || 'Review the Safety Brief',
+    action: 'Pick one small evidence-backed improvement, then rescan the same room.',
+    source: 'Brief',
+  }];
+  return source.slice(0, 4).map((item, index) => {
+    const template = FIX_QUEST_TEMPLATES[index % FIX_QUEST_TEMPLATES.length];
+    return {
+      id: checklistItemId(item, index),
+      title: item.title || template.label,
+      action: item.action || template.copy,
+      label: template.label,
+      copy: template.copy,
+      source: item.source || 'Report',
+    };
+  });
+}
+
+function renderReportThemePanel(job) {
+  if (!reportThemePanel || !reportThemeCopy) {
+    return;
+  }
+  const theme = reportThemeById(currentReportTheme());
+  if (reportThemeInput) {
+    reportThemeInput.value = theme.id;
+  }
+  if (!job || job.status !== 'complete') {
+    reportThemeCopy.innerHTML = `
+      <strong>${escapeHtml(theme.title)}</strong>
+      <p>${escapeHtml(theme.copy)} Run a scan or open the sample report to preview this theme against a Safety Brief.</p>
+    `;
+    return;
+  }
+  const summary = job.summary || {};
+  const topAction = (job.fix_first || [])[0]?.title || summary.top_hazard_label || 'Fix one thing';
+  reportThemeCopy.innerHTML = `
+    <strong>${escapeHtml(theme.title)} · ${escapeHtml(theme.badge)}</strong>
+    <p>${escapeHtml(theme.copy)}</p>
+    <p>${escapeHtml(`Preview: ${job.room_label || summary.room_label || 'This room'} has ${summary.room_score ?? 'a pending'} Calm Score. Start with "${topAction}" and treat the report as decision support, not certification.`)}</p>
+  `;
+}
+
+function renderFixQuestPanel(job, summary = {}, hazards = [], fixFirst = [], recommendations = []) {
+  if (!fixQuestPanel) {
+    return;
+  }
+  if (!job || job.status !== 'complete') {
+    fixQuestPanel.innerHTML = emptyMarkup('Fix Quest Cards will appear after a completed scan.');
+    return;
+  }
+  const quests = buildFixQuests(job, fixFirst, recommendations, hazards);
+  const questState = readFixQuestState(job.job_id);
+  fixQuestPanel.innerHTML = `
+    <div class="section-head compact">
+      <div>
+        <span class="guide-kicker">Fix Quest Cards</span>
+        <h3>Turn the brief into one doable home win.</h3>
+        <p>Quests are local progress helpers built from fix-first actions, recommendations, and findings.</p>
+      </div>
+      <span class="pill">${escapeHtml(`${quests.filter((quest) => questState[quest.id]).length}/${quests.length} done`)}</span>
+    </div>
+    <div class="fix-quest-grid">
+      ${quests.map((quest) => `
+        <button class="fix-quest-card ${questState[quest.id] ? 'done' : ''}" type="button" data-complete-fix-quest="${escapeHtml(quest.id)}">
+          <span class="guide-kicker">${escapeHtml(questState[quest.id] ? 'Completed' : quest.label)}</span>
+          <strong>${escapeHtml(quest.title)}</strong>
+          <span>${escapeHtml(quest.action || quest.copy)}</span>
+          <small>${escapeHtml(`${quest.source} · Rescan to verify, not certify.`)}</small>
+        </button>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderRoomComparePanel(job, summary = {}, hazards = [], comparison = null) {
+  if (!roomComparePanel) {
+    return;
+  }
+  if (!job || job.status !== 'complete') {
+    roomComparePanel.innerHTML = emptyMarkup('Room Compare Mode appears when a report or Home Journal has a useful comparison.');
+    return;
+  }
+  const entries = journalEntries().filter((entry) => entry.lastJobId !== job.job_id);
+  const currentScore = typeof summary.room_score === 'number' ? Math.round(summary.room_score) : null;
+  const peer = entries.find((entry) => entry.roomLabel !== (job.room_label || summary.room_label)) || entries[0] || null;
+  const delta = comparison && typeof comparison.score_delta === 'number'
+    ? `${comparison.score_delta > 0 ? '+' : ''}${comparison.score_delta} vs last same-room scan`
+    : 'No same-room delta yet';
+  roomComparePanel.innerHTML = `
+    <div class="section-head compact">
+      <div>
+        <span class="guide-kicker">Room Compare Mode</span>
+        <h3>Compare progress without pretending it is a measurement lab.</h3>
+        <p>Use same-room labels for before/after checks; use room-vs-room comparison only as a prioritization nudge.</p>
+      </div>
+      <button class="button-link ghost" type="button" data-room-compare-open="true">Log compare view</button>
+    </div>
+    <div class="room-compare-grid">
+      <article class="compare-card">
+        <span class="guide-kicker">Current room</span>
+        <strong>${escapeHtml(job.room_label || summary.room_label || 'Current report')}</strong>
+        <p>${escapeHtml(currentScore === null ? 'Calm Score pending' : `${currentScore}/100 Calm Score`)}</p>
+      </article>
+      <article class="compare-card">
+        <span class="guide-kicker">Same-room progress</span>
+        <strong>${escapeHtml(delta)}</strong>
+        <p>${escapeHtml(comparison?.summary || 'Rescan with the same room label to unlock a cleaner before/after comparison.')}</p>
+      </article>
+      <article class="compare-card">
+        <span class="guide-kicker">Room-vs-room nudge</span>
+        <strong>${escapeHtml(peer?.roomLabel || 'Save another room')}</strong>
+        <p>${escapeHtml(peer ? `${peer.lastScore ?? 'Pending'} Calm Score · ${peer.topAction || 'Review brief'}` : 'Home Journal needs another saved room before room-vs-room comparison is useful.')}</p>
+      </article>
+    </div>
+  `;
+}
+
+function renderSmartRescanCoach(job, summary = {}, hazards = [], fixFirst = [], recommendations = [], scanQuality = {}, comparison = null) {
+  if (!smartRescanCoach) {
+    return;
+  }
+  if (!job || job.status !== 'complete') {
+    smartRescanCoach.innerHTML = emptyMarkup('Smart Rescan Coach will explain how to repeat the scan after a fix.');
+    return;
+  }
+  const roomLabel = job.room_label || summary.room_label || 'this room';
+  const topFix = fixFirst[0]?.title || recommendations[0]?.title || hazards[0]?.hazard_title || 'the first visible fix';
+  const qualityNote = scanQuality.status === 'weak' || summary.rescan_recommended
+    ? 'The last scan looked weak, so keep the route slower and the evidence area in frame longer.'
+    : 'The last scan can serve as a baseline if you repeat the same path.';
+  smartRescanCoach.innerHTML = `
+    <div class="section-head compact">
+      <div>
+        <span class="guide-kicker">Smart Rescan Coach</span>
+        <h3>Make the before/after check fair.</h3>
+        <p>${escapeHtml(qualityNote)}</p>
+      </div>
+      <button class="button-link ghost" type="button" data-smart-rescan-open="true">Use coach</button>
+    </div>
+    <ul class="rescan-coach-list">
+      <li>Reuse the exact room label: <strong>${escapeHtml(roomLabel)}</strong>.</li>
+      <li>Start from the same doorway or corner and move at the same pace.</li>
+      <li>Keep <strong>${escapeHtml(topFix)}</strong> visible for a full pause after the fix.</li>
+      <li>Look for a clearer path, fewer edge objects, or a higher Calm Score. If not visible, treat it as “watch later.”</li>
+      <li>${escapeHtml(comparison?.summary || 'No same-room comparison yet. The next scan can become the baseline proof point.')}</li>
+    </ul>
+  `;
+}
+
+function renderEvidenceStoryPanel(job, summary = {}, hazards = [], evidence = [], scanQuality = {}) {
+  if (!evidenceStoryPanel) {
+    return;
+  }
+  if (!job || job.status !== 'complete') {
+    evidenceStoryPanel.innerHTML = emptyMarkup('Evidence Story Mode will turn evidence frames into a short what-ATLAS-noticed sequence.');
+    return;
+  }
+  if (!evidence.length) {
+    evidenceStoryPanel.innerHTML = `
+      <div class="section-head compact">
+        <div>
+          <span class="guide-kicker">Evidence Story Mode</span>
+          <h3>No evidence story yet.</h3>
+          <p>This report has no stored evidence frames, so treat it as a rescan prompt rather than proof.</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
+  const strongest = [...evidence].sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))[0];
+  const uncertainty = scanQuality.status === 'weak' || summary.rescan_recommended
+    ? 'Scan quality or coverage was weak, so ATLAS-0 recommends a cautious follow-up.'
+    : summary.confidence_label || 'Evidence is approximate and should be reviewed.';
+  const topFix = (job.fix_first || [])[0]?.title || (job.recommendations || [])[0]?.title || hazards[0]?.hazard_title || 'Pick one small fix';
+  const story = [
+    { label: 'First useful frame', title: evidence[0]?.caption || 'First evidence frame', copy: renderEvidenceWhy(evidence[0], 0, hazards) },
+    { label: 'Strongest evidence', title: strongest?.caption || 'Strongest frame', copy: `${Math.round(Number(strongest?.confidence || 0) * 100)}% frame confidence. Review before acting.` },
+    { label: 'Uncertainty note', title: summary.confidence_label || 'Approximate grounding', copy: uncertainty },
+    { label: 'Recommended fix', title: topFix, copy: 'Make one small change, then rescan the same route to verify progress.' },
+  ];
+  evidenceStoryPanel.innerHTML = `
+    <div class="section-head compact">
+      <div>
+        <span class="guide-kicker">Evidence Story Mode</span>
+        <h3>What ATLAS noticed, in sequence.</h3>
+        <p>This is a narrative over stored evidence frames, not a stronger model claim.</p>
+      </div>
+      <button class="button-link ghost" type="button" data-evidence-story-open="true">Log story view</button>
+    </div>
+    <div class="evidence-story-grid">
+      ${story.map((step, index) => `
+        <article class="story-step-card">
+          <span class="guide-kicker">${String(index + 1).padStart(2, '0')} · ${escapeHtml(step.label)}</span>
+          <strong>${escapeHtml(step.title)}</strong>
+          <p>${escapeHtml(step.copy)}</p>
+        </article>
+      `).join('')}
+    </div>
+  `;
+}
+
 function renderRoomScorecard(job, summary, hazards, fixFirst, recommendations, comparison, scanQuality) {
   const score = typeof summary.room_score === 'number' ? Math.round(summary.room_score) : null;
   const scoreLabel = score === null ? 'Pending' : `${score}/100`;
@@ -2898,6 +3412,8 @@ function renderFixChecklist(job, fixFirst, recommendations, hazards) {
       </label>
     `;
   }).join('');
+  renderRoomPersonalityPanel();
+  renderHomeCompanion();
 }
 
 function renderEvidenceWhy(frame, index, hazards = []) {
@@ -3515,17 +4031,23 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Landing sections viewed', value: String(settings.product.landing_section_events || 0) },
       { label: 'Share events', value: String(settings.product.share_events || 0) },
       { label: 'Share card copies', value: String(settings.product.share_card_events || 0) },
+      { label: 'Report theme changes', value: String(settings.product.report_theme_events || 0) },
       { label: 'Confidence inspector opens', value: String(settings.product.confidence_inspector_events || 0) },
       { label: 'Beta invite copies', value: String(settings.product.beta_invite_events || 0) },
       { label: 'Room win copies', value: String(settings.product.room_win_events || 0) },
       { label: 'Fix plan copies', value: String(settings.product.fix_plan_events || 0) },
       { label: 'Fix Today copies', value: String(settings.product.fix_today_events || 0) },
+      { label: 'Fix Quest completions', value: String(settings.product.fix_quest_events || 0) },
       { label: 'Before/after cards', value: String(settings.product.before_after_card_events || 0) },
       { label: 'Mystery mode starts', value: String(settings.product.mystery_mode_events || 0) },
+      { label: 'Personal modes selected', value: String(settings.product.personal_mode_events || 0) },
       { label: 'Sample gallery opens', value: String(settings.product.sample_gallery_events || 0) },
       { label: 'Field note expands', value: String(settings.product.field_note_events || 0) },
+      { label: 'Evidence stories opened', value: String(settings.product.evidence_story_events || 0) },
       { label: 'Map preview opens', value: String(settings.product.room_map_preview_events || 0) },
+      { label: 'Room Compare opens', value: String(settings.product.room_compare_events || 0) },
       { label: 'Room Passport opens', value: String(settings.product.room_passport_events || 0) },
+      { label: 'Room personalities viewed', value: String(settings.product.room_personality_events || 0) },
       { label: 'Room Playbooks starts', value: String(settings.product.room_playbook_events || 0) },
       { label: 'Fix verification starts', value: String(settings.product.fix_verification_events || 0) },
       { label: 'Fix verification copies', value: String(settings.product.fix_verification_copy_events || 0) },
@@ -3534,12 +4056,16 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Confidence explainers', value: String(settings.product.confidence_explainer_events || 0) },
       { label: 'Welcome tour completions', value: String(settings.product.welcome_tour_events || 0) },
       { label: 'Home Pulse opens', value: String(settings.product.home_pulse_events || 0) },
+      { label: 'Weekly recap copies', value: String(settings.product.weekly_recap_events || 0) },
+      { label: 'Home Bingo completions', value: String(settings.product.home_bingo_events || 0) },
       { label: 'Daily mission starts', value: String(settings.product.daily_mission_events || 0) },
       { label: 'Room ritual starts', value: String(settings.product.room_ritual_events || 0) },
       { label: 'Room ritual completions', value: String(settings.product.room_ritual_completed_events || 0) },
       { label: 'Home Journal opens', value: String(settings.product.home_journal_events || 0) },
       { label: 'Reminder clicks', value: String(settings.product.room_reminder_events || 0) },
       { label: 'Seasonal pack starts', value: String(settings.product.seasonal_pack_events || 0) },
+      { label: 'Seasonal packs selected', value: String(settings.product.seasonal_pack_selected_events || 0) },
+      { label: 'Smart Rescan Coach opens', value: String(settings.product.smart_rescan_coach_events || 0) },
       { label: 'Capture coach checks', value: String(settings.product.capture_coach_events || 0) },
       { label: 'Same-room rescan starts', value: String(settings.product.same_room_rescan_events || 0) },
       { label: 'Rescan prompt clicks', value: String(settings.product.rescan_prompt_events || 0) },
@@ -3571,21 +4097,31 @@ function renderBetaInbox(inbox) {
       { label: 'Upload starts', value: String(funnel.upload_started || 0) },
       { label: 'Upload completes', value: String(funnel.upload_completed || 0) },
       { label: 'Report views', value: String(funnel.report_viewed || 0) },
+      { label: 'Report theme changes', value: String(funnel.report_theme_changed || 0) },
       { label: 'First-run starts', value: String(funnel.first_run_started || 0) },
       { label: 'Mystery mode starts', value: String(funnel.mystery_mode_started || 0) },
+      { label: 'Personal modes selected', value: String(funnel.personal_mode_selected || 0) },
       { label: 'Sample gallery opens', value: String(funnel.sample_gallery_opened || 0) },
       { label: 'Before/after copies', value: String(funnel.before_after_card_copied || 0) },
       { label: 'Field note expands', value: String(funnel.field_note_expanded || 0) },
+      { label: 'Evidence stories opened', value: String(funnel.evidence_story_opened || 0) },
       { label: 'Map preview opens', value: String(funnel.room_map_preview_opened || 0) },
+      { label: 'Room Compare opens', value: String(funnel.room_compare_opened || 0) },
       { label: 'Room Passport opens', value: String(funnel.room_passport_opened || 0) },
+      { label: 'Room personalities viewed', value: String(funnel.room_personality_viewed || 0) },
       { label: 'Room Playbook starts', value: String(funnel.room_playbook_started || 0) },
       { label: 'Fix verification starts', value: String(funnel.fix_verification_started || 0) },
+      { label: 'Fix Quest completions', value: String(funnel.fix_quest_completed || 0) },
       { label: 'Share studio copies', value: String(funnel.share_card_studio_copied || 0) },
       { label: 'Confidence explainers', value: String(funnel.confidence_explainer_opened || 0) },
       { label: 'Welcome tours done', value: String(funnel.welcome_tour_completed || 0) },
       { label: 'Home Pulse opens', value: String(funnel.home_pulse_opened || 0) },
+      { label: 'Weekly recap copies', value: String(funnel.weekly_recap_copied || 0) },
+      { label: 'Home Bingo completions', value: String(funnel.home_bingo_task_completed || 0) },
       { label: 'Room ritual starts', value: String(funnel.room_ritual_started || 0) },
       { label: 'Room ritual done', value: String(funnel.room_ritual_completed || 0) },
+      { label: 'Seasonal packs selected', value: String(funnel.seasonal_pack_selected || 0) },
+      { label: 'Smart Rescan Coach opens', value: String(funnel.smart_rescan_coach_opened || 0) },
       { label: 'Home Journal opens', value: String(funnel.home_journal_opened || 0) },
       { label: 'Fix Today copies', value: String(funnel.fix_today_copied || 0) },
       { label: 'PDF downloads', value: String(funnel.pdf_downloads || 0) },
@@ -3768,7 +4304,9 @@ roomPlaybookGrid?.addEventListener('click', (event) => {
   const button = event.target instanceof Element ? event.target.closest('[data-room-playbook]') : null;
   const playbook = roomPlaybookById(button?.dataset.roomPlaybook);
   if (playbook) {
+    markBingoTask('try-playbook');
     startRoomPlaybook(playbook, 'room_playbook_grid');
+    renderHomeCompanion();
   }
 });
 mysteryModeGrid?.addEventListener('click', (event) => {
@@ -3776,6 +4314,34 @@ mysteryModeGrid?.addEventListener('click', (event) => {
   const mode = mysteryModeById(button?.dataset.mysteryMode);
   if (mode) {
     startMysteryMode(mode, 'mystery_mode_grid');
+  }
+});
+homeCompanionPanel?.addEventListener('click', async (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const weeklyButton = target?.closest('[data-copy-weekly-recap]');
+  if (weeklyButton) {
+    await copyText(buildWeeklyRecapText());
+    markBingoTask('copy-room-win');
+    renderHomeCompanion();
+    trackProductEvent('weekly_recap_copied', { room_count: weeklyRecapData().roomsChecked });
+    showToast('Weekly home win copied.');
+    return;
+  }
+
+  const bingoButton = target?.closest('[data-home-bingo-task]');
+  if (bingoButton) {
+    const taskId = bingoButton.dataset.homeBingoTask || '';
+    markBingoTask(taskId, true);
+    renderHomeCompanion();
+    renderSettingsControlCenter();
+    showToast('Calm Home Bingo updated locally.');
+    return;
+  }
+
+  const personalButton = target?.closest('[data-personal-mode]');
+  const mode = personalModeById(personalButton?.dataset.personalMode);
+  if (mode) {
+    startPersonalMode(mode);
   }
 });
 curiositySampleGrid?.addEventListener('click', (event) => {
@@ -3809,13 +4375,27 @@ seasonalPackGrid?.addEventListener('click', (event) => {
   if (!pack) {
     return;
   }
-  const ritual = activeRitual();
+  const ritual = ritualById(pack.ritualId) || activeRitual();
+  if (roomLabelInput) {
+    roomLabelInput.value = pack.roomLabel || ritual.roomLabel;
+  }
+  if (audienceModeInput) {
+    audienceModeInput.value = pack.audienceMode || ritual.audienceMode;
+  }
+  markBingoTask('seasonal-pack');
+  trackProductEvent('seasonal_pack_selected', {
+    seasonal_pack_id: pack.id,
+    audience_mode: pack.audienceMode || ritual.audienceMode,
+    room_label: pack.roomLabel || ritual.roomLabel,
+    room_labeled: true,
+  });
   trackProductEvent('seasonal_pack_started', {
     seasonal_pack_id: pack.id,
     ritual_id: ritual.id,
     audience_mode: ritual.audienceMode,
   });
   startRoomRitual(ritual, 'seasonal_pack');
+  renderHomeCompanion();
   showToast(`${pack.title} loaded as today’s room-care lens.`);
 });
 
@@ -3857,6 +4437,7 @@ const uploadView = new UploadView({
       challenge_id: state.pendingUploadChallengeId,
       ritual_id: activeRitual().id,
       playbook_id: activeRoomPlaybook()?.id || null,
+      personal_mode_id: state.activePersonalModeId || null,
       mystery_mode_id: activeMysteryMode().id,
       room_label: metadata.roomLabel || null,
       room_labeled: Boolean(metadata.roomLabel),
@@ -3879,6 +4460,7 @@ const uploadView = new UploadView({
         challenge_id: challengeForJob(job).id,
         ritual_id: activeRitual().id,
         playbook_id: activeRoomPlaybook()?.id || null,
+        personal_mode_id: state.activePersonalModeId || null,
         mystery_mode_id: activeMysteryMode().id,
         audience_mode: job.audience_mode || selectedAudienceMode(),
         room_label: job.room_label || job.summary?.room_label || null,
@@ -3917,6 +4499,7 @@ renderWelcomeTour();
 renderRoomPlaybooks();
 renderMysteryModes();
 renderCuriositySampleGallery();
+renderHomeCompanion();
 renderCaptureCoach();
 renderHomeJournal();
 renderHomePulse();
@@ -3961,6 +4544,29 @@ settingsReportStyleInput?.addEventListener('change', (event) => {
   trackProductEvent('settings_report_preferences_changed', { preference: 'report_style', value });
   renderSettingsControlCenter();
   showToast(`${reportStyleLabel(value)} report style saved locally.`);
+});
+
+function updateReportTheme(value, surface = 'report') {
+  writeStoredPreference(REPORT_THEME_STORAGE_KEY, value);
+  syncSettingsPreferenceControls();
+  renderReportThemePanel(activeJob());
+  renderSettingsControlCenter();
+  trackProductEvent('report_theme_changed', {
+    surface,
+    report_theme: value,
+    job_id: activeJob()?.job_id || null,
+    sample_key: activeJob()?.sample_key || null,
+  });
+  trackProductEvent('settings_report_preferences_changed', { preference: 'report_theme', value });
+  showToast(`${reportThemeLabel(value)} theme saved locally.`);
+}
+
+settingsReportThemeInput?.addEventListener('change', (event) => {
+  updateReportTheme(/** @type {HTMLSelectElement} */ (event.currentTarget).value, 'settings');
+});
+
+reportThemeInput?.addEventListener('change', (event) => {
+  updateReportTheme(/** @type {HTMLSelectElement} */ (event.currentTarget).value, 'report_theme_panel');
 });
 
 settingsRescanReminderInput?.addEventListener('change', (event) => {
@@ -4097,6 +4703,25 @@ settingsClearRitualsBtn?.addEventListener('click', () => {
   showToast('Local rituals and streaks cleared.');
 });
 
+settingsClearCompanionBtn?.addEventListener('click', () => {
+  if (!window.confirm('Clear local Home Companion progress, including bingo, fix quests, personal mode, and report theme?')) {
+    return;
+  }
+  clearLocalKeys([
+    HOME_BINGO_STORAGE_KEY,
+    PERSONAL_MODE_STORAGE_KEY,
+    REPORT_THEME_STORAGE_KEY,
+  ]);
+  clearLocalPrefixes([FIX_QUEST_STORAGE_KEY]);
+  state.activePersonalModeId = null;
+  syncSettingsPreferenceControls();
+  renderHomeCompanion();
+  renderReport(activeJob());
+  renderSettingsControlCenter();
+  trackProductEvent('settings_data_cleared', { scope: 'home_companion' });
+  showToast('Home Companion progress cleared locally.');
+});
+
 settingsClearDefaultsBtn?.addEventListener('click', () => {
   if (!window.confirm('Clear saved report and scan defaults from this browser?')) {
     return;
@@ -4111,14 +4736,18 @@ settingsClearDefaultsBtn?.addEventListener('click', () => {
     MYSTERY_MODE_STORAGE_KEY,
     ROOM_PLAYBOOK_STORAGE_KEY,
     SHARE_CARD_STYLE_STORAGE_KEY,
+    PERSONAL_MODE_STORAGE_KEY,
+    REPORT_THEME_STORAGE_KEY,
   ]);
   state.showLowConfidence = false;
   state.activeMysteryModeId = null;
   state.activeRoomPlaybookId = null;
+  state.activePersonalModeId = null;
   syncLowConfidenceControls();
   syncSettingsPreferenceControls();
   applyDefaultScanPreferences(false);
   renderRoomPlaybooks();
+  renderHomeCompanion();
   renderReport(activeJob());
   trackProductEvent('settings_data_cleared', { scope: 'saved_defaults' });
   showToast('Report and scan defaults cleared.');
@@ -4130,6 +4759,7 @@ settingsClearAllLocalBtn?.addEventListener('click', async () => {
   }
   await trackProductEvent('settings_data_cleared', { scope: 'all_local_data' });
   clearLocalKeys([...SETTINGS_LOCAL_KEYS, SESSION_STORAGE_KEY]);
+  clearLocalPrefixes([FIX_CHECKLIST_STORAGE_KEY, FIX_QUEST_STORAGE_KEY, VERIFICATION_STORAGE_KEY]);
   api.clearAccessToken();
   applyThemePreference('light');
   removeStoredPreference(THEME_STORAGE_KEY);
@@ -4250,6 +4880,14 @@ settingsReplayWelcomeBtn?.addEventListener('click', () => {
   welcomeTourCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   trackProductEvent('settings_feedback_clicked', { feedback_type: 'replay_welcome_tour' });
   showToast('Welcome tour is back in the scan view.');
+});
+
+settingsReplayWeeklyBtn?.addEventListener('click', () => {
+  renderHomeCompanion();
+  switchView('scan');
+  weeklyRecapCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  trackProductEvent('settings_feedback_clicked', { feedback_type: 'replay_weekly_recap' });
+  showToast('Weekly Home Pulse recap is ready in the scan view.');
 });
 
 settingsExportBackupBtn?.addEventListener('click', () => {
@@ -4505,8 +5143,19 @@ function attachFixChecklistHandlers(jobId) {
           job.recommendations || [],
           job.room_comparison || null,
         );
+        renderFixQuestPanel(
+          job,
+          job.summary || {},
+          state.showLowConfidence ? job.risks || [] : (job.risks || []).filter((risk) => !isLowConfidenceRisk(risk)),
+          job.fix_first || [],
+          job.recommendations || [],
+        );
         upsertHomeJournalFromJob(job);
         renderHomeJournal();
+      }
+      if (checkbox.checked) {
+        markBingoTask('complete-fix-quest');
+        renderHomeCompanion();
       }
       trackProductEvent('fix_checklist_toggled', {
         job_id: jobId,
@@ -4647,6 +5296,78 @@ document.addEventListener('click', async (event) => {
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not copy verification note.', 3600);
     }
+    return;
+  }
+
+  const questButton = target?.closest('[data-complete-fix-quest]');
+  if (questButton) {
+    const job = activeJob();
+    if (!job || job.status !== 'complete') {
+      return;
+    }
+    const questId = questButton.dataset.completeFixQuest || '';
+    const nextState = readFixQuestState(job.job_id);
+    nextState[questId] = nextState[questId] ? null : new Date().toISOString();
+    if (!nextState[questId]) {
+      delete nextState[questId];
+    }
+    writeFixQuestState(job.job_id, nextState);
+    if (nextState[questId]) {
+      markBingoTask('complete-fix-quest');
+      await trackProductEvent('fix_quest_completed', {
+        job_id: job.job_id,
+        sample_key: job.sample_key || null,
+        quest_id: questId,
+        audience_mode: job.audience_mode || 'general',
+      });
+    }
+    renderFixQuestPanel(
+      job,
+      job.summary || {},
+      state.showLowConfidence ? job.risks || [] : (job.risks || []).filter((risk) => !isLowConfidenceRisk(risk)),
+      job.fix_first || [],
+      job.recommendations || [],
+    );
+    upsertHomeJournalFromJob(job);
+    renderHomeJournal();
+    renderHomeCompanion();
+    showToast(nextState[questId] ? 'Fix Quest completed locally.' : 'Fix Quest reopened.');
+    return;
+  }
+
+  const compareButton = target?.closest('[data-room-compare-open]');
+  if (compareButton) {
+    const job = activeJob();
+    await trackProductEvent('room_compare_opened', {
+      job_id: job?.job_id || null,
+      sample_key: job?.sample_key || null,
+      audience_mode: job?.audience_mode || selectedAudienceMode(),
+    });
+    showToast('Room Compare Mode is a prioritization nudge, not a measurement certificate.');
+    return;
+  }
+
+  const smartRescanButton = target?.closest('[data-smart-rescan-open]');
+  if (smartRescanButton) {
+    const job = activeJob();
+    await trackProductEvent('smart_rescan_coach_opened', {
+      job_id: job?.job_id || null,
+      sample_key: job?.sample_key || null,
+      audience_mode: job?.audience_mode || selectedAudienceMode(),
+    });
+    showToast('Smart Rescan Coach opened. Repeat the room label and route after one fix.');
+    return;
+  }
+
+  const evidenceStoryButton = target?.closest('[data-evidence-story-open]');
+  if (evidenceStoryButton) {
+    const job = activeJob();
+    await trackProductEvent('evidence_story_opened', {
+      job_id: job?.job_id || null,
+      sample_key: job?.sample_key || null,
+      audience_mode: job?.audience_mode || selectedAudienceMode(),
+    });
+    showToast('Evidence Story opened. Frames are still approximate support, not proof.');
   }
 });
 
