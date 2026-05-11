@@ -7,11 +7,14 @@ import {
   BETA_SHARE_PROMPTS,
   CAPTURE_COACH_MODES,
   CURIOSITY_SAMPLE_GALLERY,
+  DAILY_HOME_ACTIONS,
+  FIX_LIBRARY_GUIDES,
   FIX_QUEST_TEMPLATES,
   HOME_BINGO_TASKS,
   PERSONAL_SAFETY_MODES,
   REPORT_DECISION_STEPS,
   REPORT_THEMES,
+  ROOM_CARE_WEEK_TEMPLATE,
   ROOM_MYSTERY_MODES,
   ROOM_PERSONALITIES,
   ROOM_PLAYBOOKS,
@@ -55,6 +58,11 @@ const HOME_BINGO_STORAGE_KEY = 'atlas0.homeBingo';
 const FIX_QUEST_STORAGE_KEY = 'atlas0.fixQuests';
 const PERSONAL_MODE_STORAGE_KEY = 'atlas0.selectedPersonalMode';
 const REPORT_THEME_STORAGE_KEY = 'atlas0.reportTheme';
+const DAILY_ACTION_STORAGE_KEY = 'atlas0.dailyAction';
+const ROOM_CARE_CALENDAR_STORAGE_KEY = 'atlas0.roomCareCalendar';
+const ROOM_CARE_COMPLETED_STORAGE_KEY = 'atlas0.roomCareCompleted';
+const CARE_CADENCE_STORAGE_KEY = 'atlas0.careCadence';
+const FIX_GUIDE_STORAGE_KEY = 'atlas0.activeFixGuide';
 
 const SETTINGS_LOCAL_KEYS = [
   THEME_STORAGE_KEY,
@@ -87,6 +95,11 @@ const SETTINGS_LOCAL_KEYS = [
   FIX_QUEST_STORAGE_KEY,
   PERSONAL_MODE_STORAGE_KEY,
   REPORT_THEME_STORAGE_KEY,
+  DAILY_ACTION_STORAGE_KEY,
+  ROOM_CARE_CALENDAR_STORAGE_KEY,
+  ROOM_CARE_COMPLETED_STORAGE_KEY,
+  CARE_CADENCE_STORAGE_KEY,
+  FIX_GUIDE_STORAGE_KEY,
 ];
 
 function readStoredPreference(key) {
@@ -271,6 +284,7 @@ const settingsOverviewGrid = document.getElementById('settings-overview-grid');
 const settingsControlStatus = document.getElementById('settings-control-status');
 const settingsReportStyleInput = /** @type {HTMLSelectElement} */ (document.getElementById('settings-report-style'));
 const settingsReportThemeInput = /** @type {HTMLSelectElement} */ (document.getElementById('settings-report-theme'));
+const settingsCareCadenceInput = /** @type {HTMLSelectElement} */ (document.getElementById('settings-care-cadence'));
 const settingsDefaultAudienceInput = /** @type {HTMLSelectElement} */ (document.getElementById('settings-default-audience'));
 const settingsDefaultRoomLabelInput = /** @type {HTMLInputElement} */ (document.getElementById('settings-default-room-label'));
 const settingsDefaultMysteryInput = /** @type {HTMLSelectElement} */ (document.getElementById('settings-default-mystery'));
@@ -282,10 +296,12 @@ const settingsFocusToggle = /** @type {HTMLInputElement} */ (document.getElement
 const settingsClearJournalBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-journal'));
 const settingsClearRitualsBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-rituals'));
 const settingsClearCompanionBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-companion'));
+const settingsClearDailyValueBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-daily-value'));
 const settingsClearDefaultsBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-defaults'));
 const settingsClearAllLocalBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-clear-all-local'));
 const settingsOpenCurrentReportBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-open-current-report'));
 const settingsDeleteCurrentReportBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-delete-current-report'));
+const settingsRegenerateCareWeekBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-regenerate-care-week'));
 const settingsFeedbackCopyBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-feedback-copy'));
 const settingsBadResultBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-bad-result'));
 const settingsFeatureRequestBtn = /** @type {HTMLButtonElement} */ (document.getElementById('settings-feature-request'));
@@ -314,8 +330,12 @@ const ritualStartBtn = /** @type {HTMLButtonElement} */ (document.getElementById
 const ritualCompleteBtn = /** @type {HTMLButtonElement} */ (document.getElementById('ritual-complete-btn'));
 const homePulseCard = document.getElementById('home-pulse-card');
 const homeCompanionPanel = document.getElementById('home-companion-panel');
+const oneThingTodayCard = document.getElementById('one-thing-today-card');
 const weeklyRecapCard = document.getElementById('weekly-recap-card');
 const homeBingoGrid = document.getElementById('home-bingo-grid');
+const roomCareCalendar = document.getElementById('room-care-calendar');
+const roomCareRegenerateBtn = /** @type {HTMLButtonElement} */ (document.getElementById('room-care-regenerate-btn'));
+const fixLibraryGrid = document.getElementById('fix-library-grid');
 const personalModeGrid = document.getElementById('personal-mode-grid');
 const mysteryModeGrid = document.getElementById('mystery-mode-grid');
 const mysteryPromptCopy = document.getElementById('mystery-prompt-copy');
@@ -342,6 +362,7 @@ const smartRescanCoach = document.getElementById('smart-rescan-coach');
 const evidenceStoryPanel = document.getElementById('evidence-story-panel');
 const homeJournalSummary = document.getElementById('home-journal-summary');
 const roomPersonalityPanel = document.getElementById('room-personality-panel');
+const roomHealthTimelinePanel = document.getElementById('room-health-timeline-panel');
 const homeJournalGrid = document.getElementById('home-journal-grid');
 const homeJournalEmpty = document.getElementById('home-journal-empty');
 
@@ -514,6 +535,10 @@ function currentReportTheme() {
   return storedChoice(REPORT_THEME_STORAGE_KEY, REPORT_THEMES.map((theme) => theme.id), 'calm-brief');
 }
 
+function currentCareCadence() {
+  return storedChoice(CARE_CADENCE_STORAGE_KEY, ['weekly', 'twice-weekly', 'daily'], 'weekly');
+}
+
 function currentDefaultMysteryMode() {
   const value = readStoredPreference(DEFAULT_MYSTERY_MODE_STORAGE_KEY);
   return ROOM_MYSTERY_MODES.some((mode) => mode.id === value) ? value : '';
@@ -553,6 +578,9 @@ function syncSettingsPreferenceControls() {
   }
   if (settingsReportThemeInput) {
     settingsReportThemeInput.value = currentReportTheme();
+  }
+  if (settingsCareCadenceInput) {
+    settingsCareCadenceInput.value = currentCareCadence();
   }
   if (reportThemeInput) {
     reportThemeInput.value = currentReportTheme();
@@ -618,12 +646,19 @@ function localDataCounts() {
   } catch {
     bingoDone = 0;
   }
+  let careDone = 0;
+  try {
+    careDone = Object.keys(JSON.parse(readStoredPreference(ROOM_CARE_COMPLETED_STORAGE_KEY) || '{}')).length;
+  } catch {
+    careDone = 0;
+  }
   return {
     rooms: journal.length,
     favorites: favorites.size,
     rituals: ritualState.completedDates.length,
     challengeJobs: challengeCount,
     bingoDone,
+    careDone,
   };
 }
 
@@ -655,7 +690,7 @@ function renderSettingsControlCenter() {
     { label: 'Interface', value: `${capitalize(theme)} · ${motion}`, detail: accessibility },
     { label: 'Report default', value: reportStyleLabel(), detail: `${reportThemeLabel()} · ${state.showLowConfidence ? 'Lower-confidence findings visible' : 'Cleaner high-confidence view'}` },
     { label: 'Scan default', value: CAPTURE_COACH_MODES[currentDefaultAudience()]?.title || 'General home safety', detail: readStoredPreference(DEFAULT_ROOM_LABEL_STORAGE_KEY) || 'No default room label' },
-    { label: 'Local journal', value: `${counts.rooms} room${counts.rooms === 1 ? '' : 's'}`, detail: `${counts.favorites} favorite${counts.favorites === 1 ? '' : 's'} · ${counts.rituals} ritual day${counts.rituals === 1 ? '' : 's'} · ${counts.bingoDone} bingo` },
+    { label: 'Local journal', value: `${counts.rooms} room${counts.rooms === 1 ? '' : 's'}`, detail: `${counts.favorites} favorite${counts.favorites === 1 ? '' : 's'} · ${counts.rituals} ritual day${counts.rituals === 1 ? '' : 's'} · ${counts.bingoDone} bingo · ${counts.careDone} care tasks` },
     { label: 'Privacy posture', value: privacy ? `${privacy.retention_days} day retention` : 'Policy unavailable', detail: privacy?.delete_supported ? 'Delete controls available' : 'Report delete status unknown' },
     { label: 'Access', value: tokenStored ? 'Token stored locally' : 'No token stored', detail: active?.status === 'complete' ? 'Current report ready' : 'No completed active report' },
   ].map((item) => `
@@ -667,7 +702,7 @@ function renderSettingsControlCenter() {
   `).join('');
 
   if (settingsControlStatus) {
-    settingsControlStatus.textContent = `Local only · ${counts.rooms} room journal entr${counts.rooms === 1 ? 'y' : 'ies'} · ${currentRescanReminder()} reminders`;
+    settingsControlStatus.textContent = `Local only · ${counts.rooms} room journal entr${counts.rooms === 1 ? 'y' : 'ies'} · ${currentCareCadence()} care cadence`;
   }
   if (settingsOpenCurrentReportBtn) {
     settingsOpenCurrentReportBtn.disabled = !active;
@@ -1430,6 +1465,219 @@ function weeklyRecapData() {
   };
 }
 
+function dayOfYear(date = new Date()) {
+  const start = new Date(date.getFullYear(), 0, 0);
+  return Math.floor((date - start) / 86_400_000);
+}
+
+function careWeekKey(date = new Date()) {
+  return `${date.getFullYear()}-w${Math.ceil(dayOfYear(date) / 7)}`;
+}
+
+function actionById(actionId) {
+  return DAILY_HOME_ACTIONS.find((action) => action.id === actionId) || DAILY_HOME_ACTIONS[0];
+}
+
+function suggestedRoomLabel(fallback = 'Daily room check') {
+  const entries = journalEntries();
+  return entries.find((entry) => entry.rescanRecommended)?.roomLabel
+    || entries[0]?.roomLabel
+    || activeRitual().roomLabel
+    || fallback;
+}
+
+function readJsonObject(key) {
+  const raw = readStoredPreference(key);
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeJsonObject(key, value) {
+  writeStoredPreference(key, JSON.stringify(value));
+}
+
+function selectDailyAction() {
+  const entries = journalEntries();
+  if (entries.some((entry) => entry.rescanRecommended)) {
+    return actionById('rescan-needed-room');
+  }
+  const today = localDateKey();
+  const stored = readJsonObject(DAILY_ACTION_STORAGE_KEY);
+  const storedAction = DAILY_HOME_ACTIONS.find((action) => action.id === stored.actionId);
+  if (stored.date === today && storedAction) {
+    return storedAction;
+  }
+  const index = dayOfYear() % DAILY_HOME_ACTIONS.length;
+  const action = DAILY_HOME_ACTIONS[index];
+  writeJsonObject(DAILY_ACTION_STORAGE_KEY, { date: today, actionId: action.id, completed: false });
+  return action;
+}
+
+function dailyActionState() {
+  return readJsonObject(DAILY_ACTION_STORAGE_KEY);
+}
+
+function buildRoomCareWeek(force = false) {
+  const weekKey = careWeekKey();
+  const existing = readJsonObject(ROOM_CARE_CALENDAR_STORAGE_KEY);
+  if (!force && existing.weekKey === weekKey && Array.isArray(existing.tasks)) {
+    return existing;
+  }
+  const rooms = journalEntries();
+  const seasonal = SEASONAL_RITUAL_PACKS;
+  const tasks = ROOM_CARE_WEEK_TEMPLATE.map((template, index) => {
+    const action = actionById(template.actionId);
+    const room = rooms[index % Math.max(1, rooms.length)];
+    const pack = seasonal[index % seasonal.length];
+    return {
+      id: `${weekKey}-${template.day.toLowerCase()}`,
+      day: template.day,
+      title: template.title,
+      actionId: action.id,
+      action: action.action,
+      roomLabel: room?.roomLabel || pack?.roomLabel || action.roomLabel,
+      audienceMode: room?.audienceMode || pack?.audienceMode || action.audienceMode,
+    };
+  });
+  const next = { weekKey, generatedAt: new Date().toISOString(), cadence: currentCareCadence(), tasks };
+  writeJsonObject(ROOM_CARE_CALENDAR_STORAGE_KEY, next);
+  return next;
+}
+
+function readRoomCareCompleted() {
+  return readJsonObject(ROOM_CARE_COMPLETED_STORAGE_KEY);
+}
+
+function fixGuideForText(text = '') {
+  const value = String(text || '').toLowerCase();
+  return FIX_LIBRARY_GUIDES.find((guide) => guide.match.some((token) => value.includes(token)))
+    || FIX_LIBRARY_GUIDES[0];
+}
+
+function activeFixGuideId() {
+  const stored = readStoredPreference(FIX_GUIDE_STORAGE_KEY);
+  return FIX_LIBRARY_GUIDES.some((guide) => guide.id === stored) ? stored : FIX_LIBRARY_GUIDES[0].id;
+}
+
+function renderFixLibrary() {
+  if (!fixLibraryGrid) {
+    return;
+  }
+  const activeId = activeFixGuideId();
+  fixLibraryGrid.innerHTML = FIX_LIBRARY_GUIDES.map((guide) => `
+    <button class="fix-guide-card ${guide.id === activeId ? 'active' : ''}" type="button" data-open-fix-guide="${escapeHtml(guide.id)}">
+      <span class="guide-kicker">${escapeHtml(guide.badge)}</span>
+      <strong>${escapeHtml(guide.title)}</strong>
+      <p>${escapeHtml(guide.summary)}</p>
+    </button>
+  `).join('');
+}
+
+function renderOneThingToday() {
+  if (!oneThingTodayCard) {
+    return;
+  }
+  const action = selectDailyAction();
+  const stateMap = dailyActionState();
+  const completed = stateMap.date === localDateKey() && stateMap.completed === true;
+  const roomLabel = suggestedRoomLabel(action.roomLabel);
+  oneThingTodayCard.innerHTML = `
+    <span class="guide-kicker">One Thing Today · ${escapeHtml(action.badge)}</span>
+    <h4>${escapeHtml(action.title)}</h4>
+    <p>${escapeHtml(action.action)}</p>
+    <p>${escapeHtml(action.reason)}</p>
+    <div class="journal-meta">
+      <span class="soft-badge">${escapeHtml(roomLabel)}</span>
+      <span class="soft-badge">${escapeHtml(CAPTURE_COACH_MODES[action.audienceMode]?.title || 'General home safety')}</span>
+      <span class="soft-badge">${completed ? 'Completed locally' : 'Local prompt'}</span>
+    </div>
+    <div class="daily-value-actions">
+      <button class="button-link" type="button" data-start-one-thing="${escapeHtml(action.id)}">Use this prompt</button>
+      <button class="button-link ghost" type="button" data-complete-one-thing="${escapeHtml(action.id)}" ${completed ? 'disabled' : ''}>${completed ? 'Done today' : 'Mark done'}</button>
+    </div>
+  `;
+}
+
+function renderRoomCareCalendar() {
+  if (!roomCareCalendar) {
+    return;
+  }
+  const week = buildRoomCareWeek();
+  const completed = readRoomCareCompleted();
+  roomCareCalendar.innerHTML = week.tasks.map((task) => `
+    <article class="room-care-card ${completed[task.id] ? 'done' : ''}">
+      <span class="guide-kicker">${escapeHtml(task.day)} · ${completed[task.id] ? 'Done' : currentCareCadence()}</span>
+      <strong>${escapeHtml(task.title)}</strong>
+      <p>${escapeHtml(task.action)}</p>
+      <div class="journal-meta">
+        <span class="soft-badge">${escapeHtml(task.roomLabel)}</span>
+        <span class="soft-badge">${escapeHtml(CAPTURE_COACH_MODES[task.audienceMode]?.title || 'General')}</span>
+      </div>
+      <div class="daily-value-actions">
+        <button class="button-link ghost" type="button" data-start-room-care-task="${escapeHtml(task.id)}">Use</button>
+        <button class="button-link ghost" type="button" data-complete-room-care-task="${escapeHtml(task.id)}" ${completed[task.id] ? 'disabled' : ''}>${completed[task.id] ? 'Done' : 'Mark done'}</button>
+      </div>
+    </article>
+  `).join('');
+}
+
+function regenerateRoomCareWeek(surface = 'home_companion') {
+  buildRoomCareWeek(true);
+  writeJsonObject(ROOM_CARE_COMPLETED_STORAGE_KEY, {});
+  renderHomeCompanion();
+  renderSettingsControlCenter();
+  trackProductEvent('room_care_week_regenerated', { surface });
+  showToast('Room Care Calendar regenerated locally.');
+}
+
+function renderRoomHealthTimeline() {
+  if (!roomHealthTimelinePanel) {
+    return;
+  }
+  const entries = journalEntries();
+  if (!entries.length) {
+    roomHealthTimelinePanel.innerHTML = emptyMarkup('Room Health Timeline will appear once saved rooms have local scan history.');
+    return;
+  }
+  roomHealthTimelinePanel.innerHTML = `
+    <div class="section-head compact">
+      <div>
+        <span class="guide-kicker">Room Health Timeline</span>
+        <h4>See how each room is changing locally.</h4>
+        <p>Timeline cards use saved Calm Scores, completed fixes, recurring attention areas, and next due copy from this browser.</p>
+      </div>
+      <button class="button-link ghost" type="button" data-room-health-timeline-open="true">Log timeline view</button>
+    </div>
+    <div class="room-health-timeline-grid">
+      ${entries.slice(0, 6).map((entry) => {
+        const scores = Array.isArray(entry.scores) ? entry.scores : [];
+        const trend = scores.length >= 2 ? scores[scores.length - 1] - scores[0] : 0;
+        const checked = entry.lastCheckedAt ? new Date(entry.lastCheckedAt).toLocaleDateString() : 'Recently';
+        const nextDue = entry.rescanRecommended ? 'Rescan after one fix' : `${currentCareCadence()} check`;
+        return `
+          <article class="timeline-card">
+            <span class="guide-kicker">${escapeHtml(checked)} · ${escapeHtml(nextDue)}</span>
+            <strong>${escapeHtml(entry.roomLabel || 'Saved room')}</strong>
+            <p>${escapeHtml(entry.topAction || 'Review the Safety Brief')}</p>
+            <div class="journal-meta">
+              <span class="soft-badge">${escapeHtml(entry.lastScore === null || entry.lastScore === undefined ? 'Score pending' : `${entry.lastScore}/100 Calm Score`)}</span>
+              <span class="soft-badge">${escapeHtml(trend ? `${trend > 0 ? '+' : ''}${trend} trend` : 'Baseline')}</span>
+              <span class="soft-badge">${escapeHtml(`${entry.completedFixes || 0} fixes`)}</span>
+            </div>
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
 function buildWeeklyRecapText() {
   const recap = weeklyRecapData();
   if (!recap.roomsChecked) {
@@ -1444,6 +1692,7 @@ function renderHomeCompanion() {
     return;
   }
   const recap = weeklyRecapData();
+  renderOneThingToday();
   if (weeklyRecapCard) {
     weeklyRecapCard.innerHTML = `
       <span class="guide-kicker">Weekly Home Pulse Recap</span>
@@ -1467,6 +1716,8 @@ function renderHomeCompanion() {
       </button>
     `).join('');
   }
+  renderRoomCareCalendar();
+  renderFixLibrary();
   renderPersonalModes();
 }
 
@@ -2363,6 +2614,9 @@ function renderReport(job) {
             <span>${escapeHtml(rec.location || 'scan area')}</span>
             <span>${escapeHtml(rec.why || '')}</span>
           </div>
+          <div class="daily-value-actions">
+            <button class="button-link ghost" type="button" data-open-fix-guide="${escapeHtml(fixGuideForText(`${rec.title} ${rec.action} ${rec.why}`).id)}">Open fix guide</button>
+          </div>
         </article>
       `).join('')
     : emptyMarkup('No actions were generated for this scan.');
@@ -3039,12 +3293,16 @@ function renderFixQuestPanel(job, summary = {}, hazards = [], fixFirst = [], rec
     </div>
     <div class="fix-quest-grid">
       ${quests.map((quest) => `
-        <button class="fix-quest-card ${questState[quest.id] ? 'done' : ''}" type="button" data-complete-fix-quest="${escapeHtml(quest.id)}">
+        <article class="fix-quest-card ${questState[quest.id] ? 'done' : ''}">
           <span class="guide-kicker">${escapeHtml(questState[quest.id] ? 'Completed' : quest.label)}</span>
           <strong>${escapeHtml(quest.title)}</strong>
           <span>${escapeHtml(quest.action || quest.copy)}</span>
           <small>${escapeHtml(`${quest.source} · Rescan to verify, not certify.`)}</small>
-        </button>
+          <div class="daily-value-actions">
+            <button class="button-link ghost" type="button" data-complete-fix-quest="${escapeHtml(quest.id)}">${questState[quest.id] ? 'Reopen' : 'Mark done'}</button>
+            <button class="button-link ghost" type="button" data-open-fix-guide="${escapeHtml(fixGuideForText(`${quest.title} ${quest.action}`).id)}">Open fix guide</button>
+          </div>
+        </article>
       `).join('')}
     </div>
   `;
@@ -3413,6 +3671,7 @@ function renderFixChecklist(job, fixFirst, recommendations, hazards) {
     `;
   }).join('');
   renderRoomPersonalityPanel();
+  renderRoomHealthTimeline();
   renderHomeCompanion();
 }
 
@@ -4038,6 +4297,15 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Fix plan copies', value: String(settings.product.fix_plan_events || 0) },
       { label: 'Fix Today copies', value: String(settings.product.fix_today_events || 0) },
       { label: 'Fix Quest completions', value: String(settings.product.fix_quest_events || 0) },
+      { label: 'Fix Library opens', value: String(settings.product.fix_library_events || 0) },
+      { label: 'Fix Guide opens', value: String(settings.product.fix_guide_events || 0) },
+      { label: 'One Thing starts', value: String(settings.product.one_thing_started_events || 0) },
+      { label: 'One Thing completions', value: String(settings.product.one_thing_completed_events || 0) },
+      { label: 'Care calendar opens', value: String(settings.product.room_care_calendar_events || 0) },
+      { label: 'Care task completions', value: String(settings.product.room_care_completed_events || 0) },
+      { label: 'Care week regenerations', value: String(settings.product.room_care_regenerated_events || 0) },
+      { label: 'Room timeline opens', value: String(settings.product.room_health_timeline_events || 0) },
+      { label: 'Daily Value settings', value: String(settings.product.settings_daily_value_events || 0) },
       { label: 'Before/after cards', value: String(settings.product.before_after_card_events || 0) },
       { label: 'Mystery mode starts', value: String(settings.product.mystery_mode_events || 0) },
       { label: 'Personal modes selected', value: String(settings.product.personal_mode_events || 0) },
@@ -4112,6 +4380,15 @@ function renderBetaInbox(inbox) {
       { label: 'Room Playbook starts', value: String(funnel.room_playbook_started || 0) },
       { label: 'Fix verification starts', value: String(funnel.fix_verification_started || 0) },
       { label: 'Fix Quest completions', value: String(funnel.fix_quest_completed || 0) },
+      { label: 'Fix Library opens', value: String(funnel.fix_library_opened || 0) },
+      { label: 'Fix Guide opens', value: String(funnel.fix_guide_opened || 0) },
+      { label: 'One Thing starts', value: String(funnel.one_thing_today_started || 0) },
+      { label: 'One Thing completions', value: String(funnel.one_thing_today_completed || 0) },
+      { label: 'Care calendar opens', value: String(funnel.room_care_calendar_opened || 0) },
+      { label: 'Care task completions', value: String(funnel.room_care_task_completed || 0) },
+      { label: 'Care week regenerations', value: String(funnel.room_care_week_regenerated || 0) },
+      { label: 'Room timeline opens', value: String(funnel.room_health_timeline_opened || 0) },
+      { label: 'Daily Value settings', value: String(funnel.settings_daily_value_changed || 0) },
       { label: 'Share studio copies', value: String(funnel.share_card_studio_copied || 0) },
       { label: 'Confidence explainers', value: String(funnel.confidence_explainer_opened || 0) },
       { label: 'Welcome tours done', value: String(funnel.welcome_tour_completed || 0) },
@@ -4318,6 +4595,82 @@ mysteryModeGrid?.addEventListener('click', (event) => {
 });
 homeCompanionPanel?.addEventListener('click', async (event) => {
   const target = event.target instanceof Element ? event.target : null;
+  const startOneThingButton = target?.closest('[data-start-one-thing]');
+  if (startOneThingButton) {
+    const action = actionById(startOneThingButton.dataset.startOneThing);
+    if (roomLabelInput) {
+      roomLabelInput.value = suggestedRoomLabel(action.roomLabel);
+    }
+    if (audienceModeInput) {
+      audienceModeInput.value = action.audienceMode;
+    }
+    renderCaptureCoach();
+    trackProductEvent('one_thing_today_started', {
+      action_id: action.id,
+      room_label: roomLabelInput?.value || action.roomLabel,
+      room_labeled: true,
+      audience_mode: action.audienceMode,
+    });
+    switchView('scan');
+    showToast(`${action.title} loaded as today's tiny home-care prompt.`);
+    return;
+  }
+
+  const completeOneThingButton = target?.closest('[data-complete-one-thing]');
+  if (completeOneThingButton) {
+    const action = actionById(completeOneThingButton.dataset.completeOneThing);
+    writeJsonObject(DAILY_ACTION_STORAGE_KEY, {
+      date: localDateKey(),
+      actionId: action.id,
+      completed: true,
+      completedAt: new Date().toISOString(),
+    });
+    renderHomeCompanion();
+    renderSettingsControlCenter();
+    trackProductEvent('one_thing_today_completed', { action_id: action.id });
+    showToast('One Thing Today marked done locally.');
+    return;
+  }
+
+  const careStartButton = target?.closest('[data-start-room-care-task]');
+  if (careStartButton) {
+    const task = buildRoomCareWeek().tasks.find((item) => item.id === careStartButton.dataset.startRoomCareTask);
+    if (!task) {
+      return;
+    }
+    if (roomLabelInput) {
+      roomLabelInput.value = task.roomLabel;
+    }
+    if (audienceModeInput) {
+      audienceModeInput.value = task.audienceMode;
+    }
+    renderCaptureCoach();
+    trackProductEvent('room_care_calendar_opened', {
+      surface: 'room_care_task',
+      task_id: task.id,
+      action_id: task.actionId,
+      room_label: task.roomLabel,
+      room_labeled: true,
+      audience_mode: task.audienceMode,
+    });
+    switchView('scan');
+    showToast(`${task.title} loaded. Use it as a local care prompt, not a certification checklist.`);
+    return;
+  }
+
+  const careDoneButton = target?.closest('[data-complete-room-care-task]');
+  if (careDoneButton) {
+    const taskId = careDoneButton.dataset.completeRoomCareTask || '';
+    const completed = readRoomCareCompleted();
+    completed[taskId] = new Date().toISOString();
+    writeJsonObject(ROOM_CARE_COMPLETED_STORAGE_KEY, completed);
+    renderHomeCompanion();
+    renderSettingsControlCenter();
+    trackProductEvent('room_care_task_completed', { task_id: taskId });
+    showToast('Room care task completed locally.');
+    return;
+  }
+
   const weeklyButton = target?.closest('[data-copy-weekly-recap]');
   if (weeklyButton) {
     await copyText(buildWeeklyRecapText());
@@ -4343,6 +4696,9 @@ homeCompanionPanel?.addEventListener('click', async (event) => {
   if (mode) {
     startPersonalMode(mode);
   }
+});
+roomCareRegenerateBtn?.addEventListener('click', () => {
+  regenerateRoomCareWeek('home_companion');
 });
 curiositySampleGrid?.addEventListener('click', (event) => {
   const button = event.target instanceof Element ? event.target.closest('[data-curiosity-sample]') : null;
@@ -4576,6 +4932,17 @@ settingsRescanReminderInput?.addEventListener('change', (event) => {
   renderSettingsControlCenter();
 });
 
+settingsCareCadenceInput?.addEventListener('change', (event) => {
+  const value = /** @type {HTMLSelectElement} */ (event.currentTarget).value;
+  writeStoredPreference(CARE_CADENCE_STORAGE_KEY, value);
+  buildRoomCareWeek(true);
+  renderHomeCompanion();
+  renderRoomHealthTimeline();
+  renderSettingsControlCenter();
+  trackProductEvent('settings_daily_value_changed', { preference: 'care_cadence', value });
+  showToast('Daily Value cadence saved locally.');
+});
+
 settingsDefaultAudienceInput?.addEventListener('change', (event) => {
   const value = /** @type {HTMLSelectElement} */ (event.currentTarget).value;
   writeStoredPreference(DEFAULT_AUDIENCE_STORAGE_KEY, value);
@@ -4722,6 +5089,25 @@ settingsClearCompanionBtn?.addEventListener('click', () => {
   showToast('Home Companion progress cleared locally.');
 });
 
+settingsClearDailyValueBtn?.addEventListener('click', () => {
+  if (!window.confirm('Clear local One Thing Today, Room Care Calendar, completed care tasks, cadence, and active fix guide?')) {
+    return;
+  }
+  clearLocalKeys([
+    DAILY_ACTION_STORAGE_KEY,
+    ROOM_CARE_CALENDAR_STORAGE_KEY,
+    ROOM_CARE_COMPLETED_STORAGE_KEY,
+    CARE_CADENCE_STORAGE_KEY,
+    FIX_GUIDE_STORAGE_KEY,
+  ]);
+  syncSettingsPreferenceControls();
+  renderHomeCompanion();
+  renderRoomHealthTimeline();
+  renderSettingsControlCenter();
+  trackProductEvent('settings_data_cleared', { scope: 'daily_value' });
+  showToast('Daily Value progress cleared locally.');
+});
+
 settingsClearDefaultsBtn?.addEventListener('click', () => {
   if (!window.confirm('Clear saved report and scan defaults from this browser?')) {
     return;
@@ -4738,6 +5124,8 @@ settingsClearDefaultsBtn?.addEventListener('click', () => {
     SHARE_CARD_STYLE_STORAGE_KEY,
     PERSONAL_MODE_STORAGE_KEY,
     REPORT_THEME_STORAGE_KEY,
+    CARE_CADENCE_STORAGE_KEY,
+    FIX_GUIDE_STORAGE_KEY,
   ]);
   state.showLowConfidence = false;
   state.activeMysteryModeId = null;
@@ -4748,6 +5136,7 @@ settingsClearDefaultsBtn?.addEventListener('click', () => {
   applyDefaultScanPreferences(false);
   renderRoomPlaybooks();
   renderHomeCompanion();
+  renderRoomHealthTimeline();
   renderReport(activeJob());
   trackProductEvent('settings_data_cleared', { scope: 'saved_defaults' });
   showToast('Report and scan defaults cleared.');
@@ -4778,6 +5167,10 @@ settingsOpenCurrentReportBtn?.addEventListener('click', () => {
     return;
   }
   switchView('report');
+});
+
+settingsRegenerateCareWeekBtn?.addEventListener('click', () => {
+  regenerateRoomCareWeek('settings');
 });
 
 settingsDeleteCurrentReportBtn?.addEventListener('click', async () => {
@@ -5238,6 +5631,25 @@ document.addEventListener('click', async (event) => {
   const jump = target?.closest('[data-jump-view]');
   if (jump instanceof HTMLElement) {
     switchView(jump.dataset.jumpView || 'scan');
+    return;
+  }
+
+  const fixGuideButton = target?.closest('[data-open-fix-guide]');
+  if (fixGuideButton) {
+    const guideId = fixGuideButton.dataset.openFixGuide || FIX_LIBRARY_GUIDES[0].id;
+    const guide = FIX_LIBRARY_GUIDES.find((item) => item.id === guideId) || FIX_LIBRARY_GUIDES[0];
+    writeStoredPreference(FIX_GUIDE_STORAGE_KEY, guide.id);
+    renderFixLibrary();
+    await trackProductEvent('fix_library_opened', { surface: fixGuideButton.closest('#fix-library-panel') ? 'home_companion' : 'report' });
+    await trackProductEvent('fix_guide_opened', { guide_id: guide.id });
+    showToast(`${guide.title}: ${guide.steps[0]} Rescan to verify progress.`);
+    return;
+  }
+
+  const timelineButton = target?.closest('[data-room-health-timeline-open]');
+  if (timelineButton) {
+    await trackProductEvent('room_health_timeline_opened', { room_count: journalEntries().length });
+    showToast('Room Health Timeline is local history, not a safety certificate.');
     return;
   }
 

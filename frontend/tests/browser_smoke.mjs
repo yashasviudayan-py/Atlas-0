@@ -51,8 +51,12 @@ try {
     await page.locator('.use-case-card').first().waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#home-pulse-card').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#home-companion-panel').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#one-thing-today-card').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#weekly-recap-card').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#home-bingo-grid').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#room-care-calendar').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#fix-library-panel').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#fix-library-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#personal-mode-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#room-playbook-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#mystery-mode-grid').waitFor({ state: 'attached', timeout: 3000 });
@@ -83,6 +87,7 @@ try {
     await page.locator('#before-after-story').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#view-journal').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#room-personality-panel').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#room-health-timeline-panel').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#home-journal-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('text=Room Safety Brief').first().waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('text=Warm Trust voice guide').waitFor({ state: 'attached', timeout: 3000 });
@@ -90,10 +95,13 @@ try {
     await page.locator('#settings-overview-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#settings-report-style').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#settings-report-theme').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#settings-care-cadence').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#settings-default-audience').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#settings-high-contrast-toggle').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#settings-clear-journal').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#settings-clear-companion').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#settings-clear-daily-value').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#settings-regenerate-care-week').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#settings-export-backup').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('text=Beta feedback & support').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#settings-replay-welcome-tour').waitFor({ state: 'attached', timeout: 3000 });

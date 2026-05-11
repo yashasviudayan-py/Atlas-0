@@ -1570,6 +1570,9 @@
     .companion-grid,
     .home-bingo-grid,
     .personal-mode-grid,
+    .room-care-grid,
+    .fix-library-grid,
+    .room-health-timeline-grid,
     .room-personality-grid,
     .fix-quest-grid,
     .room-compare-grid,
@@ -1595,6 +1598,9 @@
     .seasonal-card,
     .bingo-card,
     .personal-mode-card,
+    .room-care-card,
+    .fix-guide-card,
+    .timeline-card,
     .personality-card,
     .fix-quest-card,
     .compare-card,
@@ -1650,6 +1656,24 @@
       transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
     }
 
+    .room-care-card,
+    .fix-guide-card {
+      cursor: pointer;
+      color: inherit;
+      text-align: left;
+      font: inherit;
+      transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    .room-care-card:hover,
+    .fix-guide-card:hover,
+    .room-care-card.done,
+    .fix-guide-card.active {
+      transform: translateY(-1px);
+      border-color: rgba(13, 111, 97, 0.32);
+      box-shadow: var(--shadow), var(--hairline);
+    }
+
     .bingo-card:hover,
     .personal-mode-card:hover,
     .fix-quest-card:hover,
@@ -1690,6 +1714,9 @@
     .seasonal-card strong,
     .bingo-card strong,
     .personal-mode-card strong,
+    .room-care-card strong,
+    .fix-guide-card strong,
+    .timeline-card strong,
     .personality-card strong,
     .fix-quest-card strong,
     .compare-card strong,
@@ -1981,9 +2008,18 @@
       grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 
+    .room-care-grid {
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+    }
+
+    .fix-library-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
     .fix-quest-grid,
     .room-compare-grid,
     .evidence-story-grid,
+    .room-health-timeline-grid,
     .room-personality-grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
@@ -2022,6 +2058,26 @@
     .companion-stat strong {
       color: var(--ink);
       font-size: 1.1rem;
+    }
+
+    .daily-value-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .room-care-card.done {
+      background:
+        radial-gradient(circle at top left, rgba(220, 232, 199, 0.48), transparent 36%),
+        rgba(255,255,255,0.78);
+    }
+
+    .fix-guide-card p,
+    .room-care-card p,
+    .timeline-card p {
+      margin: 0;
+      color: var(--ink-soft);
+      line-height: 1.5;
     }
 
     .rescan-coach-list {
@@ -2101,6 +2157,9 @@
     :root[data-theme="dark"] .seasonal-card,
     :root[data-theme="dark"] .bingo-card,
     :root[data-theme="dark"] .personal-mode-card,
+    :root[data-theme="dark"] .room-care-card,
+    :root[data-theme="dark"] .fix-guide-card,
+    :root[data-theme="dark"] .timeline-card,
     :root[data-theme="dark"] .personality-card,
     :root[data-theme="dark"] .fix-quest-card,
     :root[data-theme="dark"] .compare-card,
@@ -3972,6 +4031,9 @@
       .companion-grid,
       .home-bingo-grid,
       .personal-mode-grid,
+      .room-care-grid,
+      .fix-library-grid,
+      .room-health-timeline-grid,
       .room-personality-grid,
       .fix-quest-grid,
       .room-compare-grid,
@@ -4335,6 +4397,9 @@
                   <span class="pill">Local-first</span>
                 </div>
                 <div class="companion-grid">
+                  <article id="one-thing-today-card" class="companion-card">
+                    <div class="empty-card">One Thing Today will appear after the app picks a local room-care prompt.</div>
+                  </article>
                   <article id="weekly-recap-card" class="companion-card">
                     <div class="empty-card">Weekly recap will appear after the app reads your local Home Journal.</div>
                   </article>
@@ -4344,6 +4409,26 @@
                     <div id="home-bingo-grid" class="home-bingo-grid" aria-label="Calm Home Bingo tasks"></div>
                   </article>
                 </div>
+                <div class="section-head compact">
+                  <div>
+                    <span class="guide-kicker">Room Care Calendar</span>
+                    <h4>A local weekly plan for small home wins.</h4>
+                    <p>Seven in-app prompts are generated from saved rooms, active modes, and seasonal care ideas. No external calendar or notifications.</p>
+                  </div>
+                  <button id="room-care-regenerate-btn" class="button-link ghost" type="button">Regenerate week</button>
+                </div>
+                <div id="room-care-calendar" class="room-care-grid" aria-label="Room Care Calendar"></div>
+                <section id="fix-library-panel" class="companion-card" aria-label="Fix Library">
+                  <div class="section-head compact">
+                    <div>
+                      <span class="guide-kicker">Fix Library</span>
+                      <h4>Practical guides for common room wins.</h4>
+                      <p>Use these as lightweight guidance before rescanning to verify progress. They do not change hazard scoring.</p>
+                    </div>
+                    <span class="pill">Decision support</span>
+                  </div>
+                  <div id="fix-library-grid" class="fix-library-grid" aria-label="Fix Library guides"></div>
+                </section>
                 <div class="section-head compact">
                   <div>
                     <span class="guide-kicker">Personal Safety Modes</span>
@@ -5041,6 +5126,9 @@
           <section id="room-personality-panel" class="room-personality-panel" aria-label="Room Personality Profiles">
             <div class="empty-card">Room Personality Profiles will appear once you save at least one room locally.</div>
           </section>
+          <section id="room-health-timeline-panel" class="room-personality-panel" aria-label="Room Health Timeline">
+            <div class="empty-card">Room Health Timeline will appear once saved rooms have local scan history.</div>
+          </section>
           <div id="home-journal-empty" class="empty-card">No room history yet. Start with one room label like Kitchen, Nursery, Hallway, or Pet corner.</div>
           <div id="home-journal-grid" class="home-journal-grid"></div>
         </section>
@@ -5204,6 +5292,15 @@
                 <small>Stored locally for Home Journal copy; no account or notification service is added.</small>
               </div>
               <div class="settings-control-row">
+                <label for="settings-care-cadence">Default care cadence</label>
+                <select id="settings-care-cadence" class="settings-select">
+                  <option value="weekly">Weekly room-care plan</option>
+                  <option value="twice-weekly">Twice-weekly light touch</option>
+                  <option value="daily">Daily tiny action</option>
+                </select>
+                <small>Controls in-app copy and generated Room Care Calendar density only.</small>
+              </div>
+              <div class="settings-control-row">
                 <label for="settings-report-theme">Default report theme</label>
                 <select id="settings-report-theme" class="settings-select">
                   <option value="calm-brief">Calm Brief</option>
@@ -5270,12 +5367,14 @@
               <button id="settings-clear-journal" class="button-link ghost danger" type="button">Clear Home Journal</button>
               <button id="settings-clear-rituals" class="button-link ghost danger" type="button">Clear rituals and streaks</button>
               <button id="settings-clear-companion" class="button-link ghost danger" type="button">Clear Home Companion progress</button>
+              <button id="settings-clear-daily-value" class="button-link ghost danger" type="button">Clear Daily Value progress</button>
               <button id="settings-clear-defaults" class="button-link ghost danger" type="button">Clear saved defaults</button>
               <button id="settings-clear-all-local" class="button-link ghost danger" type="button">Clear all local ATLAS-0 data</button>
             </div>
             <div class="settings-action-row">
               <button id="settings-open-current-report" class="button-link ghost" type="button">Open current report</button>
               <button id="settings-delete-current-report" class="button-link ghost danger" type="button">Delete current report</button>
+              <button id="settings-regenerate-care-week" class="button-link ghost" type="button">Regenerate care week</button>
             </div>
           </article>
 
