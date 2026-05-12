@@ -1,6 +1,7 @@
 """Tests for the Atlas-0 API server."""
 
 import asyncio
+import re
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -400,6 +401,15 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
         "smart_rescan_coach_opened",
         "report_theme_changed",
     ]
+
+
+def test_frontend_product_events_are_api_allowlisted() -> None:
+    app_js = Path(__file__).resolve().parents[2] / "frontend" / "js" / "app.js"
+    event_names = set(re.findall(r"trackProductEvent\(\s*['\"]([^'\"]+)['\"]", app_js.read_text()))
+
+    missing = sorted(event_names - server_mod._PUBLIC_PRODUCT_EVENTS)
+
+    assert missing == []
 
 
 def test_product_event_persists_preflight_failure_metadata() -> None:
