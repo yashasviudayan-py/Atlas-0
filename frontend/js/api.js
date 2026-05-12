@@ -4,8 +4,28 @@
 
 const ACCESS_TOKEN_KEY = 'atlas0.accessToken';
 
+function readAccessToken() {
+  try {
+    return window.localStorage.getItem(ACCESS_TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeAccessToken(token) {
+  try {
+    window.localStorage.setItem(ACCESS_TOKEN_KEY, String(token || '').trim());
+  } catch {}
+}
+
+function removeAccessToken() {
+  try {
+    window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+  } catch {}
+}
+
 function accessToken() {
-  return window.localStorage.getItem(ACCESS_TOKEN_KEY) || '';
+  return readAccessToken();
 }
 
 function authHeaders(headers = {}) {
@@ -43,11 +63,11 @@ export function getAccessToken() {
 }
 
 export function setAccessToken(token) {
-  window.localStorage.setItem(ACCESS_TOKEN_KEY, String(token || '').trim());
+  writeAccessToken(token);
 }
 
 export function clearAccessToken() {
-  window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+  removeAccessToken();
 }
 
 export function withAccessToken(url) {
