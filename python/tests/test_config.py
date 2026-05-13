@@ -177,6 +177,9 @@ class TestLoadConfig:
         assert cfg.evaluation.target_corpus_size == 50
         assert cfg.evaluation.min_reviewed_jobs == 8
         assert cfg.api.enable_job_listing is False
+        assert cfg.api.rate_limit_window_seconds == pytest.approx(60.0)
+        assert cfg.api.rate_limit_public_requests == 600
+        assert cfg.api.rate_limit_upload_requests == 30
 
     def test_env_atlas_config_selects_runtime_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -254,6 +257,13 @@ def test_upload_config_rejects_unknown_worker_mode() -> None:
 
     with pytest.raises(ValidationError):
         UploadsConfig(worker_mode="celery")
+
+
+def test_api_config_rejects_invalid_rate_limits() -> None:
+    with pytest.raises(ValidationError):
+        ApiConfig(rate_limit_window_seconds=0)
+    with pytest.raises(ValidationError):
+        ApiConfig(rate_limit_public_requests=-1)
 
     def test_env_override_slam_bool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ATLAS_SLAM_ENABLE_LOOP_CLOSURE", "false")

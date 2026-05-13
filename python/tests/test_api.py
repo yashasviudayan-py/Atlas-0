@@ -30,11 +30,15 @@ def reset_upload_jobs(tmp_path: Path):
         "recent_job_failures": _state.get("recent_job_failures"),
         "last_resume_scan_at": _state.get("last_resume_scan_at"),
         "last_prune_at": _state.get("last_prune_at"),
+        "rate_limit_buckets": _state.get("rate_limit_buckets"),
     }
     api_snapshot = {
         "access_token": _api_cfg.access_token,
         "allow_unauthenticated_loopback": _api_cfg.allow_unauthenticated_loopback,
         "enable_job_listing": _api_cfg.enable_job_listing,
+        "rate_limit_window_seconds": _api_cfg.rate_limit_window_seconds,
+        "rate_limit_public_requests": _api_cfg.rate_limit_public_requests,
+        "rate_limit_upload_requests": _api_cfg.rate_limit_upload_requests,
     }
     upload_snapshot = {
         "worker_mode": _upload_cfg.worker_mode,
@@ -69,6 +73,7 @@ def reset_upload_jobs(tmp_path: Path):
     _state["startup_checks"] = {"ready": True, "checks": [], "summary": "ok"}
     _state["service_started_at"] = "2026-04-21T00:00:00+00:00"
     _state["recent_job_failures"] = []
+    _state["rate_limit_buckets"] = {}
     yield
     _upload_jobs.clear()
     _upload_jobs.update(snapshot)
@@ -81,6 +86,9 @@ def reset_upload_jobs(tmp_path: Path):
     _api_cfg.access_token = api_snapshot["access_token"]
     _api_cfg.allow_unauthenticated_loopback = api_snapshot["allow_unauthenticated_loopback"]
     _api_cfg.enable_job_listing = api_snapshot["enable_job_listing"]
+    _api_cfg.rate_limit_window_seconds = api_snapshot["rate_limit_window_seconds"]
+    _api_cfg.rate_limit_public_requests = api_snapshot["rate_limit_public_requests"]
+    _api_cfg.rate_limit_upload_requests = api_snapshot["rate_limit_upload_requests"]
     _upload_cfg.worker_mode = upload_snapshot["worker_mode"]
     _upload_cfg.worker_poll_seconds = upload_snapshot["worker_poll_seconds"]
     _upload_cfg.worker_claim_ttl_seconds = upload_snapshot["worker_claim_ttl_seconds"]
@@ -118,6 +126,28 @@ def test_security_headers_are_set() -> None:
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["referrer-policy"] == "no-referrer"
     assert response.headers["permissions-policy"] == "camera=(), microphone=(), geolocation=()"
+    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    assert response.headers["x-request-id"]
+    assert response.headers["traceparent"].startswith("00-")
+
+
+def test_request_id_header_is_sanitized_and_echoed() -> None:
+    response = client.get("/health", headers={"X-Request-ID": "beta req/../../1"})
+
+    assert response.status_code == 200
+    assert response.headers["x-request-id"] == "betareq1"
+
+
+def test_product_events_are_rate_limited_when_configured() -> None:
+    _api_cfg.rate_limit_public_requests = 1
+    _api_cfg.rate_limit_window_seconds = 60.0
+
+    first = client.post("/product/events", json={"event_name": "cta_start_scan"})
+    second = client.post("/product/events", json={"event_name": "cta_start_scan"})
+
+    assert first.status_code == 204
+    assert second.status_code == 429
+    assert second.headers["retry-after"]
 
 
 def test_private_routes_disable_browser_caching() -> None:

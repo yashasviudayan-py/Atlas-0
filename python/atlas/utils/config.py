@@ -221,12 +221,29 @@ class ApiConfig(BaseModel):
     access_token: str | None = None
     allow_unauthenticated_loopback: bool = True
     enable_job_listing: bool = False
+    rate_limit_window_seconds: float = 60.0
+    rate_limit_public_requests: int = 600
+    rate_limit_upload_requests: int = 30
 
     @field_validator("port")
     @classmethod
     def _valid_port(cls, v: int) -> int:
         if not 1 <= v <= 65535:
             raise ValueError(f"port must be in [1, 65535], got {v}")
+        return v
+
+    @field_validator("rate_limit_window_seconds")
+    @classmethod
+    def _positive_window(cls, v: float) -> float:
+        if v <= 0.0:
+            raise ValueError(f"rate_limit_window_seconds must be positive, got {v}")
+        return v
+
+    @field_validator("rate_limit_public_requests", "rate_limit_upload_requests")
+    @classmethod
+    def _non_negative_limit(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(f"rate limit must be non-negative, got {v}")
         return v
 
     @field_validator("access_token")

@@ -99,6 +99,11 @@ access_token = ""
 allow_unauthenticated_loopback = true
 # Listing all jobs is disabled by default to avoid exposing room reports broadly.
 enable_job_listing = false
+# Lightweight per-client write-rate limiting for public product endpoints.
+# Set a limit to 0 to disable that bucket, e.g. for trusted internal load tests.
+rate_limit_window_seconds = 60.0
+rate_limit_public_requests = 600
+rate_limit_upload_requests = 30
 
 [ipc]
 # Path to the memory-mapped Gaussian snapshot file.

@@ -19,6 +19,7 @@ import json
 import os
 import pathlib
 import socket
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from email.parser import BytesParser
@@ -34,6 +35,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -43,9 +45,11 @@ from atlas.api.metrics import (
     REGISTRY,
     assessment_age_seconds,
     generate_latest,
+    http_requests_total,
     job_delete_total,
     object_count,
     query_total,
+    rate_limited_total,
     report_download_total,
     risk_count,
     slam_active,
@@ -109,25 +113,125 @@ app = FastAPI(
 )
 
 _BASE_SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'"
+    ),
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 }
 _PRIVATE_CACHE_PREFIXES = ("/upload", "/jobs", "/reports")
+_TRACEPARENT_VERSION = "00"
+
+
+def _safe_request_id(value: str | None) -> str:
+    """Return a bounded request ID safe to echo in headers and logs."""
+    token = "".join(ch for ch in str(value or "") if ch.isalnum() or ch in {"-", "_"})
+    return token[:80] or uuid.uuid4().hex
+
+
+def _trace_id_from_traceparent(value: str | None) -> str:
+    """Extract a W3C trace ID or generate a fresh one."""
+    parts = str(value or "").split("-")
+    if len(parts) >= 4 and len(parts[1]) == 32:
+        trace_id = parts[1].lower()
+        if trace_id != "0" * 32 and all(ch in "0123456789abcdef" for ch in trace_id):
+            return trace_id
+    return uuid.uuid4().hex
+
+
+def _traceparent(trace_id: str) -> str:
+    """Build a minimal W3C traceparent header for downstream correlation."""
+    return f"{_TRACEPARENT_VERSION}-{trace_id}-{uuid.uuid4().hex[:16]}-01"
+
+
+def _rate_limit_scope(request: Request) -> tuple[str, int] | None:
+    """Return the configured rate-limit scope and quota for a request."""
+    path = request.url.path
+    method = request.method.upper()
+    if method == "POST" and path == "/upload":
+        return ("upload", int(_api_cfg.rate_limit_upload_requests or 0))
+    if method == "POST" and path in {"/product/events", "/product/waitlist"}:
+        return ("product_write", int(_api_cfg.rate_limit_public_requests or 0))
+    return None
+
+
+def _rate_limit_key(request: Request, scope: str) -> str:
+    """Return a privacy-light per-client rate-limit key."""
+    host = _request_host(request) or "unknown"
+    return f"{scope}:{host}"
+
+
+def _check_rate_limit(request: Request) -> tuple[bool, str | None, int | None]:
+    """Apply a fixed-window in-memory rate limit for public write endpoints."""
+    scoped = _rate_limit_scope(request)
+    if scoped is None:
+        return (True, None, None)
+    scope, limit = scoped
+    if limit <= 0:
+        return (True, scope, None)
+
+    now = time.monotonic()
+    window_seconds = float(_api_cfg.rate_limit_window_seconds or 60.0)
+    key = _rate_limit_key(request, scope)
+    buckets = _state.setdefault("rate_limit_buckets", {})
+    bucket = buckets.get(key)
+    if not bucket or now >= float(bucket.get("reset_at", 0.0)):
+        buckets[key] = {"count": 1, "reset_at": now + window_seconds}
+        return (True, scope, int(window_seconds))
+
+    bucket["count"] = int(bucket.get("count", 0)) + 1
+    retry_after = max(1, int(float(bucket.get("reset_at", now)) - now))
+    return (bucket["count"] <= limit, scope, retry_after)
+
+
+def _metric_path(request: Request) -> str:
+    """Return a low-cardinality route path for request metrics."""
+    route = request.scope.get("route")
+    return str(getattr(route, "path", None) or request.url.path)
 
 
 @app.middleware("http")
 async def _add_production_headers(request: Request, call_next: Any) -> Response:
-    """Apply browser hardening headers to every HTTP response."""
-    response = await call_next(request)
+    """Apply browser hardening, trace, metric, and rate-limit controls."""
+    request_id = _safe_request_id(request.headers.get("x-request-id"))
+    trace_id = _trace_id_from_traceparent(request.headers.get("traceparent"))
+    allowed, scope, retry_after = _check_rate_limit(request)
+    if not allowed:
+        rate_limited_total.labels(scope=scope or "unknown").inc()
+        response = Response(
+            content=json.dumps({"detail": "Too many requests. Please retry shortly."}),
+            media_type="application/json",
+            status_code=429,
+            headers={"Retry-After": str(retry_after or 1)},
+        )
+    else:
+        response = await call_next(request)
+
     for header, value in _BASE_SECURITY_HEADERS.items():
         response.headers.setdefault(header, value)
+    response.headers.setdefault("X-Request-ID", request_id)
+    response.headers.setdefault("traceparent", _traceparent(trace_id))
 
     path = request.url.path
     if path in _PRIVATE_CACHE_PREFIXES or path.startswith(("/jobs/", "/reports/")):
         response.headers.setdefault("Cache-Control", "no-store")
         response.headers.setdefault("Pragma", "no-cache")
+    http_requests_total.labels(
+        method=request.method.upper(),
+        path=_metric_path(request),
+        status=str(response.status_code),
+    ).inc()
     return response
 
 
@@ -148,6 +252,22 @@ _runtime_cfg = load_config()
 _api_cfg = _runtime_cfg.api
 _upload_cfg = _runtime_cfg.uploads
 _evaluation_cfg = _runtime_cfg.evaluation
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_api_cfg.cors_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Audience-Mode",
+        "X-Filename",
+        "X-Room-Label",
+        "X-Request-ID",
+        "traceparent",
+    ],
+    expose_headers=["X-Request-ID", "traceparent", "Retry-After"],
+)
 _upload_store = UploadStore(
     pathlib.Path(_upload_cfg.storage_dir),
     artifact_backend=_upload_cfg.artifact_backend,
@@ -1226,6 +1346,37 @@ def _run_startup_checks() -> dict[str, Any]:
                 "detail": f"Unsupported artifact backend {_upload_cfg.artifact_backend!r}.",
             }
         )
+
+    rate_limits_enabled = (
+        _api_cfg.rate_limit_public_requests > 0 and _api_cfg.rate_limit_upload_requests > 0
+    )
+    checks.append(
+        {
+            "name": "api_rate_limits",
+            "status": "pass" if rate_limits_enabled else "warn",
+            "detail": (
+                "Public write and upload rate limits are enabled."
+                if rate_limits_enabled
+                else (
+                    "One or more API write rate limits are disabled; "
+                    "enable them before production."
+                )
+            ),
+        }
+    )
+
+    cors_allows_any_origin = "*" in {origin.strip() for origin in _api_cfg.cors_origins}
+    checks.append(
+        {
+            "name": "cors_origins",
+            "status": "warn" if cors_allows_any_origin else "pass",
+            "detail": (
+                "CORS currently allows any origin; restrict this for hosted production."
+                if cors_allows_any_origin
+                else "CORS origins are explicitly configured."
+            ),
+        }
+    )
 
     checks.append(
         {

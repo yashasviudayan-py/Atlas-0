@@ -23,6 +23,8 @@ Exposed metrics
 - ``atlas_job_delete_total`` (Counter) — deleted persisted jobs.
 - ``atlas_waitlist_signup_total`` (Counter) — beta waitlist submissions.
 - ``atlas_upload_job_seconds`` (Histogram) — wall-clock job durations.
+- ``atlas_http_requests_total`` (Counter) — HTTP requests by method/path/status.
+- ``atlas_rate_limited_total`` (Counter) — rate-limited HTTP requests by scope.
 
 Usage::
 
@@ -48,9 +50,11 @@ __all__ = [
     "REGISTRY",
     "assessment_age_seconds",
     "generate_latest",
+    "http_requests_total",
     "job_delete_total",
     "object_count",
     "query_total",
+    "rate_limited_total",
     "report_download_total",
     "risk_count",
     "slam_active",
@@ -151,6 +155,20 @@ job_delete_total: Counter = Counter(
 waitlist_signup_total: Counter = Counter(
     "atlas_waitlist_signup_total",
     "Beta waitlist submissions",
+    registry=REGISTRY,
+)
+
+http_requests_total: Counter = Counter(
+    "atlas_http_requests_total",
+    "HTTP requests by method, normalized path, and status code",
+    ["method", "path", "status"],
+    registry=REGISTRY,
+)
+
+rate_limited_total: Counter = Counter(
+    "atlas_rate_limited_total",
+    "HTTP requests rejected by the lightweight API rate limiter",
+    ["scope"],
     registry=REGISTRY,
 )
 
