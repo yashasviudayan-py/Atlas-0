@@ -18,7 +18,9 @@ def _draw_frame(index: int, total: int) -> Image.Image:
     # Background walls / floor.
     draw.rectangle((0, int(height * 0.62), width, height), fill=(215, 198, 176))
     draw.rectangle((0, 0, width, int(height * 0.62)), fill=(246, 239, 228))
-    draw.rectangle((width * 0.08 + pan, height * 0.18, width * 0.42 + pan, height * 0.56), fill=(230, 220, 205))
+    draw.rectangle(
+        (width * 0.08 + pan, height * 0.18, width * 0.42 + pan, height * 0.56), fill=(230, 220, 205)
+    )
 
     # Left book stack on a low console.
     console_x = 180 + pan

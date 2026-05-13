@@ -92,8 +92,7 @@ def build_report(*, strict_warnings: bool = False) -> dict[str, Any]:
     blockers = [
         check
         for check in checks
-        if check.get("status") == "fail"
-        or (strict_warnings and check.get("status") == "warn")
+        if check.get("status") == "fail" or (strict_warnings and check.get("status") == "warn")
     ]
     return {
         "ready": bool(summary.get("ready")) and not blockers,

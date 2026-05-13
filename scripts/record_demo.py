@@ -64,8 +64,7 @@ try:
     import websockets  # type: ignore[import-untyped]
 except ImportError as _e:
     print(
-        f"[record_demo] Missing dependency: {_e}.\n"
-        "Install with: pip install httpx websockets",
+        f"[record_demo] Missing dependency: {_e}.\n" "Install with: pip install httpx websockets",
         file=sys.stderr,
     )
     sys.exit(1)

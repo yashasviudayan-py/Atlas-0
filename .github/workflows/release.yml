@@ -1,0 +1,52 @@
+name: Release Provenance
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  package:
+    name: Package and Attest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build source artifact
+        run: |
+          mkdir -p dist
+          git archive --format=tar.gz --output=dist/atlas-0-source.tar.gz HEAD
+          python scripts/generate_sbom.py dist/atlas-0-sbom.json
+          sha256sum dist/atlas-0-source.tar.gz dist/atlas-0-sbom.json > dist/SHA256SUMS
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-0-release-assets
+          path: |
+            dist/atlas-0-source.tar.gz
+            dist/atlas-0-sbom.json
+            dist/SHA256SUMS
+
+      - name: Attest source artifact
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/atlas-0-source.tar.gz
+
+      - name: Attest SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/atlas-0-source.tar.gz
+          sbom-path: dist/atlas-0-sbom.json
