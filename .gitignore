@@ -15,6 +15,9 @@ build/
 .venv/
 venv/
 
+# JavaScript
+node_modules/
+
 # IDE
 .vscode/
 .idea/

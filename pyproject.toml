@@ -27,27 +27,27 @@ dev = [
     "mypy==1.14.1",
 ]
 ml = [
-    "torch>=2.5.0",
-    "torchvision>=0.20.0",
-    "transformers>=4.47.0",
-    "ollama>=0.4.0",
+    "torch==2.11.0",
+    "torchvision==0.26.0",
+    "transformers==5.5.0",
+    "ollama==0.6.1",
 ]
 # VLM cloud providers — install the one matching your ATLAS_VLM_PROVIDER setting.
 claude = [
-    "anthropic>=0.40.0",
+    "anthropic==0.40.0",
 ]
 openai = [
-    "openai>=1.50.0",
+    "openai==1.50.0",
 ]
 # Video file ingestion (MP4, MOV, WEBM) via PyAV (ffmpeg bindings).
 video = [
-    "av>=14.0.0",
+    "av==14.0.0",
 ]
 # All optional extras bundled together.
 all = [
-    "anthropic>=0.40.0",
-    "openai>=1.50.0",
-    "av>=14.0.0",
+    "anthropic==0.40.0",
+    "openai==1.50.0",
+    "av==14.0.0",
 ]
 
 [tool.ruff]
