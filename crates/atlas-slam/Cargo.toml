@@ -22,7 +22,7 @@ tracing.workspace = true
 rayon.workspace = true
 crossbeam.workspace = true
 memmap2.workspace = true
-minifb = { version = "0.27", optional = true }
+minifb = { version = "0.28", optional = true }
 
 [dev-dependencies]
 criterion.workspace = true
