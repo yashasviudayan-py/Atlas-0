@@ -1441,6 +1441,38 @@ claims.
 
 ---
 
+## Technical Production Advancement Pass
+
+### Status
+
+Implemented. This pass tightens production-readiness mechanics around
+dependency governance, API hardening, release provenance, CI coverage, and
+operator observability without changing the product promise or hazard engine.
+
+### Completed
+
+1. Dependency and supply-chain guardrails
+   - added Dependabot coverage for GitHub Actions, Python, Rust, and npm
+   - pinned optional Python extras and refreshed `uv.lock`
+   - added `package-lock.json` and upgraded Playwright to a patched version
+   - added dependency review and CodeQL workflows for pull-request/security
+     visibility
+
+2. API hardening and observability
+   - added CSP, CORS, request IDs, W3C `traceparent`, no-store private route
+     headers, and lightweight write/upload rate limiting
+   - added Prometheus counters for HTTP requests and rate-limited requests
+   - added startup diagnostics for rate-limit posture and CORS configuration
+
+3. CI, release, and deployment checks
+   - expanded CI to lint/format all scripts, compile all script entrypoints,
+     run frontend browser smoke tests, and run an API load smoke
+   - added release artifact workflow with source archive, SBOM generation, and
+     GitHub artifact/SBOM attestations
+   - added local SBOM and API load-smoke scripts for repeatable operator checks
+
+---
+
 ## Non-Negotiable Quality Bar
 
 Before calling the product usable:
