@@ -32,7 +32,7 @@ jobs:
           sha256sum dist/atlas-0-source.tar.gz dist/atlas-0-sbom.json > dist/SHA256SUMS
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: atlas-0-release-assets
           path: |
