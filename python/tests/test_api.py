@@ -39,6 +39,7 @@ def reset_upload_jobs(tmp_path: Path):
         "rate_limit_window_seconds": _api_cfg.rate_limit_window_seconds,
         "rate_limit_public_requests": _api_cfg.rate_limit_public_requests,
         "rate_limit_upload_requests": _api_cfg.rate_limit_upload_requests,
+        "rate_limit_max_buckets": _api_cfg.rate_limit_max_buckets,
     }
     upload_snapshot = {
         "worker_mode": _upload_cfg.worker_mode,
@@ -89,6 +90,7 @@ def reset_upload_jobs(tmp_path: Path):
     _api_cfg.rate_limit_window_seconds = api_snapshot["rate_limit_window_seconds"]
     _api_cfg.rate_limit_public_requests = api_snapshot["rate_limit_public_requests"]
     _api_cfg.rate_limit_upload_requests = api_snapshot["rate_limit_upload_requests"]
+    _api_cfg.rate_limit_max_buckets = api_snapshot["rate_limit_max_buckets"]
     _upload_cfg.worker_mode = upload_snapshot["worker_mode"]
     _upload_cfg.worker_poll_seconds = upload_snapshot["worker_poll_seconds"]
     _upload_cfg.worker_claim_ttl_seconds = upload_snapshot["worker_claim_ttl_seconds"]
@@ -148,6 +150,26 @@ def test_product_events_are_rate_limited_when_configured() -> None:
     assert first.status_code == 204
     assert second.status_code == 429
     assert second.headers["retry-after"]
+
+
+def test_rate_limit_buckets_prune_expired_and_oldest_entries() -> None:
+    _api_cfg.rate_limit_max_buckets = 1
+    buckets = {
+        "product_write:expired": {"count": 2, "reset_at": 1.0},
+        "product_write:oldest": {"count": 1, "reset_at": 10.0},
+        "product_write:newest": {"count": 1, "reset_at": 20.0},
+    }
+
+    server_mod._prune_rate_limit_buckets(
+        buckets,
+        now=5.0,
+        incoming_key="product_write:incoming",
+    )
+
+    assert buckets == {}
+
+    buckets["product_write:incoming"] = {"count": 1, "reset_at": 65.0}
+    assert len(buckets) == 1
 
 
 def test_private_routes_disable_browser_caching() -> None:

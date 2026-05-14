@@ -172,6 +172,35 @@ def _rate_limit_key(request: Request, scope: str) -> str:
     return f"{scope}:{host}"
 
 
+def _prune_rate_limit_buckets(
+    buckets: dict[str, dict[str, float | int]],
+    *,
+    now: float,
+    incoming_key: str,
+) -> None:
+    """Drop expired or oldest rate-limit buckets before adding a new client."""
+    expired_keys = [
+        key for key, bucket in buckets.items() if now >= float(bucket.get("reset_at", 0.0))
+    ]
+    for key in expired_keys:
+        buckets.pop(key, None)
+
+    max_buckets = int(_api_cfg.rate_limit_max_buckets or 0)
+    if max_buckets <= 0 or incoming_key in buckets:
+        return
+
+    overflow = len(buckets) - max_buckets + 1
+    if overflow <= 0:
+        return
+
+    oldest_keys = sorted(
+        buckets,
+        key=lambda key: float(buckets[key].get("reset_at", 0.0)),
+    )
+    for key in oldest_keys[:overflow]:
+        buckets.pop(key, None)
+
+
 def _check_rate_limit(request: Request) -> tuple[bool, str | None, int | None]:
     """Apply a fixed-window in-memory rate limit for public write endpoints."""
     scoped = _rate_limit_scope(request)
@@ -185,6 +214,7 @@ def _check_rate_limit(request: Request) -> tuple[bool, str | None, int | None]:
     window_seconds = float(_api_cfg.rate_limit_window_seconds or 60.0)
     key = _rate_limit_key(request, scope)
     buckets = _state.setdefault("rate_limit_buckets", {})
+    _prune_rate_limit_buckets(buckets, now=now, incoming_key=key)
     bucket = buckets.get(key)
     if not bucket or now >= float(bucket.get("reset_at", 0.0)):
         buckets[key] = {"count": 1, "reset_at": now + window_seconds}

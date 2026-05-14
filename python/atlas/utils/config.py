@@ -224,6 +224,7 @@ class ApiConfig(BaseModel):
     rate_limit_window_seconds: float = 60.0
     rate_limit_public_requests: int = 600
     rate_limit_upload_requests: int = 30
+    rate_limit_max_buckets: int = 8192
 
     @field_validator("port")
     @classmethod
@@ -239,7 +240,11 @@ class ApiConfig(BaseModel):
             raise ValueError(f"rate_limit_window_seconds must be positive, got {v}")
         return v
 
-    @field_validator("rate_limit_public_requests", "rate_limit_upload_requests")
+    @field_validator(
+        "rate_limit_public_requests",
+        "rate_limit_upload_requests",
+        "rate_limit_max_buckets",
+    )
     @classmethod
     def _non_negative_limit(cls, v: int) -> int:
         if v < 0:
