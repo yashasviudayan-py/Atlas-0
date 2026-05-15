@@ -127,7 +127,7 @@ def test_security_headers_are_set() -> None:
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["referrer-policy"] == "no-referrer"
-    assert response.headers["permissions-policy"] == "camera=(), microphone=(), geolocation=()"
+    assert response.headers["permissions-policy"] == "camera=(self), microphone=(), geolocation=()"
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
     assert response.headers["x-request-id"]
     assert response.headers["traceparent"].startswith("00-")
@@ -221,6 +221,35 @@ def test_product_upload_guidance_is_public() -> None:
     assert data["one_room_only"] is True
     assert data["checklist"]
     assert data["retry_guidance"]
+
+
+def test_product_trust_proof_is_public_and_privacy_safe() -> None:
+    _upload_jobs["jobproof1"] = {
+        "job_id": "jobproof1",
+        "filename": "private-room.mp4",
+        "status": "complete",
+        "summary": {"room_label": "Private nursery"},
+        "scan_quality": {"reportability": "downgraded", "rescan_recommended": True},
+        "evidence_frames": [{"evidence_id": "f00-r01"}],
+        "feedback_summary": {"useful": 2, "wrong": 1, "duplicate": 1},
+        "evaluation_summary": {"needs_review": True},
+        "risks": [],
+    }
+
+    response = client.get("/product/trust-proof")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["completed_scans"] == 1
+    assert data["rejected_or_downgraded_scans"] == 1
+    assert data["evidence_backed_reports"] == 1
+    assert data["useful_feedback_count"] == 2
+    assert data["negative_feedback_count"] == 2
+    assert data["sample_report_available"] is True
+    serialized = str(data).lower()
+    assert "private-room" not in serialized
+    assert "private nursery" not in serialized
+    assert "jobproof1" not in serialized
 
 
 def test_product_waitlist_is_public() -> None:
@@ -334,11 +363,20 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
     for event_name in (
         "landing_section_viewed",
         "sample_cta_clicked",
+        "trust_dashboard_opened",
         "first_run_started",
         "scan_preflight_failed",
+        "live_capture_coach_started",
+        "live_capture_quality_checked",
         "confidence_inspector_opened",
+        "report_question_asked",
+        "report_answer_copied",
         "report_share_card_copied",
         "pdf_export_clicked",
+        "pwa_offline_ready",
+        "privacy_receipt_opened",
+        "privacy_receipt_copied",
+        "evidence_privacy_toggled",
         "rescan_prompt_clicked",
         "room_ritual_started",
         "room_ritual_completed",
@@ -399,11 +437,20 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
     assert [event["event_name"] for event in events] == [
         "landing_section_viewed",
         "sample_cta_clicked",
+        "trust_dashboard_opened",
         "first_run_started",
         "scan_preflight_failed",
+        "live_capture_coach_started",
+        "live_capture_quality_checked",
         "confidence_inspector_opened",
+        "report_question_asked",
+        "report_answer_copied",
         "report_share_card_copied",
         "pdf_export_clicked",
+        "pwa_offline_ready",
+        "privacy_receipt_opened",
+        "privacy_receipt_copied",
+        "evidence_privacy_toggled",
         "rescan_prompt_clicked",
         "room_ritual_started",
         "room_ritual_completed",

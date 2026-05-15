@@ -128,7 +128,7 @@ _BASE_SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Permissions-Policy": "camera=(self), microphone=(), geolocation=()",
 }
 _PRIVATE_CACHE_PREFIXES = ("/upload", "/jobs", "/reports")
 _TRACEPARENT_VERSION = "00"
@@ -480,6 +480,21 @@ class UploadGuidanceResponse(BaseModel):
     retry_guidance: list[str]
 
 
+class TrustProofResponse(BaseModel):
+    """Privacy-safe public proof signals for product trust UX."""
+
+    completed_scans: int
+    rejected_or_downgraded_scans: int
+    evidence_backed_reports: int
+    useful_feedback_count: int
+    negative_feedback_count: int
+    eval_ready_reports: int
+    sample_report_available: bool
+    known_limits: list[str]
+    proof_points: list[dict[str, str]]
+    privacy_notes: list[str]
+
+
 class ProductEventRequest(BaseModel):
     """One lightweight public product analytics event."""
 
@@ -808,6 +823,12 @@ def product_privacy() -> PrivacyPolicyResponse:
 def product_upload_guidance() -> UploadGuidanceResponse:
     """Expose upload limits and capture guidance before a user submits a scan."""
     return UploadGuidanceResponse(**_public_upload_guidance_descriptor())
+
+
+@app.get("/product/trust-proof", response_model=TrustProofResponse)
+def product_trust_proof() -> TrustProofResponse:
+    """Expose aggregate-only proof signals for public product trust UX."""
+    return TrustProofResponse(**_public_trust_proof_descriptor())
 
 
 @app.post("/product/events", status_code=204)
@@ -1678,12 +1699,19 @@ _PUBLIC_PRODUCT_EVENTS = {
     "home_journal_opened",
     "home_pulse_opened",
     "landing_section_viewed",
+    "live_capture_coach_started",
+    "live_capture_quality_checked",
     "mystery_mode_started",
     "personal_mode_selected",
     "pdf_export_clicked",
     "one_thing_today_completed",
     "one_thing_today_started",
+    "pwa_offline_ready",
+    "privacy_receipt_copied",
+    "privacy_receipt_opened",
     "report_share_card_copied",
+    "report_answer_copied",
+    "report_question_asked",
     "room_map_preview_opened",
     "room_compare_opened",
     "room_care_calendar_opened",
@@ -1698,6 +1726,8 @@ _PUBLIC_PRODUCT_EVENTS = {
     "sample_report_opened",
     "share_card_style_changed",
     "share_card_studio_copied",
+    "evidence_privacy_toggled",
+    "trust_dashboard_opened",
     "weekly_recap_copied",
     "room_win_copied",
     "room_reminder_clicked",
@@ -2167,6 +2197,15 @@ def _aggregate_product_metrics() -> dict[str, Any]:
         "room_health_timeline_events": event_counts.get("room_health_timeline_opened", 0),
         "settings_daily_value_events": event_counts.get("settings_daily_value_changed", 0),
         "before_after_card_events": event_counts.get("before_after_card_copied", 0),
+        "trust_dashboard_events": event_counts.get("trust_dashboard_opened", 0),
+        "live_capture_events": event_counts.get("live_capture_coach_started", 0),
+        "live_capture_quality_events": event_counts.get("live_capture_quality_checked", 0),
+        "report_question_events": event_counts.get("report_question_asked", 0),
+        "report_answer_copy_events": event_counts.get("report_answer_copied", 0),
+        "privacy_receipt_events": event_counts.get("privacy_receipt_opened", 0),
+        "privacy_receipt_copy_events": event_counts.get("privacy_receipt_copied", 0),
+        "evidence_privacy_toggle_events": event_counts.get("evidence_privacy_toggled", 0),
+        "pwa_offline_ready_events": event_counts.get("pwa_offline_ready", 0),
         "daily_mission_events": event_counts.get("daily_mission_started", 0),
         "daily_mission_completed_events": event_counts.get("daily_mission_completed", 0),
         "mystery_mode_events": event_counts.get("mystery_mode_started", 0),
@@ -3026,6 +3065,73 @@ def _public_privacy_descriptor() -> dict[str, Any]:
             " review, and debugging, and it exposes delete controls in the product."
         ),
         "details": details,
+    }
+
+
+def _public_trust_proof_descriptor() -> dict[str, Any]:
+    """Return aggregate-only product trust signals without report identifiers."""
+    completed_jobs = [job for job in _upload_jobs.values() if str(job.get("status")) == "complete"]
+    rejected_or_downgraded = 0
+    evidence_backed = 0
+    useful_feedback = 0
+    negative_feedback = 0
+    eval_ready = 0
+
+    for job in completed_jobs:
+        scan_quality = dict(job.get("scan_quality") or {})
+        reportability = str(scan_quality.get("reportability") or "").lower()
+        if (
+            reportability in {"rejected", "downgraded"}
+            or bool(scan_quality.get("hard_reject"))
+            or bool(scan_quality.get("rescan_recommended"))
+        ):
+            rejected_or_downgraded += 1
+
+        if list(job.get("evidence_frames") or []):
+            evidence_backed += 1
+
+        feedback = dict(job.get("feedback_summary") or {})
+        useful_feedback += int(feedback.get("useful", 0) or 0)
+        negative_feedback += int(feedback.get("wrong", 0) or 0) + int(
+            feedback.get("duplicate", 0) or 0
+        )
+
+        if _review_ready_for_eval(job):
+            eval_ready += 1
+
+    return {
+        "completed_scans": len(completed_jobs),
+        "rejected_or_downgraded_scans": rejected_or_downgraded,
+        "evidence_backed_reports": evidence_backed,
+        "useful_feedback_count": useful_feedback,
+        "negative_feedback_count": negative_feedback,
+        "eval_ready_reports": eval_ready,
+        "sample_report_available": True,
+        "known_limits": [
+            "Upload-side room geometry is approximate and should be treated as screening support.",
+            "Low-light, fast motion, mirrors, and sparse coverage can weaken findings.",
+            "ATLAS-0 prioritizes room hazard decision support; it is not a safety certification.",
+        ],
+        "proof_points": [
+            {
+                "label": "Evidence-linked findings",
+                "value": str(evidence_backed),
+            },
+            {
+                "label": "Scans downgraded or rejected when weak",
+                "value": str(rejected_or_downgraded),
+            },
+            {
+                "label": "Reports ready for eval review",
+                "value": str(eval_ready),
+            },
+        ],
+        "privacy_notes": [
+            f"Artifacts follow a {_upload_cfg.retention_days} day retention window.",
+            "The public proof dashboard exposes aggregate counts only.",
+            "Private report IDs, filenames, emails, notes, and evidence images are never "
+            "returned here.",
+        ],
     }
 
 
