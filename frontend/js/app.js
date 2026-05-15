@@ -63,6 +63,10 @@ const ROOM_CARE_CALENDAR_STORAGE_KEY = 'atlas0.roomCareCalendar';
 const ROOM_CARE_COMPLETED_STORAGE_KEY = 'atlas0.roomCareCompleted';
 const CARE_CADENCE_STORAGE_KEY = 'atlas0.careCadence';
 const FIX_GUIDE_STORAGE_KEY = 'atlas0.activeFixGuide';
+const LIVE_CAPTURE_COACH_STORAGE_KEY = 'atlas0.liveCaptureCoach';
+const REPORT_QA_HISTORY_STORAGE_KEY = 'atlas0.reportQuestionHistory';
+const PRIVACY_RECEIPT_STORAGE_KEY = 'atlas0.privacyReceiptEvidence';
+const OFFLINE_ACK_STORAGE_KEY = 'atlas0.offlineReadyAcknowledged';
 
 const SETTINGS_LOCAL_KEYS = [
   THEME_STORAGE_KEY,
@@ -100,6 +104,10 @@ const SETTINGS_LOCAL_KEYS = [
   ROOM_CARE_COMPLETED_STORAGE_KEY,
   CARE_CADENCE_STORAGE_KEY,
   FIX_GUIDE_STORAGE_KEY,
+  LIVE_CAPTURE_COACH_STORAGE_KEY,
+  REPORT_QA_HISTORY_STORAGE_KEY,
+  PRIVACY_RECEIPT_STORAGE_KEY,
+  OFFLINE_ACK_STORAGE_KEY,
 ];
 
 function readStoredPreference(key) {
@@ -158,9 +166,11 @@ const state = {
   accessPolicy: null,
   privacyPolicy: null,
   uploadGuidance: null,
+  trustProof: null,
   operatorSettings: null,
   reportViewEvents: new Set(),
   uploadCompleteEvents: new Set(),
+  privacyReceiptEvents: new Set(),
   activeChallengeId: readStoredPreference(CHALLENGE_SELECTION_STORAGE_KEY) || null,
   activeRitualId: readStoredPreference(RITUAL_SELECTION_STORAGE_KEY) || null,
   activeMysteryModeId: readStoredPreference(MYSTERY_MODE_STORAGE_KEY) || null,
@@ -168,6 +178,8 @@ const state = {
   activePersonalModeId: readStoredPreference(PERSONAL_MODE_STORAGE_KEY) || null,
   activeEvidenceIndex: Number(readStoredPreference(ACTIVE_EVIDENCE_STORAGE_KEY) || 0),
   pendingUploadChallengeId: null,
+  activeReportQuestion: null,
+  activeReportAnswer: '',
 };
 
 const navButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
@@ -340,6 +352,9 @@ const personalModeGrid = document.getElementById('personal-mode-grid');
 const mysteryModeGrid = document.getElementById('mystery-mode-grid');
 const mysteryPromptCopy = document.getElementById('mystery-prompt-copy');
 const curiositySampleGrid = document.getElementById('curiosity-sample-grid');
+const trustProofDashboard = document.getElementById('trust-proof-dashboard');
+const trustProofMetrics = document.getElementById('trust-proof-metrics');
+const trustProofDetails = document.getElementById('trust-proof-details');
 const captureCoachTitle = document.getElementById('capture-coach-title');
 const captureCoachCopy = document.getElementById('capture-coach-copy');
 const captureCoachRoute = document.getElementById('capture-coach-route');
@@ -347,6 +362,15 @@ const captureCoachChecks = document.getElementById('capture-coach-checks');
 const captureCoachPrompt = document.getElementById('capture-coach-prompt');
 const captureCoachStatus = document.getElementById('capture-coach-status');
 const captureCoachMeter = document.getElementById('capture-coach-meter');
+const liveCaptureCoach = document.getElementById('live-capture-coach');
+const liveCaptureVideo = /** @type {HTMLVideoElement} */ (document.getElementById('live-capture-video'));
+const liveCaptureCanvas = /** @type {HTMLCanvasElement} */ (document.getElementById('live-capture-canvas'));
+const liveCapturePreview = document.getElementById('live-capture-preview');
+const liveCaptureStatus = document.getElementById('live-capture-status');
+const liveCaptureStats = document.getElementById('live-capture-stats');
+const liveCaptureGuidance = document.getElementById('live-capture-guidance');
+const liveCaptureStartBtn = /** @type {HTMLButtonElement} */ (document.getElementById('live-capture-start'));
+const liveCaptureStopBtn = /** @type {HTMLButtonElement} */ (document.getElementById('live-capture-stop'));
 const betaShareCopy = document.getElementById('beta-share-copy');
 const copyBetaInviteBtn = /** @type {HTMLButtonElement} */ (document.getElementById('copy-beta-invite-btn'));
 const briefTriageStrip = document.getElementById('brief-triage-strip');
@@ -360,6 +384,14 @@ const fixQuestPanel = document.getElementById('fix-quest-panel');
 const roomComparePanel = document.getElementById('room-compare-panel');
 const smartRescanCoach = document.getElementById('smart-rescan-coach');
 const evidenceStoryPanel = document.getElementById('evidence-story-panel');
+const reportQuestionList = document.getElementById('report-question-list');
+const reportQuestionAnswer = document.getElementById('report-question-answer');
+const copyReportAnswerBtn = /** @type {HTMLButtonElement} */ (document.getElementById('copy-report-answer-btn'));
+const privacyReceiptPanel = document.getElementById('privacy-receipt-panel');
+const privacyReceiptSummary = document.getElementById('privacy-receipt-summary');
+const privacyEvidenceList = document.getElementById('privacy-evidence-list');
+const copyPrivacyReceiptBtn = /** @type {HTMLButtonElement} */ (document.getElementById('copy-privacy-receipt-btn'));
+const downloadPrivacyReceiptBtn = /** @type {HTMLButtonElement} */ (document.getElementById('download-privacy-receipt-btn'));
 const homeJournalSummary = document.getElementById('home-journal-summary');
 const roomPersonalityPanel = document.getElementById('room-personality-panel');
 const roomHealthTimelinePanel = document.getElementById('room-health-timeline-panel');
@@ -371,8 +403,14 @@ const sceneEmpty = document.getElementById('scene-empty');
 const sceneObjList = document.getElementById('scene-obj-list');
 const sceneViewer = new SceneViewer(sceneCanvas, sceneEmpty, sceneObjList);
 let sceneReady = false;
+let liveCaptureStream = null;
+let liveCaptureTimer = null;
+let liveCaptureStartedAt = 0;
+let liveCaptureLastFrame = null;
+let liveCaptureLastEventAt = 0;
 
 const toast = document.getElementById('toast');
+const offlineBanner = document.getElementById('offline-banner');
 let toastTimer = null;
 
 function showToast(message, timeout = 2600) {
@@ -380,6 +418,34 @@ function showToast(message, timeout = 2600) {
   toast.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove('show'), timeout);
+}
+
+function updateOfflineBanner() {
+  if (!offlineBanner) {
+    return;
+  }
+  offlineBanner.classList.toggle('show', navigator.onLine === false);
+}
+
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator) || window.location.protocol === 'file:') {
+    return;
+  }
+  try {
+    const registration = await navigator.serviceWorker.register('/app/service-worker.js', {
+      scope: '/app/',
+    });
+    await navigator.serviceWorker.ready;
+    if (!readStoredPreference(OFFLINE_ACK_STORAGE_KEY)) {
+      writeStoredPreference(OFFLINE_ACK_STORAGE_KEY, 'true');
+      trackProductEvent('pwa_offline_ready', {
+        surface: 'service_worker',
+        reason: registration.active ? 'active' : 'registered',
+      });
+    }
+  } catch {
+    // PWA support is progressive enhancement; never block scanning or reports.
+  }
 }
 
 function requestedJobId() {
@@ -2128,6 +2194,153 @@ function renderCaptureCoach() {
   }
 }
 
+function renderTrustProofDashboard() {
+  if (!trustProofMetrics || !trustProofDetails) {
+    return;
+  }
+  const proof = state.trustProof;
+  if (!proof) {
+    trustProofMetrics.innerHTML = `
+      <article class="proof-metric"><strong>—</strong><span>Completed scans</span></article>
+      <article class="proof-metric"><strong>—</strong><span>Evidence-backed reports</span></article>
+      <article class="proof-metric"><strong>—</strong><span>Weak scans flagged</span></article>
+    `;
+    trustProofDetails.innerHTML = emptyMarkup('Trust proof signals are unavailable right now. The product still shows scan-level trust notes inside each report.');
+    return;
+  }
+  trustProofMetrics.innerHTML = `
+    <article class="proof-metric"><strong>${Number(proof.completed_scans || 0)}</strong><span>Completed scans</span></article>
+    <article class="proof-metric"><strong>${Number(proof.evidence_backed_reports || 0)}</strong><span>Evidence-backed reports</span></article>
+    <article class="proof-metric"><strong>${Number(proof.rejected_or_downgraded_scans || 0)}</strong><span>Weak scans flagged</span></article>
+  `;
+  const proofPoints = Array.isArray(proof.proof_points) ? proof.proof_points : [];
+  const knownLimits = Array.isArray(proof.known_limits) ? proof.known_limits : [];
+  const privacyNotes = Array.isArray(proof.privacy_notes) ? proof.privacy_notes : [];
+  trustProofDetails.innerHTML = `
+    ${proofPoints.length ? `<p class="subsection-label">Quality signals</p>${renderPolicyItems(proofPoints.map((item) => ({ label: item.label, value: item.value })))}` : ''}
+    ${knownLimits.length ? `<p class="subsection-label">Known limits</p><ul class="settings-list">${knownLimits.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+    ${privacyNotes.length ? `<p class="subsection-label">Privacy posture</p><ul class="settings-list">${privacyNotes.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+  `;
+}
+
+async function startLiveCaptureCoach() {
+  if (!navigator.mediaDevices?.getUserMedia || !liveCaptureVideo || !liveCaptureCanvas) {
+    if (liveCaptureGuidance) {
+      liveCaptureGuidance.textContent = 'This browser does not expose camera preview APIs. Use the checklist and upload preflight instead.';
+    }
+    showToast('Live camera preview is unavailable in this browser.', 3400);
+    return;
+  }
+  try {
+    liveCaptureStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    });
+    liveCaptureVideo.srcObject = liveCaptureStream;
+    await liveCaptureVideo.play();
+    liveCaptureStartedAt = Date.now();
+    liveCaptureLastFrame = null;
+    liveCapturePreview?.classList.add('active');
+    if (liveCaptureStartBtn) liveCaptureStartBtn.disabled = true;
+    if (liveCaptureStopBtn) liveCaptureStopBtn.disabled = false;
+    if (liveCaptureStatus) liveCaptureStatus.textContent = 'Checking quality';
+    writeStoredPreference(LIVE_CAPTURE_COACH_STORAGE_KEY, 'started');
+    trackProductEvent('live_capture_coach_started', { surface: 'guided_scan_wizard' });
+    liveCaptureTimer = window.setInterval(updateLiveCaptureQuality, 900);
+    updateLiveCaptureQuality();
+  } catch (error) {
+    if (liveCaptureGuidance) {
+      liveCaptureGuidance.textContent = 'Camera permission was blocked or unavailable. No problem: use the normal upload checklist and file preflight.';
+    }
+    showToast(error instanceof Error ? error.message : 'Could not start live capture coach.', 3600);
+  }
+}
+
+function stopLiveCaptureCoach() {
+  if (liveCaptureTimer) {
+    window.clearInterval(liveCaptureTimer);
+    liveCaptureTimer = null;
+  }
+  if (liveCaptureStream) {
+    liveCaptureStream.getTracks().forEach((track) => track.stop());
+    liveCaptureStream = null;
+  }
+  if (liveCaptureVideo) {
+    liveCaptureVideo.srcObject = null;
+  }
+  liveCapturePreview?.classList.remove('active');
+  if (liveCaptureStartBtn) liveCaptureStartBtn.disabled = false;
+  if (liveCaptureStopBtn) liveCaptureStopBtn.disabled = true;
+  if (liveCaptureStatus) liveCaptureStatus.textContent = 'Camera off';
+}
+
+function updateLiveCaptureQuality() {
+  if (!liveCaptureVideo || !liveCaptureCanvas || !liveCaptureStats || liveCaptureVideo.readyState < 2) {
+    return;
+  }
+  const context = liveCaptureCanvas.getContext('2d', { willReadFrequently: true });
+  if (!context) {
+    return;
+  }
+  context.drawImage(liveCaptureVideo, 0, 0, liveCaptureCanvas.width, liveCaptureCanvas.height);
+  const data = context.getImageData(0, 0, liveCaptureCanvas.width, liveCaptureCanvas.height).data;
+  let brightness = 0;
+  let diff = 0;
+  for (let index = 0; index < data.length; index += 4) {
+    const luminance = (data[index] + data[index + 1] + data[index + 2]) / 3;
+    brightness += luminance;
+    if (liveCaptureLastFrame) {
+      diff += Math.abs(luminance - liveCaptureLastFrame[index / 4]);
+    }
+  }
+  const pixels = data.length / 4;
+  const brightnessScore = brightness / pixels;
+  const motionScore = liveCaptureLastFrame ? diff / pixels : 0;
+  liveCaptureLastFrame = Array.from({ length: pixels }, (_, index) => {
+    const offset = index * 4;
+    return (data[offset] + data[offset + 1] + data[offset + 2]) / 3;
+  });
+  const elapsed = Math.round((Date.now() - liveCaptureStartedAt) / 1000);
+  const lightLabel = brightnessScore < 70 ? 'Too dark' : brightnessScore > 215 ? 'Too bright' : 'Good';
+  const motionLabel = motionScore > 28 ? 'Move slower' : elapsed < 3 ? 'Starting' : 'Steady';
+  const durationLabel = elapsed >= 20 ? 'Upload-ready' : `${elapsed}s`;
+  liveCaptureStats.innerHTML = `
+    <article class="live-coach-stat"><strong>${escapeHtml(lightLabel)}</strong><span>${Math.round(brightnessScore)} brightness score</span></article>
+    <article class="live-coach-stat"><strong>${escapeHtml(motionLabel)}</strong><span>${Math.round(motionScore)} motion delta</span></article>
+    <article class="live-coach-stat"><strong>${escapeHtml(durationLabel)}</strong><span>Target 20-60 seconds</span></article>
+  `;
+  if (liveCaptureGuidance) {
+    liveCaptureGuidance.textContent = liveCaptureGuidanceText(lightLabel, motionLabel, elapsed);
+  }
+  if (liveCaptureStatus) {
+    liveCaptureStatus.textContent = lightLabel === 'Good' && motionLabel === 'Steady' && elapsed >= 10
+      ? 'Looks usable'
+      : 'Keep improving';
+  }
+  if (Date.now() - liveCaptureLastEventAt > 8000) {
+    liveCaptureLastEventAt = Date.now();
+    trackProductEvent('live_capture_quality_checked', {
+      surface: 'guided_scan_wizard',
+      reason: `${lightLabel}; ${motionLabel}; ${elapsed}s`,
+    });
+  }
+}
+
+function liveCaptureGuidanceText(lightLabel, motionLabel, elapsed) {
+  if (lightLabel !== 'Good') {
+    return lightLabel === 'Too dark'
+      ? 'Turn on room lights or face away from bright windows before recording.'
+      : 'Avoid pointing directly at bright windows or lamps; let the room surfaces stay visible.';
+  }
+  if (motionLabel === 'Move slower') {
+    return 'Move more slowly and pause on corners, floor paths, shelves, and reachable objects.';
+  }
+  if (elapsed < 20) {
+    return 'Quality looks usable. Keep recording until at least 20 seconds so ATLAS-0 sees the full room route.';
+  }
+  return 'Good preflight. Upload the recorded walkthrough when you are ready; this preview was not uploaded.';
+}
+
 function updateCaptureCoachCheck(check, enabled) {
   const mode = selectedAudienceMode();
   const nextState = readCaptureCoachState(mode);
@@ -2180,6 +2393,9 @@ function initLandingSectionTracking() {
       trackProductEvent('landing_section_viewed', {
         surface: section,
       });
+      if (section === 'trust_dashboard') {
+        trackProductEvent('trust_dashboard_opened', { surface: section });
+      }
       observer.unobserve(entry.target);
     });
   }, { threshold: 0.55 });
@@ -2384,6 +2600,8 @@ function renderReport(job) {
     renderRoomComparePanel(null);
     renderSmartRescanCoach(null);
     renderEvidenceStoryPanel(null);
+    renderReportQuestionPanel(null);
+    renderPrivacyReceipt(null);
     summaryObjects.textContent = '0';
     summaryHazards.textContent = '0';
     summarySeverity.textContent = '—';
@@ -2467,6 +2685,8 @@ function renderReport(job) {
   renderRoomComparePanel(job, summary, visibleHazards, comparison);
   renderSmartRescanCoach(job, summary, visibleHazards, fixFirst, recommendations, scanQuality, comparison);
   renderEvidenceStoryPanel(job, summary, visibleHazards, evidence, scanQuality);
+  renderReportQuestionPanel(job, summary, visibleHazards, fixFirst, recommendations, evidence, scanQuality);
+  renderPrivacyReceipt(job, summary, evidence);
 
   summaryObjects.textContent = String(summary.object_count || 0);
   summaryHazards.textContent = String(summary.hazard_count || 0);
@@ -2668,6 +2888,189 @@ function renderReport(job) {
   attachFixChecklistHandlers(job.job_id);
   attachEvidenceTimelineHandlers();
   attachConfidenceExplainerHandlers(job);
+}
+
+function renderReportQuestionPanel(job, summary = {}, hazards = [], fixFirst = [], recommendations = [], evidence = [], scanQuality = {}) {
+  if (!reportQuestionAnswer || !copyReportAnswerBtn) {
+    return;
+  }
+  reportQuestionList?.querySelectorAll('[data-report-question]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.reportQuestion === state.activeReportQuestion);
+    button.disabled = !job || job.status !== 'complete';
+  });
+  if (!job || job.status !== 'complete') {
+    state.activeReportAnswer = '';
+    reportQuestionAnswer.textContent = 'Open a completed report, then choose a question to get a cited, report-grounded answer.';
+    copyReportAnswerBtn.disabled = true;
+    copyReportAnswerBtn.classList.add('disabled');
+    return;
+  }
+
+  const questionId = state.activeReportQuestion || 'fix_first';
+  const answer = answerReportQuestion(questionId, job, summary, hazards, fixFirst, recommendations, evidence, scanQuality);
+  state.activeReportAnswer = answer.text;
+  reportQuestionAnswer.innerHTML = `
+    <strong>${escapeHtml(answer.title)}</strong>
+    <p>${escapeHtml(answer.body)}</p>
+    <div class="report-card-meta">
+      ${answer.citations.map((citation) => `<span>${escapeHtml(citation)}</span>`).join('')}
+    </div>
+  `;
+  copyReportAnswerBtn.disabled = false;
+  copyReportAnswerBtn.classList.remove('disabled');
+}
+
+function answerReportQuestion(questionId, job, summary, hazards, fixFirst, recommendations, evidence, scanQuality) {
+  const topAction = fixFirst[0] || recommendations[0] || hazards[0] || {};
+  const topHazard = hazards[0] || {};
+  const evidenceIds = evidence
+    .map((frame, index) => frame.evidence_id || `frame-${index + 1}`)
+    .slice(0, 3);
+  const confidence = summary.confidence_label || scanQuality.capture_summary || 'approximate confidence';
+  const rescanCopy = scanQuality.rescan_recommended || summary.rescan_recommended
+    ? 'A steadier follow-up scan is recommended before over-trusting smaller details.'
+    : 'A rescan is useful after you complete the top fix, especially if you reuse the same room label.';
+  const citations = [
+    topHazard.hazard_code ? `Finding: ${topHazard.hazard_code}` : null,
+    topHazard.confidence_label ? `Confidence: ${topHazard.confidence_label}` : `Confidence: ${confidence}`,
+    evidenceIds.length ? `Evidence: ${evidenceIds.join(', ')}` : 'Evidence: none stored',
+  ].filter(Boolean);
+  const answers = {
+    fix_first: {
+      title: 'Fix first',
+      body: topAction.title
+        ? `${topAction.title}. ${topAction.action || topAction.what_to_do_next || topAction.recommendation || 'Review the top finding and choose the smallest safe fix.'}`
+        : 'This report does not contain a clear priority action. Treat it as a prompt to review evidence and rescan if the room still feels uncertain.',
+    },
+    why_risky: {
+      title: 'Why it is risky',
+      body: topHazard.why_it_matters || topHazard.why || topHazard.description
+        || 'The current report does not include enough supported risk reasoning for a stronger explanation.',
+    },
+    rescan: {
+      title: 'What to rescan',
+      body: `${rescanCopy} Keep the same room label, repeat the same route, and keep the top action area in frame.`,
+    },
+    share: {
+      title: 'Can you share this?',
+      body: 'Yes, if the recipient understands this is decision support, not safety certification. Use the Privacy Receipt to review room label, evidence inclusion, redaction status, retention, and delete controls before sharing.',
+    },
+    low_confidence: {
+      title: 'What low confidence means',
+      body: 'Low confidence means the scan evidence, lighting, coverage, localization, or object support is weaker. It should guide what to inspect or rescan, not create a final safety conclusion.',
+    },
+  };
+  const selected = answers[questionId] || answers.fix_first;
+  return {
+    title: selected.title,
+    body: selected.body,
+    citations,
+    text: [
+      `ATLAS-0 answer: ${selected.title}`,
+      selected.body,
+      citations.length ? `Citations: ${citations.join(' · ')}` : '',
+      `Report: ${reportDeepLink(job)}`,
+      'Decision support only, not safety certification.',
+    ].filter(Boolean).join('\n'),
+  };
+}
+
+function privacyReceiptState(jobId) {
+  return readJsonObject(PRIVACY_RECEIPT_STORAGE_KEY)[jobId] || { excludedEvidence: [] };
+}
+
+function writePrivacyReceiptState(jobId, value) {
+  const all = readJsonObject(PRIVACY_RECEIPT_STORAGE_KEY);
+  all[jobId] = value;
+  writeJsonObject(PRIVACY_RECEIPT_STORAGE_KEY, all);
+}
+
+function evidencePrivacyId(frame, index) {
+  return String(frame.evidence_id || `frame-${index + 1}`);
+}
+
+function selectedEvidenceFrames(job) {
+  const evidence = job?.evidence_frames || [];
+  if (!job?.job_id) {
+    return [];
+  }
+  const excluded = new Set(privacyReceiptState(job.job_id).excludedEvidence || []);
+  return evidence.filter((frame, index) => !excluded.has(evidencePrivacyId(frame, index)));
+}
+
+function renderPrivacyReceipt(job, summary = {}, evidence = []) {
+  if (!privacyReceiptSummary || !privacyEvidenceList || !copyPrivacyReceiptBtn || !downloadPrivacyReceiptBtn) {
+    return;
+  }
+  if (!job || job.status !== 'complete') {
+    privacyReceiptSummary.innerHTML = `
+      <article class="privacy-receipt-item"><strong>—</strong><span>Room label</span></article>
+      <article class="privacy-receipt-item"><strong>—</strong><span>Evidence selected</span></article>
+      <article class="privacy-receipt-item"><strong>—</strong><span>Retention</span></article>
+    `;
+    privacyEvidenceList.innerHTML = emptyMarkup('Evidence inclusion toggles appear after a completed report.');
+    copyPrivacyReceiptBtn.disabled = true;
+    downloadPrivacyReceiptBtn.disabled = true;
+    copyPrivacyReceiptBtn.classList.add('disabled');
+    downloadPrivacyReceiptBtn.classList.add('disabled');
+    return;
+  }
+
+  const selectedEvidence = selectedEvidenceFrames(job);
+  const roomLabel = job.room_label || summary.room_label || 'Unlabeled room';
+  const retention = state.privacyPolicy?.retention_days ?? 'unknown';
+  if (!state.privacyReceiptEvents.has(job.job_id)) {
+    state.privacyReceiptEvents.add(job.job_id);
+    trackProductEvent('privacy_receipt_opened', {
+      surface: 'privacy_receipt',
+      job_id: job.job_id,
+      sample_key: job.sample_key || null,
+    });
+  }
+  privacyReceiptSummary.innerHTML = `
+    <article class="privacy-receipt-item"><strong>${escapeHtml(roomLabel)}</strong><span>Room label included in report/share text</span></article>
+    <article class="privacy-receipt-item"><strong>${selectedEvidence.length}/${evidence.length}</strong><span>Evidence frames selected for local share wording</span></article>
+    <article class="privacy-receipt-item"><strong>${escapeHtml(String(retention))}</strong><span>${retention === 'unknown' ? 'Retention unavailable' : 'day retention window'}</span></article>
+  `;
+  privacyEvidenceList.innerHTML = evidence.length
+    ? evidence.map((frame, index) => {
+        const id = evidencePrivacyId(frame, index);
+        const excluded = new Set(privacyReceiptState(job.job_id).excludedEvidence || []);
+        const checked = !excluded.has(id);
+        return `
+          <label class="privacy-evidence-toggle">
+            <input type="checkbox" data-privacy-evidence="${escapeHtml(id)}" ${checked ? 'checked' : ''} />
+            <span><strong>${escapeHtml(frame.caption || id)}</strong><br />${escapeHtml(frame.redacted ? 'Text-heavy region redacted before storage.' : 'No text-heavy redaction flag on this frame.')}</span>
+          </label>
+        `;
+      }).join('')
+    : emptyMarkup('This report has no stored evidence frames. Share only the summary and trust notes.');
+  copyPrivacyReceiptBtn.disabled = false;
+  downloadPrivacyReceiptBtn.disabled = false;
+  copyPrivacyReceiptBtn.classList.remove('disabled');
+  downloadPrivacyReceiptBtn.classList.remove('disabled');
+}
+
+function privacyReceiptText(job) {
+  if (!job || job.status !== 'complete') {
+    return 'ATLAS-0 Privacy Receipt: no completed report is active.';
+  }
+  const summary = job.summary || {};
+  const evidence = job.evidence_frames || [];
+  const selectedEvidence = selectedEvidenceFrames(job);
+  const redacted = evidence.filter((frame) => frame.redacted).length;
+  return [
+    'ATLAS-0 Privacy Receipt',
+    `Room label: ${job.room_label || summary.room_label || 'Unlabeled room'}`,
+    `Calm Score: ${typeof summary.room_score === 'number' ? `${summary.room_score}/100` : 'not available'}`,
+    `Findings: ${(job.risks || []).length}`,
+    `Evidence selected locally: ${selectedEvidence.length}/${evidence.length}`,
+    `Redacted evidence frames: ${redacted}`,
+    `Retention: ${state.privacyPolicy?.retention_days ?? 'unknown'} day(s)`,
+    `Delete controls: ${state.privacyPolicy?.delete_supported ? 'available in report view' : 'unknown'}`,
+    'This receipt affects local share/copy wording only. It does not mutate stored server artifacts.',
+    'Decision support only, not safety certification.',
+  ].join('\n');
 }
 
 function renderHeroBadges(summary, roomLabel, comparison, resolution, isSample) {
@@ -3833,6 +4236,11 @@ function buildShareCardText(job, style = currentShareCardStyle()) {
     || summary.top_hazard_label
     || 'review the top finding';
   const confidence = summary.confidence_label || summary.scan_quality_label || 'approximate confidence';
+  const evidence = job.evidence_frames || [];
+  const selectedEvidence = selectedEvidenceFrames(job);
+  const evidenceLine = evidence.length
+    ? `Evidence selected for local sharing: ${selectedEvidence.length}/${evidence.length}.`
+    : 'No evidence frames are selected for local sharing.';
   const link = reportDeepLink(job);
   const comparison = job.room_comparison || null;
   const delta = comparison && typeof comparison.score_delta === 'number'
@@ -3842,6 +4250,7 @@ function buildShareCardText(job, style = currentShareCardStyle()) {
     landlord: [
       `ATLAS-0 room note for ${roomLabel}`,
       `Calm Score: ${score}. Main attention area: ${topAction}.`,
+      evidenceLine,
       'This is a tenant-generated decision-support note with evidence references, not a certification or inspection.',
       link ? `Report/PDF: ${link}` : '',
     ],
@@ -3849,12 +4258,14 @@ function buildShareCardText(job, style = currentShareCardStyle()) {
       `Room check for ${roomLabel}`,
       `Top thing to fix: ${topAction}.`,
       `Confidence: ${confidence}. Please confirm the evidence frame before acting.`,
+      evidenceLine,
       'ATLAS-0 helps prioritize, but it does not certify safety.',
       link ? `Report: ${link}` : '',
     ],
     'quick-win': [
       `ATLAS-0 room win: ${roomLabel}`,
       `Calm Score: ${score}. Quick fix: ${topAction}.`,
+      evidenceLine,
       'Fix one thing, then rescan with the same room label to show progress.',
       `Confidence: ${confidence}. Decision support only.`,
       link ? `Report: ${link}` : '',
@@ -3863,12 +4274,14 @@ function buildShareCardText(job, style = currentShareCardStyle()) {
       `ATLAS-0 before/after card: ${roomLabel}`,
       `Current Calm Score: ${score}. Change: ${delta}.`,
       `Top action: ${topAction}.`,
+      evidenceLine,
       comparison?.summary || 'Reuse this same room label after a fix to unlock a comparison.',
       'Decision support only, not safety certification.',
     ],
     'private-pdf': [
       `Private ATLAS-0 Safety Brief: ${roomLabel}`,
       `Calm Score: ${score}. Top action: ${topAction}. Confidence: ${confidence}.`,
+      evidenceLine,
       'Keep this wording private unless you want to share the PDF. Uploaded/report artifacts follow the configured retention policy.',
       link ? `PDF/report: ${link}` : '',
     ],
@@ -3896,6 +4309,8 @@ function renderShareCardPreview(job) {
     || summary.top_hazard_label
     || 'Review the top finding';
   const score = typeof summary.room_score === 'number' ? `${summary.room_score}/100 Calm Score` : 'Screened';
+  const evidence = job.evidence_frames || [];
+  const selectedEvidence = selectedEvidenceFrames(job);
   const style = currentShareCardStyle();
   if (shareCardStyleInput) {
     shareCardStyleInput.value = style;
@@ -3903,7 +4318,7 @@ function renderShareCardPreview(job) {
   shareCardCopy.innerHTML = `
     <span class="guide-kicker">ATLAS-0 ${escapeHtml(shareStyleLabel(style))}</span>
     <strong>${escapeHtml(roomLabel)} · ${escapeHtml(score)}</strong>
-    <p>${escapeHtml(topAction)}. ${escapeHtml(summary.confidence_label || 'Approximate grounding')}. Decision support only, not safety certification.</p>
+    <p>${escapeHtml(topAction)}. ${escapeHtml(summary.confidence_label || 'Approximate grounding')}. Evidence selected ${selectedEvidence.length}/${evidence.length}. Decision support only, not safety certification.</p>
   `;
 }
 
@@ -4510,6 +4925,12 @@ async function bootstrapApp() {
     state.uploadGuidance = null;
     applyUploadGuidance(null);
   }
+  try {
+    state.trustProof = await api.fetchTrustProof();
+  } catch {
+    state.trustProof = null;
+  }
+  renderTrustProofDashboard();
   await refreshOperatorState();
   await bootstrapJobs();
   const sampleKey = requestedSampleKey();
@@ -4770,6 +5191,14 @@ captureCoachChecks?.addEventListener('change', (event) => {
   updateCaptureCoachCheck(checkbox.dataset.captureCheck || '', checkbox.checked);
 });
 
+liveCaptureStartBtn?.addEventListener('click', () => {
+  startLiveCaptureCoach();
+});
+
+liveCaptureStopBtn?.addEventListener('click', () => {
+  stopLiveCaptureCoach();
+});
+
 document.getElementById('scene-refresh-btn')?.addEventListener('click', () => {
   ensureScene();
   sceneViewer.refresh();
@@ -4860,6 +5289,10 @@ renderCaptureCoach();
 renderHomeJournal();
 renderHomePulse();
 initLandingSectionTracking();
+updateOfflineBanner();
+window.addEventListener('online', updateOfflineBanner);
+window.addEventListener('offline', updateOfflineBanner);
+registerServiceWorker();
 if (betaShareCopy) {
   betaShareCopy.textContent = betaSharePrompt();
 }
@@ -5502,6 +5935,105 @@ copyShareCardBtn?.addEventListener('click', async () => {
   } catch (error) {
     showToast(error instanceof Error ? error.message : 'Could not copy share card.', 3600);
   }
+});
+
+reportQuestionList?.addEventListener('click', (event) => {
+  const button = event.target instanceof Element ? event.target.closest('[data-report-question]') : null;
+  const job = activeJob();
+  if (!button || !job || job.status !== 'complete') {
+    return;
+  }
+  const questionId = button.dataset.reportQuestion || 'fix_first';
+  state.activeReportQuestion = questionId;
+  const history = readJsonObject(REPORT_QA_HISTORY_STORAGE_KEY);
+  history[job.job_id] = [
+    questionId,
+    ...((history[job.job_id] || []).filter((item) => item !== questionId)),
+  ].slice(0, 8);
+  writeJsonObject(REPORT_QA_HISTORY_STORAGE_KEY, history);
+  renderReport(job);
+  trackProductEvent('report_question_asked', {
+    surface: 'report_qa_panel',
+    job_id: job.job_id,
+    sample_key: job.sample_key || null,
+    reason: questionId,
+  });
+});
+
+copyReportAnswerBtn?.addEventListener('click', async () => {
+  const job = activeJob();
+  if (!job || !state.activeReportAnswer) {
+    return;
+  }
+  try {
+    await copyText(state.activeReportAnswer);
+    await trackProductEvent('report_answer_copied', {
+      surface: 'report_qa_panel',
+      job_id: job.job_id,
+      sample_key: job.sample_key || null,
+      reason: state.activeReportQuestion || 'fix_first',
+    });
+    showToast('Report answer copied.');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not copy report answer.', 3600);
+  }
+});
+
+privacyEvidenceList?.addEventListener('change', (event) => {
+  const checkbox = event.target instanceof HTMLInputElement
+    ? event.target.closest('[data-privacy-evidence]')
+    : null;
+  const job = activeJob();
+  if (!checkbox || !job?.job_id) {
+    return;
+  }
+  const id = checkbox.dataset.privacyEvidence || '';
+  const current = privacyReceiptState(job.job_id);
+  const excluded = new Set(current.excludedEvidence || []);
+  if (checkbox.checked) {
+    excluded.delete(id);
+  } else {
+    excluded.add(id);
+  }
+  writePrivacyReceiptState(job.job_id, { excludedEvidence: [...excluded] });
+  renderReport(job);
+  trackProductEvent('evidence_privacy_toggled', {
+    surface: 'privacy_receipt',
+    job_id: job.job_id,
+    sample_key: job.sample_key || null,
+    reason: checkbox.checked ? 'included' : 'excluded',
+  });
+});
+
+copyPrivacyReceiptBtn?.addEventListener('click', async () => {
+  const job = activeJob();
+  if (!job || job.status !== 'complete') {
+    return;
+  }
+  try {
+    await copyText(privacyReceiptText(job));
+    await trackProductEvent('privacy_receipt_copied', {
+      surface: 'privacy_receipt',
+      job_id: job.job_id,
+      sample_key: job.sample_key || null,
+    });
+    showToast('Privacy receipt copied.');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not copy privacy receipt.', 3600);
+  }
+});
+
+downloadPrivacyReceiptBtn?.addEventListener('click', () => {
+  const job = activeJob();
+  if (!job || job.status !== 'complete') {
+    return;
+  }
+  trackProductEvent('privacy_receipt_opened', {
+    surface: 'privacy_receipt_download',
+    job_id: job.job_id,
+    sample_key: job.sample_key || null,
+  });
+  downloadTextFile(`atlas-0-privacy-receipt-${job.job_id}.txt`, privacyReceiptText(job), 'text/plain');
 });
 
 function attachFixChecklistHandlers(jobId) {

@@ -103,6 +103,7 @@ export const pruneOperatorStorage = () => json('/operator/storage/prune', {
 });
 export const fetchPrivacyPolicy = ()   => json('/product/privacy');
 export const fetchUploadGuidance = ()   => json('/product/upload-guidance');
+export const fetchTrustProof = ()      => json('/product/trust-proof');
 export const submitWaitlist = (payload) => json('/product/waitlist', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
