@@ -8,7 +8,7 @@
  * layout-critical markup missing.
  */
 
-import { access } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 
 const requireBrowser = process.env.ATLAS0_REQUIRE_BROWSER_TESTS === '1';
 let chromium;
@@ -27,6 +27,13 @@ try {
 
 const htmlPath = new URL('../index.html', import.meta.url);
 await access(htmlPath);
+await access(new URL('../manifest.webmanifest', import.meta.url));
+const serviceWorker = await readFile(new URL('../service-worker.js', import.meta.url), 'utf8');
+for (const privatePrefix of ['/jobs', '/reports', '/operator/settings', '/upload']) {
+  if (!serviceWorker.includes(privatePrefix)) {
+    throw new Error(`Service worker must explicitly avoid caching ${privatePrefix}`);
+  }
+}
 
 const viewports = [
   { name: 'desktop', width: 1360, height: 900 },
@@ -44,10 +51,14 @@ try {
     await page.locator('text=ATLAS-0').first().waitFor({ timeout: 3000 });
     await page.locator('#view-scan').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#capture-coach-title').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#live-capture-coach').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#live-capture-start').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.hero-artifact').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.first-run-rail').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#welcome-tour-card').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.trust-proof-deck').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#trust-proof-dashboard').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#trust-proof-metrics').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.use-case-card').first().waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#home-pulse-card').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#home-companion-panel').waitFor({ state: 'attached', timeout: 3000 });
@@ -75,6 +86,10 @@ try {
     await page.locator('#room-map-preview').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#room-passport-panel').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#report-action-loop').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#report-qa-panel').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#report-question-list').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#privacy-receipt-panel').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#privacy-receipt-summary').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#fix-verification-panel').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#report-theme-panel').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#report-theme-style').waitFor({ state: 'attached', timeout: 3000 });
@@ -108,6 +123,7 @@ try {
     await page.locator('#settings-replay-weekly-recap').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('text=Version, changelog, and limits').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('footer.app-footer').waitFor({ timeout: 3000 });
+    await page.locator('#offline-banner').waitFor({ state: 'attached', timeout: 3000 });
 
     const overflow = await page.evaluate(() => {
       const body = document.body;

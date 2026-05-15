@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">ATLAS-0 app icon</title>
+  <desc id="desc">A warm porcelain room-safety mark with spruce and persimmon accents.</desc>
+  <defs>
+    <linearGradient id="bg" x1="80" x2="432" y1="64" y2="448" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF8ED"/>
+      <stop offset="0.7" stop-color="#F6E7CB"/>
+      <stop offset="1" stop-color="#F3A13B"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0D6F61"/>
+  <rect x="54" y="54" width="404" height="404" rx="92" fill="url(#bg)"/>
+  <path d="M144 259 256 155l112 104" fill="none" stroke="#241711" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M174 252v103c0 14 11 25 25 25h114c14 0 25-11 25-25V252" fill="none" stroke="#241711" stroke-width="32" stroke-linecap="round"/>
+  <path d="M302 296c37-25 79-34 120-26" fill="none" stroke="#0D6F61" stroke-width="28" stroke-linecap="round"/>
+  <path d="M315 337c29-17 63-23 96-17" fill="none" stroke="#D46F2C" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="256" cy="374" r="29" fill="#0D6F61"/>
+</svg>

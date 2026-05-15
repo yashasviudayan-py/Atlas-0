@@ -1,0 +1,19 @@
+{
+  "name": "ATLAS-0 Room Safety Briefs",
+  "short_name": "ATLAS-0",
+  "description": "Upload a room walkthrough and get an evidence-backed Safety Brief.",
+  "start_url": "/app/",
+  "scope": "/app/",
+  "display": "standalone",
+  "background_color": "#fff8ed",
+  "theme_color": "#0d6f61",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/app/atlas-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1473,6 +1473,45 @@ operator observability without changing the product promise or hazard engine.
 
 ---
 
+## Next-Level Production Feature Pass
+
+### Status
+
+Implemented. This pass moves ATLAS-0 beyond more surface polish by improving
+scan input quality, visible proof, bounded report reasoning, offline shell
+reliability, and privacy-aware sharing while keeping the product accountless and
+evidence-first.
+
+### Completed
+
+1. Capture quality and trust proof
+   - added an optional permission-gated Live Capture Coach for browser-side
+     lighting, steadiness, and duration preflight before upload
+   - added a public aggregate-only trust proof endpoint and dashboard for
+     completed scans, weak scans flagged, evidence-backed reports, feedback
+     counts, eval readiness, known limits, and privacy posture
+
+2. Report reasoning and privacy-aware sharing
+   - added deterministic "Ask this Safety Brief" answers grounded only in the
+     active report's findings, evidence IDs, confidence labels, and trust notes
+   - added Privacy Receipt and local evidence inclusion toggles so users can
+     review what share/PDF wording includes before copying or downloading
+
+3. Installable/offline product shell
+   - added a web app manifest, repo-native SVG app icon, service worker, and
+     offline banner
+   - service worker caching is limited to the static shell and public product
+     metadata; private upload, job, report, operator, waitlist, and event routes
+     are explicitly excluded
+
+4. Verification coverage
+   - added backend tests for the public trust proof endpoint and new product
+     events
+   - extended frontend smoke coverage for the trust dashboard, live capture
+     coach, report Q&A, Privacy Receipt, PWA files, and offline banner
+
+---
+
 ## Non-Negotiable Quality Bar
 
 Before calling the product usable:
