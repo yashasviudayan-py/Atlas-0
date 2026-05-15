@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ATLAS-0 · Room Hazard Reports</title>
+  <link rel="manifest" href="/app/manifest.webmanifest" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,750&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -741,6 +742,54 @@
       line-height: 1.58;
     }
 
+    .trust-proof-dashboard {
+      display: grid;
+      gap: 16px;
+      margin-top: 18px;
+      padding: 18px;
+      border-radius: var(--radius-xl);
+      border: 1px solid var(--line);
+      background:
+        radial-gradient(circle at top left, rgba(13, 111, 97, 0.12), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(212, 111, 44, 0.12), transparent 34%),
+        var(--panel);
+      box-shadow: var(--shadow), var(--hairline);
+    }
+
+    .proof-metric-grid,
+    .live-coach-grid,
+    .qa-question-grid,
+    .privacy-receipt-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .proof-metric,
+    .live-coach-stat,
+    .privacy-receipt-item {
+      padding: 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .proof-metric strong,
+    .live-coach-stat strong,
+    .privacy-receipt-item strong {
+      display: block;
+      font-size: 1.45rem;
+      letter-spacing: -0.05em;
+    }
+
+    .proof-metric span,
+    .live-coach-stat span,
+    .privacy-receipt-item span {
+      color: var(--ink-soft);
+      line-height: 1.5;
+    }
+
     .proof-list {
       display: grid;
       gap: 10px;
@@ -1295,6 +1344,9 @@
     }
 
     .capture-coach,
+    .live-capture-coach,
+    .report-qa-panel,
+    .privacy-receipt-panel,
     .report-loop,
     .beta-card {
       position: relative;
@@ -1449,7 +1501,10 @@
     }
 
     .report-loop-actions,
-    .beta-share-row {
+    .beta-share-row,
+    .live-coach-actions,
+    .qa-actions,
+    .privacy-receipt-actions {
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
@@ -1461,6 +1516,102 @@
       background:
         radial-gradient(circle at top right, rgba(214, 127, 48, 0.16), transparent 34%),
         linear-gradient(135deg, var(--panel), var(--bg-soft));
+    }
+
+    .live-coach-preview {
+      min-height: 220px;
+      overflow: hidden;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, rgba(13, 111, 97, 0.14), rgba(212, 111, 44, 0.12)),
+        var(--paper);
+      display: grid;
+      place-items: center;
+      color: var(--ink-soft);
+      position: relative;
+    }
+
+    .live-coach-preview video {
+      width: 100%;
+      height: 100%;
+      min-height: 220px;
+      object-fit: cover;
+      display: none;
+    }
+
+    .live-coach-preview.active video {
+      display: block;
+    }
+
+    .live-coach-preview.active .live-coach-placeholder {
+      display: none;
+    }
+
+    .qa-question-grid {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .qa-question {
+      min-height: 48px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      color: var(--ink);
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .qa-question:hover,
+    .qa-question.active {
+      border-color: rgba(13, 111, 97, 0.34);
+      background: var(--accent-wash);
+    }
+
+    .qa-answer-card {
+      padding: 16px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+
+    .privacy-evidence-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .privacy-evidence-toggle {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      color: var(--ink-soft);
+    }
+
+    .offline-banner {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      z-index: 20;
+      width: min(calc(100% - 28px), 720px);
+      transform: translate(-50%, 140%);
+      padding: 14px 18px;
+      border-radius: 999px;
+      border: 1px solid rgba(212, 111, 44, 0.32);
+      background: var(--panel-strong);
+      color: var(--ink);
+      box-shadow: var(--shadow-lift);
+      transition: transform 0.2s ease;
+    }
+
+    .offline-banner.show {
+      transform: translate(-50%, 0);
     }
 
     :root[data-theme="dark"] .mission-card {
@@ -4014,6 +4165,10 @@
       .use-case-grid,
       .first-run-rail,
       .trust-proof-deck,
+      .proof-metric-grid,
+      .live-coach-grid,
+      .qa-question-grid,
+      .privacy-receipt-grid,
       .welcome-tour-steps,
       .challenge-grid,
       .wizard-grid,
@@ -4347,6 +4502,25 @@
         </article>
       </section>
 
+      <section id="trust-proof-dashboard" class="trust-proof-dashboard" data-landing-section="trust_dashboard" aria-label="ATLAS-0 trust proof dashboard">
+        <div class="section-head compact">
+          <div>
+            <span class="guide-kicker">Trust Proof Dashboard</span>
+            <h3>Proof over performance theater.</h3>
+            <p>Aggregate-only quality signals, known limits, and privacy notes help users understand when to trust a Safety Brief and when to rescan.</p>
+          </div>
+          <span class="pill">Privacy-safe</span>
+        </div>
+        <div id="trust-proof-metrics" class="proof-metric-grid">
+          <article class="proof-metric"><strong>—</strong><span>Completed scans</span></article>
+          <article class="proof-metric"><strong>—</strong><span>Evidence-backed reports</span></article>
+          <article class="proof-metric"><strong>—</strong><span>Weak scans flagged</span></article>
+        </div>
+        <div id="trust-proof-details" class="policy-list">
+          <div class="empty-card">Trust proof signals will appear after the app loads.</div>
+        </div>
+      </section>
+
       <section id="view-scan" class="view active" aria-label="Scan view" data-landing-section="scan_onboarding">
         <div class="panel-grid">
           <section class="panel">
@@ -4543,6 +4717,31 @@
                   </div>
                 </div>
                 <div id="capture-coach-prompt" class="coach-prompt">Try the one quick fix rule after the report.</div>
+              </article>
+              <article id="live-capture-coach" class="live-capture-coach" aria-labelledby="live-capture-title">
+                <div class="coach-head">
+                  <div>
+                    <span class="guide-kicker">Live Capture Coach</span>
+                    <h4 id="live-capture-title">Check lighting and steadiness before upload.</h4>
+                    <p id="live-capture-copy">Optional camera preview. ATLAS-0 analyzes only lightweight browser-side quality signals and does not upload this preview.</p>
+                  </div>
+                  <span id="live-capture-status" class="pill">Camera off</span>
+                </div>
+                <div class="live-coach-preview" id="live-capture-preview">
+                  <video id="live-capture-video" muted playsinline></video>
+                  <span class="live-coach-placeholder">Start the coach to preview brightness, motion, and coverage readiness.</span>
+                </div>
+                <div id="live-capture-stats" class="live-coach-grid">
+                  <article class="live-coach-stat"><strong>—</strong><span>Lighting</span></article>
+                  <article class="live-coach-stat"><strong>—</strong><span>Steadiness</span></article>
+                  <article class="live-coach-stat"><strong>—</strong><span>Duration</span></article>
+                </div>
+                <div id="live-capture-guidance" class="coach-prompt">File upload still works without camera permission. Use this only when you want a quick preflight.</div>
+                <div class="live-coach-actions">
+                  <button id="live-capture-start" class="button-link" type="button">Start live coach</button>
+                  <button id="live-capture-stop" class="button-link ghost" type="button" disabled>Stop camera</button>
+                </div>
+                <canvas id="live-capture-canvas" width="96" height="54" hidden></canvas>
               </article>
               <div class="guide-grid">
                 <article class="guide-card">
@@ -4883,6 +5082,53 @@
 
         <section id="report-action-loop" class="report-loop panel" aria-label="Fix, rescan, and share loop">
           <div class="empty-card">The fix-and-rescan loop will appear after a completed scan.</div>
+        </section>
+
+        <section id="report-qa-panel" class="report-qa-panel panel" aria-label="Ask this Safety Brief">
+          <div class="report-loop-head">
+            <div>
+              <span class="guide-kicker">Ask this Safety Brief</span>
+              <h3>Bounded answers from this report only.</h3>
+              <p>Ask practical questions that ATLAS-0 can answer from findings, evidence IDs, confidence labels, and trust notes. No general chatbot, no new hazard claims.</p>
+            </div>
+            <span class="pill">Grounded</span>
+          </div>
+          <div id="report-question-list" class="qa-question-grid" aria-label="Report questions">
+            <button class="qa-question" type="button" data-report-question="fix_first">What should I fix first?</button>
+            <button class="qa-question" type="button" data-report-question="why_risky">Why is this risky?</button>
+            <button class="qa-question" type="button" data-report-question="rescan">What should I rescan?</button>
+            <button class="qa-question" type="button" data-report-question="share">Can I share this?</button>
+            <button class="qa-question" type="button" data-report-question="low_confidence">What is low confidence?</button>
+          </div>
+          <div id="report-question-answer" class="qa-answer-card">
+            Open a completed report, then choose a question to get a cited, report-grounded answer.
+          </div>
+          <div class="qa-actions">
+            <button id="copy-report-answer-btn" class="button-link ghost disabled" type="button" disabled>Copy answer</button>
+          </div>
+        </section>
+
+        <section id="privacy-receipt-panel" class="privacy-receipt-panel panel" aria-label="Privacy receipt and evidence preview">
+          <div class="report-loop-head">
+            <div>
+              <span class="guide-kicker">Privacy Receipt</span>
+              <h3>Know what leaves the room before you share.</h3>
+              <p>Preview report fields, evidence-frame inclusion, redaction status, retention, and delete controls. Toggles are local-only and never mutate server artifacts.</p>
+            </div>
+            <span class="pill">Local preview</span>
+          </div>
+          <div id="privacy-receipt-summary" class="privacy-receipt-grid">
+            <article class="privacy-receipt-item"><strong>—</strong><span>Room label</span></article>
+            <article class="privacy-receipt-item"><strong>—</strong><span>Evidence selected</span></article>
+            <article class="privacy-receipt-item"><strong>—</strong><span>Retention</span></article>
+          </div>
+          <div id="privacy-evidence-list" class="privacy-evidence-list">
+            <div class="empty-card">Evidence inclusion toggles appear after a completed report.</div>
+          </div>
+          <div class="privacy-receipt-actions">
+            <button id="copy-privacy-receipt-btn" class="button-link ghost disabled" type="button" disabled>Copy receipt</button>
+            <button id="download-privacy-receipt-btn" class="button-link ghost disabled" type="button" disabled>Download receipt</button>
+          </div>
         </section>
 
         <section id="share-card-preview" class="share-preview" aria-label="Shareable Room Card Studio">
@@ -5497,6 +5743,7 @@
     </main>
   </div>
 
+  <div id="offline-banner" class="offline-banner" aria-live="polite">Offline mode: local journal/settings remain available, but uploads and protected reports need a connection.</div>
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script type="importmap">
