@@ -1,4 +1,4 @@
-const CACHE_NAME = 'atlas-0-shell-v1';
+const CACHE_NAME = 'atlas-0-shell-v2';
 
 const STATIC_SHELL = [
   '/app/',

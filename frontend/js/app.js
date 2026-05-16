@@ -408,6 +408,7 @@ let liveCaptureTimer = null;
 let liveCaptureStartedAt = 0;
 let liveCaptureLastFrame = null;
 let liveCaptureLastEventAt = 0;
+let liveCaptureCoverageCells = new Set();
 
 const toast = document.getElementById('toast');
 const offlineBanner = document.getElementById('offline-banner');
@@ -425,6 +426,12 @@ function updateOfflineBanner() {
     return;
   }
   offlineBanner.classList.toggle('show', navigator.onLine === false);
+  if (navigator.onLine === false) {
+    offlineBanner.textContent = 'Offline mode: local journal/settings remain available. New uploads will be saved for retry when you reconnect.';
+  } else if (offlineBanner.dataset.queueCount && offlineBanner.dataset.queueCount !== '0') {
+    offlineBanner.classList.add('show');
+    offlineBanner.textContent = `${offlineBanner.dataset.queueCount} upload${offlineBanner.dataset.queueCount === '1' ? '' : 's'} waiting to retry. Keep this tab open while ATLAS-0 reconnects.`;
+  }
 }
 
 async function registerServiceWorker() {
@@ -2240,6 +2247,7 @@ async function startLiveCaptureCoach() {
     await liveCaptureVideo.play();
     liveCaptureStartedAt = Date.now();
     liveCaptureLastFrame = null;
+    liveCaptureCoverageCells = new Set();
     liveCapturePreview?.classList.add('active');
     if (liveCaptureStartBtn) liveCaptureStartBtn.disabled = true;
     if (liveCaptureStopBtn) liveCaptureStopBtn.disabled = false;
@@ -2284,6 +2292,8 @@ function updateLiveCaptureQuality() {
   }
   context.drawImage(liveCaptureVideo, 0, 0, liveCaptureCanvas.width, liveCaptureCanvas.height);
   const data = context.getImageData(0, 0, liveCaptureCanvas.width, liveCaptureCanvas.height).data;
+  const coverage = analyzeLiveCaptureCoverage(data, liveCaptureCanvas.width, liveCaptureCanvas.height);
+  coverage.cells.forEach((cell) => liveCaptureCoverageCells.add(cell));
   let brightness = 0;
   let diff = 0;
   for (let index = 0; index < data.length; index += 4) {
@@ -2303,17 +2313,24 @@ function updateLiveCaptureQuality() {
   const elapsed = Math.round((Date.now() - liveCaptureStartedAt) / 1000);
   const lightLabel = brightnessScore < 70 ? 'Too dark' : brightnessScore > 215 ? 'Too bright' : 'Good';
   const motionLabel = motionScore > 28 ? 'Move slower' : elapsed < 3 ? 'Starting' : 'Steady';
+  const coveragePercent = Math.round((liveCaptureCoverageCells.size / 9) * 100);
+  const aggregateCoverage = {
+    floorVisible: [...liveCaptureCoverageCells].some((cell) => cell.startsWith('2-')),
+    cornerVisible: ['0-0', '0-2', '2-0', '2-2'].some((cell) => liveCaptureCoverageCells.has(cell)),
+  };
+  const coverageLabel = liveCoverageLabel(coveragePercent, aggregateCoverage);
   const durationLabel = elapsed >= 20 ? 'Upload-ready' : `${elapsed}s`;
   liveCaptureStats.innerHTML = `
     <article class="live-coach-stat"><strong>${escapeHtml(lightLabel)}</strong><span>${Math.round(brightnessScore)} brightness score</span></article>
     <article class="live-coach-stat"><strong>${escapeHtml(motionLabel)}</strong><span>${Math.round(motionScore)} motion delta</span></article>
+    <article class="live-coach-stat"><strong>${escapeHtml(coverageLabel)}</strong><span>${coveragePercent}% room coverage cue</span></article>
     <article class="live-coach-stat"><strong>${escapeHtml(durationLabel)}</strong><span>Target 20-60 seconds</span></article>
   `;
   if (liveCaptureGuidance) {
-    liveCaptureGuidance.textContent = liveCaptureGuidanceText(lightLabel, motionLabel, elapsed);
+    liveCaptureGuidance.textContent = liveCaptureGuidanceText(lightLabel, motionLabel, coverageLabel, elapsed, coveragePercent);
   }
   if (liveCaptureStatus) {
-    liveCaptureStatus.textContent = lightLabel === 'Good' && motionLabel === 'Steady' && elapsed >= 10
+    liveCaptureStatus.textContent = lightLabel === 'Good' && motionLabel === 'Steady' && coveragePercent >= 66 && elapsed >= 10
       ? 'Looks usable'
       : 'Keep improving';
   }
@@ -2321,12 +2338,64 @@ function updateLiveCaptureQuality() {
     liveCaptureLastEventAt = Date.now();
     trackProductEvent('live_capture_quality_checked', {
       surface: 'guided_scan_wizard',
-      reason: `${lightLabel}; ${motionLabel}; ${elapsed}s`,
+      reason: `${lightLabel}; ${motionLabel}; ${coverageLabel}; ${elapsed}s`,
+      coverage_percent: coveragePercent,
     });
   }
 }
 
-function liveCaptureGuidanceText(lightLabel, motionLabel, elapsed) {
+function analyzeLiveCaptureCoverage(data, width, height) {
+  const grid = 3;
+  const cellWidth = Math.max(1, Math.floor(width / grid));
+  const cellHeight = Math.max(1, Math.floor(height / grid));
+  const cells = [];
+  let floorVisible = false;
+  let cornerVisible = false;
+
+  for (let row = 0; row < grid; row += 1) {
+    for (let col = 0; col < grid; col += 1) {
+      let luminance = 0;
+      let contrast = 0;
+      let samples = 0;
+      const startX = col * cellWidth;
+      const startY = row * cellHeight;
+      const endX = Math.min(width, startX + cellWidth);
+      const endY = Math.min(height, startY + cellHeight);
+      for (let y = startY; y < endY; y += 6) {
+        let previous = null;
+        for (let x = startX; x < endX; x += 6) {
+          const offset = (y * width + x) * 4;
+          const value = (data[offset] + data[offset + 1] + data[offset + 2]) / 3;
+          luminance += value;
+          if (previous !== null) {
+            contrast += Math.abs(value - previous);
+          }
+          previous = value;
+          samples += 1;
+        }
+      }
+      const avg = samples ? luminance / samples : 0;
+      const edge = samples ? contrast / samples : 0;
+      if (avg > 45 && avg < 235 && edge > 2.5) {
+        cells.push(`${row}-${col}`);
+        if (row === 2) floorVisible = true;
+        if ((row === 0 || row === 2) && (col === 0 || col === 2)) cornerVisible = true;
+      }
+    }
+  }
+
+  return { cells, floorVisible, cornerVisible };
+}
+
+function liveCoverageLabel(coveragePercent, coverage) {
+  if (!coverage.floorVisible) return 'Add floor path';
+  if (!coverage.cornerVisible) return 'Find corners';
+  if (coveragePercent < 55) return 'Turn once more';
+  if (coveragePercent < 78) return 'Nearly covered';
+  return 'Good coverage';
+}
+
+function liveCaptureGuidanceText(lightLabel, motionLabel, coverageLabel, elapsed, coveragePercent) {
   if (lightLabel !== 'Good') {
     return lightLabel === 'Too dark'
       ? 'Turn on room lights or face away from bright windows before recording.'
@@ -2334,6 +2403,15 @@ function liveCaptureGuidanceText(lightLabel, motionLabel, elapsed) {
   }
   if (motionLabel === 'Move slower') {
     return 'Move more slowly and pause on corners, floor paths, shelves, and reachable objects.';
+  }
+  if (coverageLabel === 'Add floor path') {
+    return 'Tilt down briefly so ATLAS-0 sees the walking path, rug edges, cords, and low obstacles.';
+  }
+  if (coverageLabel === 'Find corners') {
+    return 'Pause on at least two room corners so the scan has a stronger sense of the room boundary.';
+  }
+  if (coveragePercent < 66) {
+    return 'Turn once more across shelves, floor path, doorway, and reachable surfaces before uploading.';
   }
   if (elapsed < 20) {
     return 'Quality looks usable. Keep recording until at least 20 seconds so ATLAS-0 sees the full room route.';
@@ -2976,7 +3054,11 @@ function answerReportQuestion(questionId, job, summary, hazards, fixFirst, recom
 }
 
 function privacyReceiptState(jobId) {
-  return readJsonObject(PRIVACY_RECEIPT_STORAGE_KEY)[jobId] || { excludedEvidence: [] };
+  const stateForJob = readJsonObject(PRIVACY_RECEIPT_STORAGE_KEY)[jobId] || {};
+  return {
+    excludedEvidence: Array.isArray(stateForJob.excludedEvidence) ? stateForJob.excludedEvidence : [],
+    blurredEvidence: Array.isArray(stateForJob.blurredEvidence) ? stateForJob.blurredEvidence : [],
+  };
 }
 
 function writePrivacyReceiptState(jobId, value) {
@@ -2998,6 +3080,13 @@ function selectedEvidenceFrames(job) {
   return evidence.filter((frame, index) => !excluded.has(evidencePrivacyId(frame, index)));
 }
 
+function blurredEvidenceIds(job) {
+  if (!job?.job_id) {
+    return new Set();
+  }
+  return new Set(privacyReceiptState(job.job_id).blurredEvidence || []);
+}
+
 function renderPrivacyReceipt(job, summary = {}, evidence = []) {
   if (!privacyReceiptSummary || !privacyEvidenceList || !copyPrivacyReceiptBtn || !downloadPrivacyReceiptBtn) {
     return;
@@ -3017,6 +3106,7 @@ function renderPrivacyReceipt(job, summary = {}, evidence = []) {
   }
 
   const selectedEvidence = selectedEvidenceFrames(job);
+  const blurredEvidence = blurredEvidenceIds(job);
   const roomLabel = job.room_label || summary.room_label || 'Unlabeled room';
   const retention = state.privacyPolicy?.retention_days ?? 'unknown';
   if (!state.privacyReceiptEvents.has(job.job_id)) {
@@ -3030,6 +3120,7 @@ function renderPrivacyReceipt(job, summary = {}, evidence = []) {
   privacyReceiptSummary.innerHTML = `
     <article class="privacy-receipt-item"><strong>${escapeHtml(roomLabel)}</strong><span>Room label included in report/share text</span></article>
     <article class="privacy-receipt-item"><strong>${selectedEvidence.length}/${evidence.length}</strong><span>Evidence frames selected for local share wording</span></article>
+    <article class="privacy-receipt-item"><strong>${blurredEvidence.size}</strong><span>Local blur previews before copying/sharing</span></article>
     <article class="privacy-receipt-item"><strong>${escapeHtml(String(retention))}</strong><span>${retention === 'unknown' ? 'Retention unavailable' : 'day retention window'}</span></article>
   `;
   privacyEvidenceList.innerHTML = evidence.length
@@ -3037,11 +3128,21 @@ function renderPrivacyReceipt(job, summary = {}, evidence = []) {
         const id = evidencePrivacyId(frame, index);
         const excluded = new Set(privacyReceiptState(job.job_id).excludedEvidence || []);
         const checked = !excluded.has(id);
+        const blurred = blurredEvidence.has(id);
+        const imageUrl = frame.image_url ? api.withAccessToken(frame.image_url) : '';
         return `
-          <label class="privacy-evidence-toggle">
-            <input type="checkbox" data-privacy-evidence="${escapeHtml(id)}" ${checked ? 'checked' : ''} />
-            <span><strong>${escapeHtml(frame.caption || id)}</strong><br />${escapeHtml(frame.redacted ? 'Text-heavy region redacted before storage.' : 'No text-heavy redaction flag on this frame.')}</span>
-          </label>
+          <article class="privacy-evidence-toggle">
+            ${imageUrl ? `<img class="privacy-evidence-thumb ${blurred ? 'blurred' : ''}" src="${escapeHtml(imageUrl)}" alt="" loading="lazy" />` : '<div class="privacy-evidence-thumb placeholder" aria-hidden="true">No image</div>'}
+            <div class="privacy-evidence-copy">
+              <strong>${escapeHtml(frame.caption || id)}</strong>
+              <span>${escapeHtml(frame.redacted ? 'Text-heavy region redacted before storage.' : 'No server-side redaction flag on this frame.')}</span>
+              <span>${escapeHtml(blurred ? 'Local preview blur is on for copy/share review.' : 'Local preview blur is off.')}</span>
+              <div class="privacy-evidence-controls">
+                <label><input type="checkbox" data-privacy-evidence="${escapeHtml(id)}" ${checked ? 'checked' : ''} /> Include in share wording</label>
+                <label><input type="checkbox" data-privacy-blur="${escapeHtml(id)}" ${blurred ? 'checked' : ''} /> Preview blur locally</label>
+              </div>
+            </div>
+          </article>
         `;
       }).join('')
     : emptyMarkup('This report has no stored evidence frames. Share only the summary and trust notes.');
@@ -3058,6 +3159,7 @@ function privacyReceiptText(job) {
   const summary = job.summary || {};
   const evidence = job.evidence_frames || [];
   const selectedEvidence = selectedEvidenceFrames(job);
+  const blurred = blurredEvidenceIds(job).size;
   const redacted = evidence.filter((frame) => frame.redacted).length;
   return [
     'ATLAS-0 Privacy Receipt',
@@ -3065,6 +3167,7 @@ function privacyReceiptText(job) {
     `Calm Score: ${typeof summary.room_score === 'number' ? `${summary.room_score}/100` : 'not available'}`,
     `Findings: ${(job.risks || []).length}`,
     `Evidence selected locally: ${selectedEvidence.length}/${evidence.length}`,
+    `Local blur/redaction previews enabled: ${blurred}`,
     `Redacted evidence frames: ${redacted}`,
     `Retention: ${state.privacyPolicy?.retention_days ?? 'unknown'} day(s)`,
     `Delete controls: ${state.privacyPolicy?.delete_supported ? 'available in report view' : 'unknown'}`,
@@ -3373,6 +3476,57 @@ function buildBeforeAfterStoryText(job) {
   ].join('\n');
 }
 
+function comparisonEvidenceImage(frame) {
+  return frame?.image_url ? api.withAccessToken(frame.image_url) : '';
+}
+
+function renderComparisonEvidenceCard(frame, label) {
+  if (!frame) {
+    return `
+      <article class="compare-evidence-card empty">
+        <div class="compare-evidence-image placeholder">No frame</div>
+        <strong>${escapeHtml(label)}</strong>
+        <p>Evidence will appear here after a same-room scan has saved frames.</p>
+      </article>
+    `;
+  }
+  const imageUrl = comparisonEvidenceImage(frame);
+  const confidence = typeof frame.confidence === 'number'
+    ? `${Math.round(frame.confidence * 100)}% confidence`
+    : 'Approximate evidence';
+  return `
+    <article class="compare-evidence-card">
+      ${imageUrl ? `<img class="compare-evidence-image" src="${escapeHtml(imageUrl)}" alt="" loading="lazy" />` : '<div class="compare-evidence-image placeholder">No image</div>'}
+      <span class="guide-kicker">${escapeHtml(label)}</span>
+      <strong>${escapeHtml(frame.caption || frame.evidence_id || 'Evidence frame')}</strong>
+      <p>${escapeHtml(`${confidence}${frame.redacted ? ' · redacted flag' : ''}`)}</p>
+    </article>
+  `;
+}
+
+function renderVisualBeforeAfter(comparison = null) {
+  const previous = Array.isArray(comparison?.previous_evidence) ? comparison.previous_evidence[0] : null;
+  const current = Array.isArray(comparison?.current_evidence) ? comparison.current_evidence[0] : null;
+  if (!previous && !current) {
+    return `
+      <div class="visual-compare-strip muted">
+        <div class="compare-evidence-card empty">
+          <div class="compare-evidence-image placeholder">Baseline</div>
+          <strong>Visual comparison locked</strong>
+          <p>Save a same-room scan with evidence frames, then rescan after one fix to compare what changed.</p>
+        </div>
+      </div>
+    `;
+  }
+  return `
+    <div class="visual-compare-strip" aria-label="Visual before and after evidence comparison">
+      ${renderComparisonEvidenceCard(previous, 'Before evidence')}
+      <div class="compare-delta-pill">${escapeHtml(comparison?.trend || 'compare')}</div>
+      ${renderComparisonEvidenceCard(current, 'After evidence')}
+    </div>
+  `;
+}
+
 function renderBeforeAfterStory(job, summary = {}, hazards = [], fixFirst = [], recommendations = [], comparison = null) {
   if (!beforeAfterStory) {
     return;
@@ -3405,6 +3559,7 @@ function renderBeforeAfterStory(job, summary = {}, hazards = [], fixFirst = [], 
         <span class="soft-badge">${escapeHtml(summary.confidence_label || 'Approximate confidence')}</span>
       </div>
     </article>
+    ${renderVisualBeforeAfter(comparison)}
   `;
 }
 
@@ -3751,6 +3906,7 @@ function renderRoomComparePanel(job, summary = {}, hazards = [], comparison = nu
         <p>${escapeHtml(peer ? `${peer.lastScore ?? 'Pending'} Calm Score · ${peer.topAction || 'Review brief'}` : 'Home Journal needs another saved room before room-vs-room comparison is useful.')}</p>
       </article>
     </div>
+    ${renderVisualBeforeAfter(comparison)}
   `;
 }
 
@@ -4238,8 +4394,9 @@ function buildShareCardText(job, style = currentShareCardStyle()) {
   const confidence = summary.confidence_label || summary.scan_quality_label || 'approximate confidence';
   const evidence = job.evidence_frames || [];
   const selectedEvidence = selectedEvidenceFrames(job);
+  const blurredEvidence = blurredEvidenceIds(job);
   const evidenceLine = evidence.length
-    ? `Evidence selected for local sharing: ${selectedEvidence.length}/${evidence.length}.`
+    ? `Evidence selected for local sharing: ${selectedEvidence.length}/${evidence.length}. Local blur previews: ${blurredEvidence.size}.`
     : 'No evidence frames are selected for local sharing.';
   const link = reportDeepLink(job);
   const comparison = job.room_comparison || null;
@@ -4311,6 +4468,7 @@ function renderShareCardPreview(job) {
   const score = typeof summary.room_score === 'number' ? `${summary.room_score}/100 Calm Score` : 'Screened';
   const evidence = job.evidence_frames || [];
   const selectedEvidence = selectedEvidenceFrames(job);
+  const blurredEvidence = blurredEvidenceIds(job);
   const style = currentShareCardStyle();
   if (shareCardStyleInput) {
     shareCardStyleInput.value = style;
@@ -4318,7 +4476,7 @@ function renderShareCardPreview(job) {
   shareCardCopy.innerHTML = `
     <span class="guide-kicker">ATLAS-0 ${escapeHtml(shareStyleLabel(style))}</span>
     <strong>${escapeHtml(roomLabel)} · ${escapeHtml(score)}</strong>
-    <p>${escapeHtml(topAction)}. ${escapeHtml(summary.confidence_label || 'Approximate grounding')}. Evidence selected ${selectedEvidence.length}/${evidence.length}. Decision support only, not safety certification.</p>
+    <p>${escapeHtml(topAction)}. ${escapeHtml(summary.confidence_label || 'Approximate grounding')}. Evidence selected ${selectedEvidence.length}/${evidence.length}; local blur previews ${blurredEvidence.size}. Decision support only, not safety certification.</p>
   `;
 }
 
@@ -5228,6 +5386,41 @@ const uploadView = new UploadView({
       room_labeled: Boolean(metadata.roomLabel),
     });
   },
+  onOfflineQueued: (entry) => {
+    markFirstRunStarted('offline_upload_queue');
+    state.pendingUploadChallengeId = activeChallenge().id;
+    if (scanWizardStatus) {
+      scanWizardStatus.textContent = `${entry.filename} is saved locally and will retry when your connection returns.`;
+    }
+    trackProductEvent('offline_upload_queued', {
+      surface: 'guided_scan_wizard',
+      file_type: entry.fileType || null,
+      file_size: entry.fileSize || null,
+      audience_mode: entry.audienceMode || selectedAudienceMode(),
+      room_label: entry.roomLabel || null,
+      room_labeled: Boolean(entry.roomLabel),
+    });
+    showToast('Upload queued locally for retry when you reconnect.', 3800);
+  },
+  onOfflineReplayStart: (entry) => {
+    if (scanWizardStatus) {
+      scanWizardStatus.textContent = `Connection restored. Retrying ${entry.filename || 'queued upload'} now.`;
+    }
+    trackProductEvent('offline_upload_retried', {
+      surface: 'guided_scan_wizard',
+      file_type: entry.fileType || null,
+      file_size: entry.fileSize || null,
+      audience_mode: entry.audienceMode || selectedAudienceMode(),
+      room_label: entry.roomLabel || null,
+      room_labeled: Boolean(entry.roomLabel),
+    });
+  },
+  onOfflineQueueChange: (entries) => {
+    if (offlineBanner) {
+      offlineBanner.dataset.queueCount = String(entries.length);
+    }
+    updateOfflineBanner();
+  },
   onJobCreated: async (job) => {
     assignChallengeToJob(job.job_id, state.pendingUploadChallengeId || activeChallenge().id);
     upsertJob(job);
@@ -5980,28 +6173,45 @@ copyReportAnswerBtn?.addEventListener('click', async () => {
 });
 
 privacyEvidenceList?.addEventListener('change', (event) => {
-  const checkbox = event.target instanceof HTMLInputElement
-    ? event.target.closest('[data-privacy-evidence]')
-    : null;
+  const checkbox = event.target instanceof HTMLInputElement ? event.target : null;
   const job = activeJob();
-  if (!checkbox || !job?.job_id) {
+  if (!checkbox || !job?.job_id || (!checkbox.dataset.privacyEvidence && !checkbox.dataset.privacyBlur)) {
     return;
   }
-  const id = checkbox.dataset.privacyEvidence || '';
   const current = privacyReceiptState(job.job_id);
   const excluded = new Set(current.excludedEvidence || []);
-  if (checkbox.checked) {
-    excluded.delete(id);
+  const blurred = new Set(current.blurredEvidence || []);
+  let reason = 'updated';
+
+  if (checkbox.dataset.privacyEvidence) {
+    const id = checkbox.dataset.privacyEvidence || '';
+    if (checkbox.checked) {
+      excluded.delete(id);
+      reason = 'included';
+    } else {
+      excluded.add(id);
+      reason = 'excluded';
+    }
   } else {
-    excluded.add(id);
+    const id = checkbox.dataset.privacyBlur || '';
+    if (checkbox.checked) {
+      blurred.add(id);
+      reason = 'blurred';
+    } else {
+      blurred.delete(id);
+      reason = 'unblurred';
+    }
   }
-  writePrivacyReceiptState(job.job_id, { excludedEvidence: [...excluded] });
+  writePrivacyReceiptState(job.job_id, {
+    excludedEvidence: [...excluded],
+    blurredEvidence: [...blurred],
+  });
   renderReport(job);
   trackProductEvent('evidence_privacy_toggled', {
     surface: 'privacy_receipt',
     job_id: job.job_id,
     sample_key: job.sample_key || null,
-    reason: checkbox.checked ? 'included' : 'excluded',
+    reason,
   });
 });
 
@@ -6772,6 +6982,7 @@ function renderEvaluationSummary(evaluation, job) {
         <p class="meta-copy">Use these controls to build the eval set, log missed hazards, and keep the beta report loop honest.</p>
       </div>
     `;
+  const evalActions = Array.isArray(evaluation.eval_corpus_actions) ? evaluation.eval_corpus_actions : [];
 
   return `
     <div class="report-copy-block">
@@ -6813,6 +7024,14 @@ function renderEvaluationSummary(evaluation, job) {
     <div class="evaluation-status">
       <span>Human verdict: ${escapeHtml(evaluation.human_status || 'not set')}</span>
       <span>${escapeHtml(evaluation.benchmark_match === true ? 'Benchmark matched' : evaluation.benchmark_match === false ? 'Benchmark mismatch' : 'No benchmark comparison')}</span>
+      <span>${escapeHtml(`Eval priority: ${evaluation.eval_priority || 'unknown'}`)}</span>
+    </div>
+    <div class="eval-corpus-tooling">
+      <strong>Eval corpus next label</strong>
+      <p>${escapeHtml(evaluation.eval_candidate_reason || 'Use this report to grow the labeled eval set after review.')}</p>
+      <ul class="settings-list">
+        ${evalActions.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+      </ul>
     </div>
     ${controls}
   `;

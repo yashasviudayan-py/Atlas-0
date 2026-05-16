@@ -1578,20 +1578,82 @@
       line-height: 1.6;
     }
 
+    .eval-corpus-tooling {
+      display: grid;
+      gap: 8px;
+      padding: 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(13, 111, 97, 0.16);
+      background: var(--accent-wash);
+    }
+
+    .eval-corpus-tooling p {
+      margin: 0;
+      color: var(--ink-soft);
+      line-height: 1.55;
+    }
+
     .privacy-evidence-list {
       display: grid;
       gap: 10px;
     }
 
     .privacy-evidence-toggle {
-      display: flex;
-      align-items: flex-start;
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      align-items: stretch;
       gap: 10px;
       padding: 12px;
       border-radius: var(--radius-md);
       border: 1px solid var(--line);
       background: var(--panel-strong);
       color: var(--ink-soft);
+    }
+
+    .privacy-evidence-thumb {
+      width: 92px;
+      height: 72px;
+      border-radius: 18px;
+      object-fit: cover;
+      border: 1px solid var(--line);
+      background: var(--accent-wash);
+      transition: filter 0.18s ease, transform 0.18s ease;
+    }
+
+    .privacy-evidence-thumb.blurred {
+      filter: blur(7px) saturate(0.7);
+      transform: scale(0.98);
+    }
+
+    .privacy-evidence-thumb.placeholder {
+      display: grid;
+      place-items: center;
+      font-size: 0.72rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-muted);
+    }
+
+    .privacy-evidence-copy,
+    .privacy-evidence-controls {
+      display: grid;
+      gap: 8px;
+    }
+
+    .privacy-evidence-controls {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-items: center;
+    }
+
+    .privacy-evidence-controls label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 40px;
+      font-size: 0.88rem;
+      font-weight: 800;
+      color: var(--ink);
     }
 
     .offline-banner {
@@ -1795,6 +1857,78 @@
       transform: translateY(-1px);
       border-color: rgba(13, 111, 97, 0.28);
       box-shadow: var(--shadow), var(--hairline);
+    }
+
+    .visual-compare-strip {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(13, 111, 97, 0.16);
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.74), rgba(255, 244, 226, 0.54)),
+        var(--panel-strong);
+    }
+
+    .visual-compare-strip.muted {
+      grid-template-columns: 1fr;
+    }
+
+    .compare-evidence-card {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+      padding: 10px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .compare-evidence-image {
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      border-radius: 18px;
+      object-fit: cover;
+      border: 1px solid var(--line);
+      background: var(--accent-wash);
+    }
+
+    .compare-evidence-image.placeholder {
+      display: grid;
+      place-items: center;
+      min-height: 128px;
+      color: var(--ink-muted);
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .compare-evidence-card strong,
+    .compare-evidence-card p {
+      margin: 0;
+    }
+
+    .compare-evidence-card p {
+      color: var(--ink-soft);
+      line-height: 1.45;
+    }
+
+    .compare-delta-pill {
+      display: grid;
+      place-items: center;
+      min-width: 74px;
+      min-height: 74px;
+      border-radius: 999px;
+      border: 1px solid rgba(13, 111, 97, 0.22);
+      background: var(--spruce);
+      color: #fffaf0;
+      font-size: 0.78rem;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      box-shadow: var(--shadow-soft);
     }
 
     .bingo-card,
@@ -4169,6 +4303,9 @@
       .live-coach-grid,
       .qa-question-grid,
       .privacy-receipt-grid,
+      .privacy-evidence-toggle,
+      .privacy-evidence-controls,
+      .visual-compare-strip,
       .welcome-tour-steps,
       .challenge-grid,
       .wizard-grid,
