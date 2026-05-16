@@ -1512,6 +1512,52 @@ evidence-first.
 
 ---
 
+## Production Tightening Follow-Up Pass
+
+### Status
+
+Implemented. This pass tightens the highest-risk loose ends from the
+next-level feature work: bad scan coverage, privacy previews that were too
+abstract, flaky network uploads, before/after proof quality, and eval corpus
+growth.
+
+### Completed
+
+1. Better live scan coverage detection
+   - expanded Live Capture Coach from lighting/steadiness/duration into a
+     lightweight browser-side coverage check for floor path, corners, and
+     overall room coverage cues
+   - guidance now tells users when to tilt down, find corners, or turn once
+     more before uploading
+
+2. Real redaction preview
+   - upgraded Privacy Receipt evidence controls from include/exclude only to
+     local visual blur previews
+   - share card and receipt text now disclose selected evidence, local blur
+     previews, retained artifacts, and the fact that local preview choices do
+     not mutate server-side evidence
+
+3. Offline upload retry
+   - added an IndexedDB-backed upload retry queue for files selected while the
+     browser is offline
+   - queued uploads replay automatically when connectivity returns, while the
+     service worker continues to avoid caching private upload/report routes
+
+4. Visual before/after compare
+   - same-room comparison now includes compact previous/current evidence
+     snapshots in addition to Calm Score and hazard deltas
+   - report UI renders a side-by-side visual comparison artifact so progress is
+     easier to understand and share
+
+5. Larger eval corpus tooling
+   - evaluation summaries now include an eval priority, candidate reason, and
+     next labeling actions for missed hazards, benchmark mismatches, disputed
+     findings, and clean export candidates
+   - the report feedback card surfaces these corpus-building prompts directly
+     to operators
+
+---
+
 ## Non-Negotiable Quality Bar
 
 Before calling the product usable:
