@@ -374,6 +374,8 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
         "report_share_card_copied",
         "pdf_export_clicked",
         "pwa_offline_ready",
+        "offline_upload_queued",
+        "offline_upload_retried",
         "privacy_receipt_opened",
         "privacy_receipt_copied",
         "evidence_privacy_toggled",
@@ -448,6 +450,8 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
         "report_share_card_copied",
         "pdf_export_clicked",
         "pwa_offline_ready",
+        "offline_upload_queued",
+        "offline_upload_retried",
         "privacy_receipt_opened",
         "privacy_receipt_copied",
         "evidence_privacy_toggled",
@@ -1517,7 +1521,15 @@ def test_completed_job_exposes_room_score_and_comparison() -> None:
         "fix_first": [],
         "summary": {"filename": "nursery-before.mp4", "hazard_count": 1, "object_count": 2},
         "recommendations": [],
-        "evidence_frames": [],
+        "evidence_frames": [
+            {
+                "evidence_id": "before-frame-1",
+                "caption": "Cord across nursery path",
+                "image_url": "/jobs/oldroom1/evidence/before-frame-1.jpg",
+                "confidence": 0.72,
+                "redacted": False,
+            }
+        ],
         "scan_quality": {"status": "fair", "score": 0.59, "usable": True, "warnings": []},
         "trust_notes": [],
         "scene_source": "estimated_multiview",
@@ -1539,7 +1551,15 @@ def test_completed_job_exposes_room_score_and_comparison() -> None:
         "fix_first": [],
         "summary": {"filename": "nursery-after.mp4", "hazard_count": 0, "object_count": 2},
         "recommendations": [],
-        "evidence_frames": [],
+        "evidence_frames": [
+            {
+                "evidence_id": "after-frame-1",
+                "caption": "Cleared nursery path",
+                "image_url": "/jobs/newroom1/evidence/after-frame-1.jpg",
+                "confidence": 0.81,
+                "redacted": False,
+            }
+        ],
         "scan_quality": {"status": "good", "score": 0.81, "usable": True, "warnings": []},
         "trust_notes": [],
         "scene_source": "estimated_multiview",
@@ -1556,6 +1576,8 @@ def test_completed_job_exposes_room_score_and_comparison() -> None:
     data = response.json()
     assert data["summary"]["room_score"] >= 0
     assert data["room_comparison"]["previous_job_id"] == "oldroom1"
+    assert data["room_comparison"]["previous_evidence"][0]["evidence_id"] == "before-frame-1"
+    assert data["room_comparison"]["current_evidence"][0]["evidence_id"] == "after-frame-1"
     assert data["room_history"][0]["job_id"] == "oldroom1"
 
 

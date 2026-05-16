@@ -1706,6 +1706,8 @@ _PUBLIC_PRODUCT_EVENTS = {
     "pdf_export_clicked",
     "one_thing_today_completed",
     "one_thing_today_started",
+    "offline_upload_queued",
+    "offline_upload_retried",
     "pwa_offline_ready",
     "privacy_receipt_copied",
     "privacy_receipt_opened",
@@ -2516,6 +2518,26 @@ def _build_evaluation_summary(job: dict[str, Any]) -> dict[str, Any]:
             f" Benchmark {benchmark_label} " f"{'matched' if benchmark_match else 'did not match'}."
         )
 
+    eval_actions: list[str] = []
+    if high_priority_pending > 0:
+        eval_actions.append("Review high-priority findings before using this as a release signal.")
+    if missed_hazard_count > 0:
+        eval_actions.append("Add the missed hazard note to the labeled eval corpus.")
+    if benchmark_match is False:
+        eval_actions.append("Compare against the benchmark fixture and label the mismatch reason.")
+    if disputed_findings > 0:
+        eval_actions.append(
+            "Tag wrong or duplicate findings so future eval slices can track false positives."
+        )
+    if not eval_actions:
+        eval_actions.append("Export as a clean candidate after one human review pass.")
+    if missed_hazard_count > 0 or benchmark_match is False:
+        eval_priority = "high"
+    elif high_priority_pending > 0 or pending_findings > 0 or disputed_findings > 0:
+        eval_priority = "medium"
+    else:
+        eval_priority = "ready"
+
     return {
         "total_findings": total_findings,
         "reviewed_findings": reviewed_findings,
@@ -2537,6 +2559,15 @@ def _build_evaluation_summary(job: dict[str, Any]) -> dict[str, Any]:
         "benchmark_summary": benchmark,
         "precision_proxy": precision_proxy,
         "recall_proxy": recall_proxy,
+        "eval_priority": eval_priority,
+        "eval_corpus_actions": eval_actions[:4],
+        "eval_candidate_reason": (
+            "missed hazard or benchmark mismatch"
+            if eval_priority == "high"
+            else "needs review coverage"
+            if eval_priority == "medium"
+            else "ready after human confirmation"
+        ),
         "summary": summary,
     }
 
@@ -2686,6 +2717,28 @@ def _room_history(job: dict[str, Any]) -> list[dict[str, Any]]:
     return history
 
 
+def _comparison_evidence_snapshot(job: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return a compact evidence snapshot for before/after UI comparison."""
+    frames = list(job.get("evidence_frames") or [])
+    snapshot: list[dict[str, Any]] = []
+    for index, frame in enumerate(frames[:3]):
+        if not isinstance(frame, dict):
+            continue
+        snapshot.append(
+            {
+                "evidence_id": frame.get("evidence_id") or f"frame-{index + 1}",
+                "caption": frame.get("caption")
+                or frame.get("object_label")
+                or frame.get("hazard_title")
+                or "Evidence frame",
+                "image_url": frame.get("image_url"),
+                "confidence": frame.get("confidence"),
+                "redacted": bool(frame.get("redacted")),
+            }
+        )
+    return snapshot
+
+
 def _room_comparison(job: dict[str, Any]) -> dict[str, Any] | None:
     """Compare the current room scan to the most recent previous scan."""
     history = _room_history(job)
@@ -2699,6 +2752,7 @@ def _room_comparison(job: dict[str, Any]) -> dict[str, Any] | None:
     if current_score is None or previous_score is None:
         return None
 
+    previous_job = _upload_jobs.get(str(previous.get("job_id") or ""))
     delta = int(current_score) - int(previous_score)
     hazard_delta = int(current_summary.get("hazard_count", 0) or 0) - int(
         previous.get("hazard_count", 0) or 0
@@ -2713,6 +2767,8 @@ def _room_comparison(job: dict[str, Any]) -> dict[str, Any] | None:
         "score_delta": delta,
         "hazard_delta": hazard_delta,
         "trend": trend,
+        "previous_evidence": _comparison_evidence_snapshot(previous_job or {}),
+        "current_evidence": _comparison_evidence_snapshot(job),
         "summary": (
             "This room looks safer than the last saved scan."
             if trend == "improved"
