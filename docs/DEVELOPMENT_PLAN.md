@@ -8,24 +8,32 @@
 
 ## Executive Summary
 
-Atlas-0 has real engineering underneath it, but it is not yet a product people
-can trust or recommend.
+ATLAS-0 has moved from experimental spatial demo toward a focused self-hosted
+beta product. The strongest current wedge is no longer "general world model."
+It is:
 
-Today the repo is strongest as an experimental engine:
-- Rust test coverage is solid.
-- Python services and the frontend are reasonably modular.
-- The codebase can demo reconstruction, labeling, and risk overlays.
+**Upload a room walkthrough, get an evidence-backed Room Safety Brief, fix one
+thing, and optionally rescan to compare progress.**
 
-Today the product is weak:
-- Upload-based "3D" is still pseudo-depth generated from image brightness.
-- Uploaded objects are not grounded by real multi-view geometry.
-- Reasoning is mostly VLM labeling plus rule-based queries, not reliable
-  evidence-backed scene understanding.
-- The frontend still contains demo fallback behavior, which makes the product
-  feel more polished than it really is.
-- Setup, trust, and output quality are not good enough for repeat usage.
+Today the repo is strongest at:
+- durable upload jobs, detached worker processing, persisted reports, evidence,
+  and replay artifacts
+- a report-first web app with Warm Trust branding, onboarding, capture guidance,
+  Privacy Receipt, Trust Proof, Ask This Safety Brief, Home Journal, and local
+  daily home-care loops
+- backend diagnostics for storage, worker health, product funnel, feedback, and
+  eval readiness
+- Rust/Python test coverage and local pre-push verification discipline
 
-The fix is not "more features." The fix is focus.
+Today the product is still weakest at:
+- true geometric grounding beyond approximate multi-frame object localization
+- large real-world eval coverage from beta scans
+- hosted production operations at real user scale
+- proving model quality with labeled false-positive/false-negative slices rather
+  than inferring quality from demo samples
+
+The fix is still focus: make the Room Safety Brief useful, honest, repeatable,
+and measurable before expanding into broader spatial reasoning markets.
 
 ---
 
@@ -87,30 +95,33 @@ With:
 
 ## Reality Check
 
-These are the current blockers preventing usefulness and user growth.
+These are the current constraints preventing stronger production claims.
 
-### 1. The core value is not trustworthy yet
+### 1. The core value is useful, but quality proof is still thin
 
-The app can display objects, risks, and point clouds, but much of the current
-upload path is heuristic or synthetic. That is acceptable for internal
-development and unacceptable for external trust.
+The report loop now shows evidence, uncertainty, recommendations, scan quality,
+and feedback controls. The remaining gap is a larger labeled eval corpus from
+real beta scans so quality can be measured instead of guessed.
 
-### 2. The product promise is too broad
+### 2. The product promise must stay narrow
 
 Home safety, warehouse compliance, insurance inventory, real-time AR, and
 multi-provider reasoning all at once create a diluted roadmap and scattered UX.
+The current product should stay room/home safety until repeated beta usage
+proves the wedge.
 
-### 3. The output is not share-worthy
+### 3. The output is share-worthy, but hosted operations are not done
 
-A browser visualization is not enough. Users need:
-- a report
-- evidence
-- a link or export they can send to someone else
+Users now get a PDF, share cards, Privacy Receipt, before/after story cards, and
+report links. The next production gap is reliable hosted deployment posture:
+object storage, worker scaling, retention operations, and monitored failure
+recovery.
 
-### 4. Demo polish is masking real gaps
+### 4. Approximate grounding remains the technical ceiling
 
-Demo-mode fallbacks and aesthetic overlays currently create a mismatch between
-what the interface implies and what the system actually knows.
+The upload pipeline is better grounded than before, but it is still approximate
+and not survey-grade reconstruction. Product copy must continue saying
+"decision support," "approximate," and "rescan to verify."
 
 ---
 
@@ -173,10 +184,11 @@ give me enough evidence to act on it."
 
 ### Status
 
-In progress. The repo now has an honest upload/report shell, trust notes,
-runtime-config fixes, PDF export, and no primary-flow demo fallback in the
-frontend scene viewer. Known limitations are still not centralized enough, and
-the upload pipeline remains heuristic on grounding.
+Complete for the current beta wedge. The repo now has an honest upload/report
+shell, trust notes, runtime-config fixes, PDF export, no primary-flow demo
+fallback in the frontend scene viewer, a central README limitations section,
+and product copy that avoids certification claims. The upload pipeline remains
+approximate on grounding, but it is labeled accordingly.
 
 ### Goal
 
@@ -207,6 +219,9 @@ Remove product dishonesty and align the codebase, docs, and UI with reality.
 - The scene viewer no longer silently injects fake demo objects when the API is
   empty or unavailable.
 - Completed jobs can export a downloadable PDF report.
+- README, UI trust copy, Privacy Receipt, scan-quality diagnostics, and report
+  language consistently frame ATLAS-0 as decision support, not safety
+  certification.
 
 ---
 
@@ -275,8 +290,8 @@ Make one room scan produce one useful report without touching the terminal.
 
 ### Still missing
 
-- polished empty/error states for all backend failures
-- a clearer "how to record a good scan" onboarding path
+- more real beta examples proving where the system succeeds and fails
+- stronger upload grounding so fewer reports depend on heuristic assumptions
 
 ---
 
@@ -336,9 +351,10 @@ hazard localization.
 ### Status
 
 First pass complete. The upload report now uses a named hazard ontology,
-stores explicit evidence and signals per finding, and derives deterministic
-recommendations from those findings. The reasoning is still rules-first, not
-learned or user-corrected.
+stores explicit evidence and signals per finding, derives deterministic
+recommendations, supports bounded report-grounded Q&A, and captures feedback,
+follow-through, human evaluation, and eval candidates. The reasoning is still
+rules-first and evidence-grounded rather than an open-ended agent.
 
 ### Goal
 
@@ -383,11 +399,17 @@ Turn labels into actionable hazard judgments with explicit evidence.
   families.
 - Findings now store explicit evidence IDs, signals, confidence, and reasoning
   text.
+- Ask This Safety Brief answers a bounded set of report-grounded questions
+  without inventing new hazards.
+- Follow-through state and evaluation summaries now support resolved/monitor/
+  ignored actions, missed-hazard notes, benchmark comparisons, eval priority,
+  and next labeling actions.
 
 ### Still missing
 
-- reasoning traces that show which relationships produced a claim
-- persistent per-finding follow-through states such as resolved / monitor / ignored
+- richer relationship-level traces showing exactly which object/spatial signals
+  produced a claim
+- larger reviewed beta corpus to validate recommendation quality
 
 ---
 
@@ -399,11 +421,12 @@ Make ATLAS-0 easy to try, easy to share, and easy to talk about.
 
 ### Status
 
-Partially complete. The product now has a more trustworthy report path,
-feedback capture, replay artifacts, hosted token access, durable queued job
-execution, storage lifecycle controls, and clearer beta-facing trust language.
-The remaining work is to make that foundation production ready and worth coming
-back to.
+Substantially complete for a self-hosted beta. The product now has a trustworthy
+report path, feedback capture, replay artifacts, hosted token access, durable
+queued job execution, storage lifecycle controls, local-first retention loops,
+PWA shell, offline upload retry, Privacy Receipt, and clearer beta-facing trust
+language. The remaining work is hosted production operations and real beta
+acquisition.
 
 ### Deliverables
 
@@ -471,12 +494,25 @@ back to.
   share actions, PDF downloads, and CTA usage.
 - Reviewed reports can now be exported as eval candidates, which turns the eval
   corpus from a vague goal into an operator workflow.
+- First-run onboarding now includes sample report CTAs, guided scan checklist,
+  scan playbooks, personal/audience modes, Mystery Mode, and optional Live
+  Capture Coach.
+- Privacy Receipt, local blur/redaction preview, share cards, report themes,
+  and before/after visual comparison are live.
+- Room Rituals, One Thing Today, Room Care Calendar, Fix Library, Home Journal,
+  Room Health Passport, Room Compare, weekly recap, and local backup/import are
+  live as accountless retention loops.
+- Trust Proof dashboard, public product events, waitlist de-duplication, beta
+  inbox, operator diagnostics, release gates, and eval-corpus tooling are live.
+- PWA manifest/service worker and offline upload retry are live while private
+  upload/report/operator routes remain excluded from static caching.
 
 ### Still missing
 
-- broader landing page / invite funnel beyond the current hero + waitlist
-- richer analytics and attribution beyond the current first-pass event stream
+- a hosted public beta funnel with real onboarding and support operations
+- production-scale object storage / worker exercise under realistic traffic
 - a genuinely larger reviewed eval corpus built from real beta scans
+- deeper geometric grounding beyond current approximate multi-frame localization
 
 ---
 
