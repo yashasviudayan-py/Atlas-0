@@ -58,45 +58,54 @@ practical next steps instead of demo theater or fake certainty.
 
 ## Current Standing
 
-ATLAS-0 has moved from broad spatial demo toward a focused self-hosted beta:
-upload a room scan, wait for analysis, review a report, export evidence, and
-use feedback loops to improve the next scan.
+ATLAS-0 is now a self-hosted beta product, not a broad demo shell. The current
+spec is:
+
+**Upload a room walkthrough, get a trustworthy Room Safety Brief, fix one
+thing, and optionally rescan to compare progress.**
 
 What is strong today:
-- The 90-second first-run path now explains the room mode, recording route,
-  file preflight, sample report, and expected Safety Brief before users commit
-  to an upload.
-- Safety Brief 2.0 now puts top actions, score context, confidence inspection,
-  evidence, fix difficulty, and room-win sharing into a clearer product loop.
-- A Trust Proof layer now explains how frames become evidence, what limits still
-  exist, how deletion/retention works, and why the report is decision support
-  rather than certification.
-- Room Safety Challenges now give users themed reasons to scan, rescan, and
-  share small room wins without needing an account.
-- Room Rituals now make the product feel like a tiny home-care habit with
-  daily/weekly prompts, seasonal packs, and local streaks.
-- The Home Journal now keeps accountless browser-local room history with last
-  checked rooms, score trends, favorite rooms, and rescan reminders.
-- The curiosity layer now includes Room Mystery Mode, Home Pulse, sample
-  gallery cards, Field Notes, approximate evidence maps, and before/after story
-  cards so users have more reasons to explore without weakening trust.
-- The frontend identity now uses a named Warm Trust palette, editorial display
-  typography, and calmer body/UI typography to feel less dashboard-like.
-- Upload jobs persist to disk instead of living only in memory.
-- Completed scans produce a report-first UI and a downloadable PDF.
-- Findings now include evidence frames, hazard codes, reasoning signals, and
-  deterministic recommendations.
-- The report includes `Fix first` actions, scan-quality diagnostics, and
-  user feedback hooks for `useful`, `wrong`, and `duplicate`.
-- Rust, Python, and benchmark coverage are in good shape for this stage.
+- The first-run path includes a sample report, scan playbooks, audience modes,
+  Room Mystery Mode, file preflight, and capture guidance before upload.
+- The optional Live Capture Coach checks lighting, steadiness, duration, floor
+  path, corners, and approximate room coverage in the browser before upload.
+- Uploads persist through a durable job/artifact pipeline, with detached-worker
+  support and an IndexedDB retry queue for files selected while offline.
+- The Safety Brief surfaces top actions, Calm Score, confidence/uncertainty,
+  evidence frames, fix difficulty, Field Notes, approximate evidence maps, and
+  deterministic "Ask this Safety Brief" answers.
+- Privacy Receipt now shows room label, evidence inclusion, local blur/redaction
+  previews, retention posture, delete controls, and decision-support wording
+  before sharing/exporting.
+- Same-room rescans produce before/after comparison data, including score delta,
+  hazard delta, and compact previous/current evidence snapshots.
+- Home Journal, Room Health Passport, Room Rituals, One Thing Today, Room Care
+  Calendar, Fix Library, challenges, streaks, and weekly recaps are all local
+  first and accountless.
+- Trust Proof and operator views expose aggregate quality, funnel, storage,
+  worker, feedback, and eval-corpus readiness signals without leaking private
+  user data.
+- Settings has become a local control center for theme, accessibility, report
+  defaults, scan defaults, privacy/data clearing, backup/import, beta feedback,
+  changelog, known limits, and replaying onboarding.
+- The frontend identity uses the Warm Trust palette, editorial typography,
+  polished report artifacts, responsive layouts, PWA manifest, and offline shell.
+- Rust, Python, frontend smoke, deployment preflight, benchmark smoke, and API
+  tests are represented in the local/CI quality gate.
 
 What is still rough:
-- Upload-side 3D grounding is still approximate, not survey-grade.
-- Multi-frame localization is better than before, but it is not full
+- Upload-side grounding is approximate and evidence-backed, not survey-grade 3D
   reconstruction.
-- Some upload analysis remains heuristic, especially for difficult scans.
-- This is still a self-hosted developer/beta build, not a polished hosted
-  consumer product.
+- Live Capture Coach is lightweight browser-side guidance, not full real-time
+  room understanding.
+- Offline support covers the app shell, local journal/settings, and queued
+  upload retry; it does not make private reports or upload artifacts available
+  offline.
+- The eval corpus and beta feedback loops exist, but they still need more real
+  labeled scans from beta users before quality claims can become stronger.
+- This remains a self-hosted beta. The next production step is hosted operations,
+  real user onboarding, object-storage-backed deployment hardening, and a larger
+  reviewed evaluation corpus.
 
 ## What Atlas-0 Is Now
 
@@ -119,20 +128,30 @@ Atlas-0 is not currently positioned as:
 The current product slice supports:
 
 1. Uploading an image or room walkthrough video
-2. Sampling frames and extracting salient regions
-3. Labeling likely objects and estimating approximate multi-view positions
-4. Generating hazard findings with:
+2. Guided capture setup with room label, audience mode, scan checklist, and
+   optional browser-side Live Capture Coach
+3. Offline upload queuing and retry when a user selects a file without
+   connection
+4. Sampling frames and extracting salient regions
+5. Labeling likely objects and estimating approximate multi-view positions
+6. Generating hazard findings with:
    - severity
    - confidence
    - evidence frames
    - reasoning signals
    - actionable recommendations
-5. Exporting a PDF report
-6. Reviewing findings in a report-first frontend at `/app`
+7. Reviewing findings in a report-first frontend at `/app`
+8. Asking bounded, deterministic questions of the active Safety Brief
+9. Exporting a PDF report and copyable share/action packets
+10. Previewing privacy receipts, evidence inclusion, and local blur choices
+11. Saving local room history, care plans, challenges, fixes, and before/after
+    comparisons
+12. Inspecting operator quality, funnel, storage, worker, and eval readiness
+    signals
 
 ## Why Someone Would Use This
 
-The core user value right now is not "AI 3D magic." It is:
+The core user value is not "AI 3D magic." It is:
 
 - **Quick room triage**: surface the objects most likely to fall, tip, spill,
   or break
@@ -140,6 +159,8 @@ The core user value right now is not "AI 3D magic." It is:
   to do next
 - **Shareable evidence**: give them a report they can send to a landlord,
   partner, contractor, or insurer
+- **Tiny home-care loop**: give them one fix today, then a reason to rescan and
+  see whether the room got calmer
 
 If ATLAS-0 becomes genuinely useful, it will be because it helps a person go
 from "this room feels unsafe or cluttered" to "here are the 3 things I should
@@ -154,6 +175,10 @@ This README is intentionally honest about the current state:
   safety certification.
 - Weak scans still degrade results. Blur, darkness, short coverage, and low
   motion all reduce report quality.
+- Local redaction/blur controls affect share previews and copied wording. They
+  do not mutate stored server artifacts.
+- The PWA/offline shell intentionally avoids caching private upload, report,
+  operator, and artifact routes.
 - The scene view is secondary. The report is the product.
 
 ## Quick Start
@@ -269,7 +294,19 @@ python scripts/check_deployment.py --strict-warnings
 | `GET` | `/jobs` | List upload jobs |
 | `GET` | `/jobs/{job_id}` | Fetch one job and its report payload |
 | `POST` | `/jobs/{job_id}/feedback` | Mark a finding as useful, wrong, or duplicate |
+| `POST` | `/jobs/{job_id}/follow-up` | Mark findings resolved, monitoring, or ignored |
+| `POST` | `/jobs/{job_id}/evaluation` | Save human review / missed-hazard evaluation |
+| `POST` | `/jobs/{job_id}/eval-candidate` | Export review-ready eval candidates |
 | `GET` | `/reports/{job_id}.pdf` | Download the PDF report |
+| `DELETE` | `/jobs/{job_id}` | Delete a job and persisted artifacts |
+| `GET` | `/product/privacy` | Public retention/delete/privacy posture |
+| `GET` | `/product/upload-guidance` | Public upload limits and accepted media guidance |
+| `GET` | `/product/trust-proof` | Privacy-safe aggregate product quality signals |
+| `POST` | `/product/events` | Public product telemetry allowlist |
+| `POST` | `/product/waitlist` | Public beta waitlist capture |
+| `GET` | `/sample-report` | Built-in sample Safety Brief |
+| `GET` | `/operator/settings` | Token-protected operator diagnostics and beta inbox |
+| `POST` | `/operator/storage/prune` | Token-protected storage lifecycle pruning |
 | `GET` | `/health` | Runtime health and status |
 | `POST` | `/query` | Experimental spatial query interface |
 | `GET` | `/objects` | Experimental object listing |
@@ -328,10 +365,14 @@ The active roadmap lives in [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)
 
 The current order of attack is:
 
-1. Keep the product honest
-2. Improve upload grounding and reasoning quality
-3. Make the report more useful than the visualization
-4. Add enough onboarding, feedback, and product polish to support beta users
+1. Keep gathering real beta scans and convert them into labeled eval cases.
+2. Improve upload grounding beyond the current heuristic/multi-frame pipeline.
+3. Harden hosted deployment, object storage, worker operations, and artifact
+   retention for real production traffic.
+4. Keep the report more useful than the visualization: clearer evidence,
+   stronger recommendations, better before/after verification.
+5. Preserve Warm Trust: honest uncertainty, privacy controls, accessible UI,
+   and no safety-certification claims.
 
 ## License
 
