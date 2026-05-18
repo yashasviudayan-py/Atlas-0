@@ -2077,6 +2077,42 @@
       line-height: 1.5;
     }
 
+    .sample-journey-meta,
+    .beta-feedback-grid {
+      display: grid;
+      gap: 8px;
+    }
+
+    .sample-journey-meta {
+      padding-top: 8px;
+      border-top: 1px solid rgba(69, 43, 29, 0.10);
+    }
+
+    .sample-journey-meta span {
+      font-size: 0.9rem;
+    }
+
+    .beta-feedback-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .feedback-choice {
+      min-height: 48px;
+      border: 1px solid rgba(69, 43, 29, 0.14);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.72);
+      color: var(--ink);
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .feedback-choice:hover,
+    .feedback-choice:focus-visible {
+      border-color: rgba(13, 111, 97, 0.38);
+      box-shadow: var(--focus-ring);
+    }
+
     .field-note-card {
       cursor: pointer;
     }
@@ -4253,6 +4289,7 @@
       .evidence-columns,
       .room-map-shell,
       .home-journal-grid,
+      .beta-feedback-grid,
       .welcome-tour-card {
         grid-template-columns: 1fr;
       }
@@ -4611,6 +4648,7 @@
               <button id="waitlist-submit-btn" class="button-link ghost" type="button">Join</button>
             </div>
             <input id="waitlist-use-case-input" class="text-input" type="text" maxlength="120" placeholder="Example: toddler-proofing, renter move-in, pet safety" />
+            <input id="waitlist-referral-input" class="text-input" type="text" maxlength="80" placeholder="Referral code or friend invite (optional)" />
             <p id="waitlist-note" class="meta-copy">If you are not ready to scan yet, leave an email and a quick use case so we can shape the next beta wave around real demand.</p>
           </div>
         </div>
@@ -4773,7 +4811,7 @@
                 <div class="section-head compact">
                   <div>
                     <span class="guide-kicker">Curiosity sample gallery</span>
-                    <h4>Explore a room story before uploading.</h4>
+                    <h4>Try without upload, then scan your own room.</h4>
                     <p>Each sample teaches a use case while keeping the product promise narrow: decision support from evidence, not fake certainty.</p>
                   </div>
                 </div>
@@ -5291,6 +5329,22 @@
             <strong>No room brief yet</strong>
             <p>Run a scan or open the sample report to generate a concise summary with Calm Score, top action, confidence, and decision-support wording.</p>
           </article>
+        </section>
+
+        <section id="post-report-feedback" class="panel" aria-label="Post-report beta feedback">
+          <div class="section-head compact">
+            <div>
+              <span class="guide-kicker">Beta Learning Loop</span>
+              <h3>Was this brief useful?</h3>
+              <p>One tap helps improve ATLAS-0 without exposing private evidence or changing the report.</p>
+            </div>
+            <span class="pill">Private beta</span>
+          </div>
+          <div class="beta-feedback-grid">
+            <button class="feedback-choice" type="button" data-post-report-feedback="useful">Useful</button>
+            <button class="feedback-choice" type="button" data-post-report-feedback="missed">Missed something</button>
+            <button class="feedback-choice" type="button" data-post-report-feedback="confusing">Confusing</button>
+          </div>
         </section>
 
         <section id="before-after-story" class="before-after-story panel" aria-label="Before and after story card">

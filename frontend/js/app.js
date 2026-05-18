@@ -67,6 +67,7 @@ const LIVE_CAPTURE_COACH_STORAGE_KEY = 'atlas0.liveCaptureCoach';
 const REPORT_QA_HISTORY_STORAGE_KEY = 'atlas0.reportQuestionHistory';
 const PRIVACY_RECEIPT_STORAGE_KEY = 'atlas0.privacyReceiptEvidence';
 const OFFLINE_ACK_STORAGE_KEY = 'atlas0.offlineReadyAcknowledged';
+const REFERRAL_STORAGE_KEY = 'atlas0.betaReferralCode';
 
 const SETTINGS_LOCAL_KEYS = [
   THEME_STORAGE_KEY,
@@ -108,6 +109,7 @@ const SETTINGS_LOCAL_KEYS = [
   REPORT_QA_HISTORY_STORAGE_KEY,
   PRIVACY_RECEIPT_STORAGE_KEY,
   OFFLINE_ACK_STORAGE_KEY,
+  REFERRAL_STORAGE_KEY,
 ];
 
 function readStoredPreference(key) {
@@ -147,6 +149,24 @@ function urlAttribution() {
     utm_source: params.get('utm_source'),
     utm_campaign: params.get('utm_campaign'),
   };
+}
+
+function betaReferralCode() {
+  const params = new URLSearchParams(window.location.search);
+  const fromUrl = (params.get('ref') || params.get('referral') || '').trim().slice(0, 80);
+  if (fromUrl) {
+    writeStoredPreference(REFERRAL_STORAGE_KEY, fromUrl);
+    return fromUrl;
+  }
+  return (readStoredPreference(REFERRAL_STORAGE_KEY) || '').slice(0, 80);
+}
+
+function betaPersona() {
+  const mode = selectedAudienceMode();
+  if (mode === 'toddler') return 'parent_or_caregiver';
+  if (mode === 'pet') return 'pet_owner';
+  if (mode === 'renter') return 'renter';
+  return 'home_user';
 }
 
 const VIEW_LABELS = {
@@ -234,6 +254,7 @@ const accessTokenSave = /** @type {HTMLButtonElement} */ (document.getElementByI
 const accessTokenClear = /** @type {HTMLButtonElement} */ (document.getElementById('access-token-clear'));
 const waitlistEmailInput = /** @type {HTMLInputElement} */ (document.getElementById('waitlist-email-input'));
 const waitlistUseCaseInput = /** @type {HTMLInputElement} */ (document.getElementById('waitlist-use-case-input'));
+const waitlistReferralInput = /** @type {HTMLInputElement} */ (document.getElementById('waitlist-referral-input'));
 const waitlistSubmitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('waitlist-submit-btn'));
 const waitlistNote = document.getElementById('waitlist-note');
 
@@ -531,6 +552,8 @@ async function trackProductEvent(eventName, extra = {}) {
       audience_mode: selectedAudienceMode(),
       room_label: roomLabelInput?.value?.trim() || null,
       room_labeled: Boolean(roomLabelInput?.value?.trim()),
+      persona: betaPersona(),
+      referral_code: betaReferralCode() || null,
       ...urlAttribution(),
       ...extra,
     });
@@ -964,9 +987,15 @@ function syncSettingsAccessStatus() {
   renderSettingsControlCenter();
 }
 
-async function loadSampleReport() {
+async function loadSampleReport(sampleJourneyId = 'walkthrough', surface = 'sample_report') {
   try {
     markFirstRunStarted('sample_report');
+    if (sampleJourneyId !== 'walkthrough') {
+      await trackProductEvent('sample_journey_opened', {
+        surface,
+        sample_key: sampleJourneyId,
+      });
+    }
     const sample = await api.fetchSampleReport();
     upsertJob(sample);
     setActiveJob(sample.job_id);
@@ -1320,7 +1349,12 @@ function renderCuriositySampleGallery() {
       <span class="guide-kicker">${escapeHtml(CAPTURE_COACH_MODES[sample.audienceMode]?.title || 'Sample report')}</span>
       <strong>${escapeHtml(sample.title)}</strong>
       <span>${escapeHtml(sample.lesson)}</span>
-      <span class="soft-badge">Open sample</span>
+      <div class="sample-journey-meta">
+        <span><strong>Fix first:</strong> ${escapeHtml(sample.topFix || 'Review the top action and evidence.')}</span>
+        <span><strong>Uncertainty:</strong> ${escapeHtml(sample.uncertainty || 'Approximate evidence, not certification.')}</span>
+        <span><strong>Before/after:</strong> ${escapeHtml(sample.beforeAfter || 'Scan, fix one thing, then rescan the same room label.')}</span>
+      </div>
+      <span class="soft-badge">Try without upload</span>
     </button>
   `).join('');
 }
@@ -2129,6 +2163,12 @@ function completeDailyMission(challenge = activeChallenge()) {
     challenge_id: challenge.id,
     completion_count: completedDates.size,
   });
+  trackProductEvent('weekly_challenge_completed', {
+    surface: 'home_companion',
+    mission_id: challenge.id,
+    challenge_id: challenge.id,
+    completion_count: completedChallengeIds.size,
+  });
   showToast(`${challenge.title} logged locally. Tiny room win counted.`);
 }
 
@@ -2446,6 +2486,11 @@ function applyUseCase(mode, label) {
     audience_mode: selectedAudienceMode(),
     room_label: roomLabelInput?.value?.trim() || null,
     room_labeled: Boolean(roomLabelInput?.value?.trim()),
+  });
+  trackProductEvent('beta_onboarding_started', {
+    surface: 'use_case_card',
+    persona: betaPersona(),
+    use_case: label || mode,
   });
   switchView('scan');
   showToast(`${CAPTURE_COACH_MODES[selectedAudienceMode()].title} selected.`);
@@ -4857,7 +4902,9 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Labeled rooms', value: String(settings.product.labeled_rooms || 0) },
       { label: 'Repeat-scan rooms', value: String(settings.product.repeat_scan_rooms || 0) },
       { label: 'Waitlist signups', value: String(settings.product.waitlist_signups || 0) },
+      { label: 'Beta onboarding starts', value: String(settings.product.beta_onboarding_events || 0) },
       { label: 'Sample report opens', value: String(settings.product.sample_report_opens || 0) },
+      { label: 'Sample journey opens', value: String(settings.product.sample_journey_events || 0) },
       { label: 'Sample CTA taps', value: String(settings.product.sample_cta_events || 0) },
       { label: 'First-run starts', value: String(settings.product.first_run_events || 0) },
       { label: 'Landing sections viewed', value: String(settings.product.landing_section_events || 0) },
@@ -4866,7 +4913,9 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Report theme changes', value: String(settings.product.report_theme_events || 0) },
       { label: 'Confidence inspector opens', value: String(settings.product.confidence_inspector_events || 0) },
       { label: 'Beta invite copies', value: String(settings.product.beta_invite_events || 0) },
+      { label: 'Room win cards shared', value: String(settings.product.room_win_card_shared_events || 0) },
       { label: 'Room win copies', value: String(settings.product.room_win_events || 0) },
+      { label: 'Post-report feedback', value: String(settings.product.post_report_feedback_events || 0) },
       { label: 'Fix plan copies', value: String(settings.product.fix_plan_events || 0) },
       { label: 'Fix Today copies', value: String(settings.product.fix_today_events || 0) },
       { label: 'Fix Quest completions', value: String(settings.product.fix_quest_events || 0) },
@@ -4898,6 +4947,7 @@ function renderAccessPanels(errorMessage = '') {
       { label: 'Welcome tour completions', value: String(settings.product.welcome_tour_events || 0) },
       { label: 'Home Pulse opens', value: String(settings.product.home_pulse_events || 0) },
       { label: 'Weekly recap copies', value: String(settings.product.weekly_recap_events || 0) },
+      { label: 'Weekly challenges completed', value: String(settings.product.weekly_challenge_events || 0) },
       { label: 'Home Bingo completions', value: String(settings.product.home_bingo_events || 0) },
       { label: 'Daily mission starts', value: String(settings.product.daily_mission_events || 0) },
       { label: 'Room ritual starts', value: String(settings.product.room_ritual_events || 0) },
@@ -4940,6 +4990,8 @@ function renderBetaInbox(inbox) {
       { label: 'Report views', value: String(funnel.report_viewed || 0) },
       { label: 'Report theme changes', value: String(funnel.report_theme_changed || 0) },
       { label: 'First-run starts', value: String(funnel.first_run_started || 0) },
+      { label: 'Beta onboarding starts', value: String(funnel.beta_onboarding_started || 0) },
+      { label: 'Sample journeys opened', value: String(funnel.sample_journey_opened || 0) },
       { label: 'Mystery mode starts', value: String(funnel.mystery_mode_started || 0) },
       { label: 'Personal modes selected', value: String(funnel.personal_mode_selected || 0) },
       { label: 'Sample gallery opens', value: String(funnel.sample_gallery_opened || 0) },
@@ -4967,6 +5019,7 @@ function renderBetaInbox(inbox) {
       { label: 'Welcome tours done', value: String(funnel.welcome_tour_completed || 0) },
       { label: 'Home Pulse opens', value: String(funnel.home_pulse_opened || 0) },
       { label: 'Weekly recap copies', value: String(funnel.weekly_recap_copied || 0) },
+      { label: 'Weekly challenges done', value: String(funnel.weekly_challenge_completed || 0) },
       { label: 'Home Bingo completions', value: String(funnel.home_bingo_task_completed || 0) },
       { label: 'Room ritual starts', value: String(funnel.room_ritual_started || 0) },
       { label: 'Room ritual done', value: String(funnel.room_ritual_completed || 0) },
@@ -4976,6 +5029,8 @@ function renderBetaInbox(inbox) {
       { label: 'Fix Today copies', value: String(funnel.fix_today_copied || 0) },
       { label: 'PDF downloads', value: String(funnel.pdf_downloads || 0) },
       { label: 'Share card copies', value: String(funnel.share_card_copies || 0) },
+      { label: 'Room win cards shared', value: String(funnel.room_win_card_shared || 0) },
+      { label: 'Post-report feedback', value: String(funnel.post_report_feedback_submitted || 0) },
       { label: 'Confidence opens', value: String(funnel.confidence_inspector_opened || 0) },
       { label: 'Preflight failures', value: String(funnel.scan_preflight_failed || 0) },
       { label: 'Rescan prompt clicks', value: String(funnel.rescan_prompt_clicked || 0) },
@@ -5123,6 +5178,10 @@ jumpButtons.forEach((button) => {
     if (destination === 'scan') {
       markFirstRunStarted('hero_scan_cta');
       trackProductEvent('cta_start_scan', { surface: 'hero' });
+      trackProductEvent('beta_onboarding_started', {
+        surface: 'hero_scan_cta',
+        use_case: roomLabelInput?.value?.trim() || null,
+      });
     }
     switchView(destination);
   });
@@ -5297,12 +5356,13 @@ curiositySampleGrid?.addEventListener('click', (event) => {
     audience_mode: sample.audienceMode,
     room_label: sample.roomLabel,
     room_labeled: true,
+    use_case: sample.title,
   });
   trackProductEvent('sample_cta_clicked', {
     surface: 'curiosity_sample_gallery',
-    sample_key: 'walkthrough',
+    sample_key: sample.id,
   });
-  loadSampleReport();
+  loadSampleReport(sample.id, 'curiosity_sample_gallery');
 });
 seasonalPackGrid?.addEventListener('click', (event) => {
   const button = event.target instanceof Element ? event.target.closest('[data-seasonal-pack]') : null;
@@ -5465,6 +5525,9 @@ const uploadView = new UploadView({
 uploadView.init();
 applyThemePreference(readStoredPreference(THEME_STORAGE_KEY) || document.documentElement.dataset.theme || 'light');
 applyMotionPreference(readStoredPreference(MOTION_STORAGE_KEY) === 'true');
+if (waitlistReferralInput) {
+  waitlistReferralInput.value = betaReferralCode();
+}
 syncSettingsPreferenceControls();
 applyAccessibilityPreferences();
 applyDefaultScanPreferences(false);
@@ -6016,6 +6079,7 @@ operatorPruneBtn?.addEventListener('click', async () => {
 waitlistSubmitBtn?.addEventListener('click', async () => {
   const email = waitlistEmailInput.value.trim();
   const useCase = waitlistUseCaseInput.value.trim();
+  const referralCode = (waitlistReferralInput?.value || betaReferralCode()).trim().slice(0, 80);
   if (!email) {
     showToast('Enter an email to join the beta waitlist.', 3200);
     return;
@@ -6027,9 +6091,14 @@ waitlistSubmitBtn?.addEventListener('click', async () => {
       use_case: useCase || null,
       source: 'hero_waitlist',
       audience_mode: selectedAudienceMode(),
+      persona: betaPersona(),
+      referral_code: referralCode || null,
     });
     waitlistEmailInput.value = '';
     waitlistUseCaseInput.value = '';
+    if (waitlistReferralInput && referralCode) {
+      writeStoredPreference(REFERRAL_STORAGE_KEY, referralCode);
+    }
     if (waitlistNote) {
       waitlistNote.textContent = response.message;
     }
@@ -6117,6 +6186,13 @@ copyShareCardBtn?.addEventListener('click', async () => {
       audience_mode: job.audience_mode || 'general',
       share_style: currentShareCardStyle(),
       room_labeled: Boolean(job.room_label || job.summary?.room_label),
+    });
+    await trackProductEvent('room_win_card_shared', {
+      surface: 'share_card_studio',
+      job_id: job.job_id,
+      sample_key: job.sample_key || null,
+      share_style: currentShareCardStyle(),
+      audience_mode: job.audience_mode || 'general',
     });
     await trackProductEvent('share_card_studio_copied', {
       job_id: job.job_id,
@@ -6362,6 +6438,13 @@ document.addEventListener('click', async (event) => {
       sample_key: job.sample_key || null,
       audience_mode: job.audience_mode || 'general',
     });
+    await trackProductEvent('room_win_card_shared', {
+      surface: 'room_scorecard',
+      job_id: job.job_id,
+      sample_key: job.sample_key || null,
+      audience_mode: job.audience_mode || 'general',
+      share_style: 'quick-win',
+    });
     showToast('Room win copied.');
   } catch (error) {
     showToast(error instanceof Error ? error.message : 'Could not copy room win.', 3600);
@@ -6370,6 +6453,20 @@ document.addEventListener('click', async (event) => {
 
 document.addEventListener('click', async (event) => {
   const target = event.target instanceof Element ? event.target : null;
+  const postReportFeedback = target?.closest('[data-post-report-feedback]');
+  if (postReportFeedback) {
+    const job = activeJob();
+    await trackProductEvent('post_report_feedback_submitted', {
+      surface: 'post_report_prompt',
+      job_id: job?.job_id || null,
+      sample_key: job?.sample_key || null,
+      reason: postReportFeedback.dataset.postReportFeedback || 'unknown',
+      audience_mode: job?.audience_mode || selectedAudienceMode(),
+    });
+    showToast('Beta feedback noted. Thank you for helping ATLAS-0 learn.');
+    return;
+  }
+
   const jump = target?.closest('[data-jump-view]');
   if (jump instanceof HTMLElement) {
     switchView(jump.dataset.jumpView || 'scan');
@@ -6547,6 +6644,15 @@ document.addEventListener('click', async (event) => {
         mission_id: challenge.id,
         challenge_id: challenge.id,
         audience_mode: job.audience_mode || 'general',
+      });
+      await trackProductEvent('room_win_card_shared', {
+        surface: 'challenge_result_card',
+        job_id: job.job_id,
+        sample_key: job.sample_key || null,
+        mission_id: challenge.id,
+        challenge_id: challenge.id,
+        audience_mode: job.audience_mode || 'general',
+        share_style: 'weekly-challenge',
       });
       showToast('Challenge win copied.');
     } catch (error) {
@@ -7061,6 +7167,11 @@ function attachFeedbackHandlers(jobId) {
             hazard_code: container.dataset.hazardCode,
             object_id: container.dataset.objectId || null,
             verdict: button.dataset.feedback,
+          });
+          await trackProductEvent('post_report_feedback_submitted', {
+            surface: 'finding_feedback',
+            job_id: jobId,
+            reason: button.dataset.feedback,
           });
           upsertJob(updated);
           showToast('Feedback saved.');

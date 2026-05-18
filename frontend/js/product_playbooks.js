@@ -240,6 +240,9 @@ export const CURIOSITY_SAMPLE_GALLERY = [
     audienceMode: 'toddler',
     roomLabel: 'Toddler reach sample',
     lesson: 'See how ATLAS-0 frames reachable objects without pretending the room is certified safe.',
+    topFix: 'Move pullable cords and heavy objects out of toddler reach.',
+    uncertainty: 'Reach zones are approximate because the sample uses evidence frames, not a certified inspection.',
+    beforeAfter: 'Before: reachable edge clutter. After: one cleared shelf edge and a same-label rescan.',
   },
   {
     id: 'sample-pet-corner',
@@ -247,6 +250,9 @@ export const CURIOSITY_SAMPLE_GALLERY = [
     audienceMode: 'pet',
     roomLabel: 'Pet corner sample',
     lesson: 'Preview cord, plant, and low-shelf language before scanning a real pet route.',
+    topFix: 'Route loose cords behind furniture and move tempting low objects.',
+    uncertainty: 'Pet behavior is not predicted; ATLAS-0 only highlights visible temptations.',
+    beforeAfter: 'Before: floor-level cable temptation. After: hidden cable path and calmer pet route.',
   },
   {
     id: 'sample-renter-move-in',
@@ -254,6 +260,9 @@ export const CURIOSITY_SAMPLE_GALLERY = [
     audienceMode: 'renter',
     roomLabel: 'Move-in sample',
     lesson: 'Use the sample as a model for evidence-backed room notes you can export.',
+    topFix: 'Document unstable fixtures and clear one trip path before moving boxes in.',
+    uncertainty: 'The report is tenant evidence support, not a legal inspection or damage assessment.',
+    beforeAfter: 'Before: baseline move-in note. After: fixed path plus exportable landlord wording.',
   },
   {
     id: 'sample-guest-ready',
@@ -261,6 +270,9 @@ export const CURIOSITY_SAMPLE_GALLERY = [
     audienceMode: 'general',
     roomLabel: 'Guest-ready sample',
     lesson: 'Learn how trip paths and fragile edges become a simple fix-first brief.',
+    topFix: 'Clear the main walking path and move fragile edge items inward.',
+    uncertainty: 'ATLAS-0 cannot know every guest route; it flags visible path and edge risks.',
+    beforeAfter: 'Before: cluttered entry-to-seat route. After: one clear path and a shareable room win.',
   },
   {
     id: 'sample-night-path',
@@ -268,6 +280,9 @@ export const CURIOSITY_SAMPLE_GALLERY = [
     audienceMode: 'general',
     roomLabel: 'Night path sample',
     lesson: 'See how one floor-path scan can turn into a calm before-bed room win.',
+    topFix: 'Clear low-light floor clutter and make the door-to-bed route obvious.',
+    uncertainty: 'Lighting and blur can hide small objects, so low-confidence findings stay cautious.',
+    beforeAfter: 'Before: dark path with small obstacles. After: simpler route and rescan prompt.',
   },
 ];
 
