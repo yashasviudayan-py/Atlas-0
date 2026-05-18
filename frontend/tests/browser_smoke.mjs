@@ -59,6 +59,7 @@ try {
     await page.locator('.trust-proof-deck').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#trust-proof-dashboard').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#trust-proof-metrics').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#waitlist-referral-input').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.use-case-card').first().waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#home-pulse-card').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#home-companion-panel').waitFor({ state: 'attached', timeout: 3000 });
@@ -72,6 +73,7 @@ try {
     await page.locator('#room-playbook-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#mystery-mode-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#curiosity-sample-grid').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('text=Try without upload').first().waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('.ritual-dashboard').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#ritual-grid').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#seasonal-pack-grid').waitFor({ state: 'attached', timeout: 3000 });
@@ -99,6 +101,7 @@ try {
     await page.locator('#evidence-story-panel').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#share-card-preview').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#share-card-style').waitFor({ state: 'attached', timeout: 3000 });
+    await page.locator('#post-report-feedback').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#before-after-story').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#view-journal').waitFor({ state: 'attached', timeout: 3000 });
     await page.locator('#room-personality-panel').waitFor({ state: 'attached', timeout: 3000 });

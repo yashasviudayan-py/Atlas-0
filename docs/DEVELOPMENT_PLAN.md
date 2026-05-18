@@ -1594,6 +1594,46 @@ growth.
 
 ---
 
+## Beta Growth Feature Pass
+
+### Status
+
+Implemented. This pass turns the existing product depth into a clearer
+try-trust-share-return loop for beta users without adding accounts, public
+hosted share pages, or stronger hazard-engine claims.
+
+### Completed
+
+1. Try without upload
+   - curiosity sample cards now explain the use case, fix-first action,
+     uncertainty, and before/after path before opening the built-in sample
+   - sample journey opens are tracked separately from generic sample CTA taps
+
+2. 60-second onboarding and referral capture
+   - hero scan/use-case actions now emit beta onboarding events with persona
+     and use-case context
+   - waitlist submissions now preserve optional persona/referral metadata while
+     keeping duplicate email behavior stable
+
+3. Share and weekly challenge loops
+   - Room Win Card sharing is tracked across scorecard, challenge, and share
+     studio surfaces
+   - weekly challenge completion is measured separately from daily mission
+     completion so beta retention signals are easier to inspect
+
+4. Feedback and trust learning
+   - report view now includes a tiny post-report feedback prompt for useful,
+     missed, or confusing briefs
+   - existing finding feedback also emits a privacy-safe beta learning event
+
+5. Operator visibility and smoke coverage
+   - product/operator metrics include beta onboarding, sample journey, Room Win
+     Card, weekly challenge, and post-report feedback counts
+   - frontend smoke coverage checks referral capture, try-without-upload copy,
+     and the post-report feedback panel
+
+---
+
 ## Non-Negotiable Quality Bar
 
 Before calling the product usable:
