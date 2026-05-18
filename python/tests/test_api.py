@@ -255,14 +255,22 @@ def test_product_trust_proof_is_public_and_privacy_safe() -> None:
 def test_product_waitlist_is_public() -> None:
     response = client.post(
         "/product/waitlist",
-        json={"email": "beta@example.com", "use_case": "toddler-proofing"},
+        json={
+            "email": "beta@example.com",
+            "use_case": "toddler-proofing",
+            "persona": "parent_or_caregiver",
+            "referral_code": "friend-42",
+        },
     )
 
     assert response.status_code == 200
     data = response.json()
     assert data["accepted"] is True
     assert data["waitlist_count"] == 1
-    assert _upload_store.load_waitlist_entries()[0]["email"] == "beta@example.com"
+    entry = _upload_store.load_waitlist_entries()[0]
+    assert entry["email"] == "beta@example.com"
+    assert entry["persona"] == "parent_or_caregiver"
+    assert entry["referral_code"] == "friend-42"
 
 
 def test_product_waitlist_deduplicates_email() -> None:
@@ -319,6 +327,9 @@ def test_product_event_accepts_attribution_fields() -> None:
             "referrer": "https://example.com/post",
             "utm_source": "friend",
             "utm_campaign": "beta",
+            "persona": "pet_owner",
+            "use_case": "pet corner sweep",
+            "referral_code": "friend-42",
             "mission_id": "cord-safari",
             "challenge_id": "cord-safari",
             "audience_mode": "pet",
@@ -332,6 +343,9 @@ def test_product_event_accepts_attribution_fields() -> None:
     assert event["session_id"] == "session-123"
     assert event["utm_source"] == "friend"
     assert event["utm_campaign"] == "beta"
+    assert event["persona"] == "pet_owner"
+    assert event["use_case"] == "pet corner sweep"
+    assert event["referral_code"] == "friend-42"
     assert event["mission_id"] == "cord-safari"
     assert event["challenge_id"] == "cord-safari"
     assert event["audience_mode"] == "pet"
@@ -363,6 +377,8 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
     for event_name in (
         "landing_section_viewed",
         "sample_cta_clicked",
+        "sample_journey_opened",
+        "beta_onboarding_started",
         "trust_dashboard_opened",
         "first_run_started",
         "scan_preflight_failed",
@@ -401,6 +417,7 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
         "personal_mode_selected",
         "home_pulse_opened",
         "weekly_recap_copied",
+        "weekly_challenge_completed",
         "home_bingo_task_completed",
         "before_after_card_copied",
         "field_note_expanded",
@@ -427,6 +444,8 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
         "settings_feedback_clicked",
         "smart_rescan_coach_opened",
         "report_theme_changed",
+        "room_win_card_shared",
+        "post_report_feedback_submitted",
     ):
         response = client.post(
             "/product/events",
@@ -439,6 +458,8 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
     assert [event["event_name"] for event in events] == [
         "landing_section_viewed",
         "sample_cta_clicked",
+        "sample_journey_opened",
+        "beta_onboarding_started",
         "trust_dashboard_opened",
         "first_run_started",
         "scan_preflight_failed",
@@ -477,6 +498,7 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
         "personal_mode_selected",
         "home_pulse_opened",
         "weekly_recap_copied",
+        "weekly_challenge_completed",
         "home_bingo_task_completed",
         "before_after_card_copied",
         "field_note_expanded",
@@ -503,6 +525,8 @@ def test_product_event_accepts_warm_trust_design_events() -> None:
         "settings_feedback_clicked",
         "smart_rescan_coach_opened",
         "report_theme_changed",
+        "room_win_card_shared",
+        "post_report_feedback_submitted",
     ]
 
 

@@ -510,6 +510,9 @@ class ProductEventRequest(BaseModel):
     referrer: str | None = None
     utm_source: str | None = None
     utm_campaign: str | None = None
+    persona: str | None = None
+    use_case: str | None = None
+    referral_code: str | None = None
     mission_id: str | None = None
     challenge_id: str | None = None
     file_type: str | None = None
@@ -526,6 +529,8 @@ class WaitlistRequest(BaseModel):
     notes: str | None = None
     source: str | None = None
     audience_mode: str | None = None
+    persona: str | None = None
+    referral_code: str | None = None
 
 
 class WaitlistResponse(BaseModel):
@@ -852,6 +857,9 @@ def record_product_event(payload: ProductEventRequest, request: Request) -> Resp
             "referrer": _bounded_text(payload.referrer, max_len=240),
             "utm_source": _bounded_text(payload.utm_source, max_len=80),
             "utm_campaign": _bounded_text(payload.utm_campaign, max_len=120),
+            "persona": _bounded_text(payload.persona, max_len=80),
+            "use_case": _bounded_text(payload.use_case, max_len=120),
+            "referral_code": _bounded_text(payload.referral_code, max_len=80),
             "mission_id": _bounded_text(payload.mission_id, max_len=80),
             "challenge_id": _bounded_text(payload.challenge_id, max_len=80),
             "file_type": _bounded_text(payload.file_type, max_len=80),
@@ -876,6 +884,8 @@ def join_waitlist(payload: WaitlistRequest, request: Request) -> WaitlistRespons
     notes = _collapsed_text(payload.notes) or ""
     source = _bounded_text(payload.source, max_len=80) or "hero_waitlist"
     audience_mode = normalize_audience_mode(payload.audience_mode)
+    persona = _bounded_text(payload.persona, max_len=80)
+    referral_code = _bounded_text(payload.referral_code, max_len=80)
     if len(name) > 80:
         raise HTTPException(status_code=400, detail="Name must be 80 characters or fewer.")
     if len(use_case) > 120:
@@ -903,6 +913,9 @@ def join_waitlist(payload: WaitlistRequest, request: Request) -> WaitlistRespons
                     "referrer": None,
                     "utm_source": None,
                     "utm_campaign": None,
+                    "persona": persona,
+                    "use_case": use_case or None,
+                    "referral_code": referral_code,
                     "host": _request_host(request),
                     "created_at": _utc_now_iso(),
                     "deduped": True,
@@ -924,6 +937,8 @@ def join_waitlist(payload: WaitlistRequest, request: Request) -> WaitlistRespons
         "notes": notes or None,
         "source": source,
         "audience_mode": audience_mode,
+        "persona": persona,
+        "referral_code": referral_code,
         "host": _request_host(request),
         "created_at": _utc_now_iso(),
     }
@@ -943,6 +958,9 @@ def join_waitlist(payload: WaitlistRequest, request: Request) -> WaitlistRespons
             "referrer": None,
             "utm_source": None,
             "utm_campaign": None,
+            "persona": persona,
+            "use_case": use_case or None,
+            "referral_code": referral_code,
             "host": _request_host(request),
             "created_at": entry["created_at"],
         }
@@ -1679,6 +1697,7 @@ def _feedback_counts(events: list[dict[str, Any]]) -> dict[str, int]:
 
 
 _PUBLIC_PRODUCT_EVENTS = {
+    "beta_onboarding_started",
     "beta_invite_copied",
     "before_after_card_copied",
     "capture_coach_checked",
@@ -1708,6 +1727,7 @@ _PUBLIC_PRODUCT_EVENTS = {
     "one_thing_today_started",
     "offline_upload_queued",
     "offline_upload_retried",
+    "post_report_feedback_submitted",
     "pwa_offline_ready",
     "privacy_receipt_copied",
     "privacy_receipt_opened",
@@ -1725,12 +1745,15 @@ _PUBLIC_PRODUCT_EVENTS = {
     "room_playbook_started",
     "sample_cta_clicked",
     "sample_gallery_opened",
+    "sample_journey_opened",
     "sample_report_opened",
     "share_card_style_changed",
     "share_card_studio_copied",
     "evidence_privacy_toggled",
     "trust_dashboard_opened",
+    "room_win_card_shared",
     "weekly_recap_copied",
+    "weekly_challenge_completed",
     "room_win_copied",
     "room_reminder_clicked",
     "room_ritual_completed",
@@ -2176,14 +2199,18 @@ def _aggregate_product_metrics() -> dict[str, Any]:
         "avg_report_seconds": avg_report_seconds,
         "product_event_count": len(product_events),
         "waitlist_signups": len(waitlist_entries),
+        "beta_onboarding_events": event_counts.get("beta_onboarding_started", 0),
         "sample_report_opens": event_counts.get("sample_report_opened", 0),
+        "sample_journey_events": event_counts.get("sample_journey_opened", 0),
         "sample_cta_events": event_counts.get("sample_cta_clicked", 0),
         "landing_section_events": event_counts.get("landing_section_viewed", 0),
         "share_events": event_counts.get("report_share_copied", 0),
         "share_card_events": event_counts.get("report_share_card_copied", 0),
         "report_theme_events": event_counts.get("report_theme_changed", 0),
         "beta_invite_events": event_counts.get("beta_invite_copied", 0),
+        "room_win_card_shared_events": event_counts.get("room_win_card_shared", 0),
         "room_win_events": event_counts.get("room_win_copied", 0),
+        "post_report_feedback_events": event_counts.get("post_report_feedback_submitted", 0),
         "first_run_events": event_counts.get("first_run_started", 0),
         "confidence_inspector_events": event_counts.get("confidence_inspector_opened", 0),
         "fix_plan_events": event_counts.get("fix_plan_copied", 0),
@@ -2228,6 +2255,7 @@ def _aggregate_product_metrics() -> dict[str, Any]:
         "welcome_tour_events": event_counts.get("welcome_tour_completed", 0),
         "home_pulse_events": event_counts.get("home_pulse_opened", 0),
         "weekly_recap_events": event_counts.get("weekly_recap_copied", 0),
+        "weekly_challenge_events": event_counts.get("weekly_challenge_completed", 0),
         "home_bingo_events": event_counts.get("home_bingo_task_completed", 0),
         "room_ritual_events": event_counts.get("room_ritual_started", 0),
         "room_ritual_completed_events": event_counts.get("room_ritual_completed", 0),
@@ -2372,6 +2400,8 @@ def _build_beta_inbox() -> dict[str, Any]:
             "report_viewed": event_counts.get("report_viewed", 0),
             "report_theme_changed": event_counts.get("report_theme_changed", 0),
             "first_run_started": event_counts.get("first_run_started", 0),
+            "beta_onboarding_started": event_counts.get("beta_onboarding_started", 0),
+            "sample_journey_opened": event_counts.get("sample_journey_opened", 0),
             "mystery_mode_started": event_counts.get("mystery_mode_started", 0),
             "personal_mode_selected": event_counts.get("personal_mode_selected", 0),
             "sample_gallery_opened": event_counts.get("sample_gallery_opened", 0),
@@ -2409,6 +2439,9 @@ def _build_beta_inbox() -> dict[str, Any]:
             "pdf_downloads": event_counts.get("report_pdf_downloaded", 0),
             "share_events": event_counts.get("report_share_copied", 0),
             "share_card_copies": event_counts.get("report_share_card_copied", 0),
+            "room_win_card_shared": event_counts.get("room_win_card_shared", 0),
+            "weekly_challenge_completed": event_counts.get("weekly_challenge_completed", 0),
+            "post_report_feedback_submitted": event_counts.get("post_report_feedback_submitted", 0),
             "confidence_inspector_opened": event_counts.get("confidence_inspector_opened", 0),
             "scan_preflight_failed": event_counts.get("scan_preflight_failed", 0),
             "rescan_prompt_clicked": event_counts.get("rescan_prompt_clicked", 0),
