@@ -63,8 +63,8 @@
     <rect x="410" y="136" width="198" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.16"/>
     <text x="438" y="161" fill="#F0E8DC" font-size="15" font-weight="800" letter-spacing="1.8">ROOM SAFETY BRIEF</text>
     <text x="408" y="254" fill="#FFFFFF" font-size="88" font-weight="900" filter="url(#titleGlow)" letter-spacing="-5">ATLAS-0</text>
-    <text x="413" y="305" fill="#F5EDE2" font-size="30" font-weight="800">Upload a walkthrough. Leave with a fix-first report.</text>
-    <text x="414" y="344" fill="#BEB2A8" font-size="20">Evidence frames, calibrated confidence, practical next actions, and PDF export.</text>
+    <text x="413" y="305" fill="#F5EDE2" font-size="26" font-weight="800" textLength="651" lengthAdjust="spacingAndGlyphs">Upload a walkthrough. Leave with a fix-first report.</text>
+    <text x="414" y="344" fill="#BEB2A8" font-size="18" textLength="650" lengthAdjust="spacingAndGlyphs">Evidence frames, calibrated confidence, practical next actions, and PDF export.</text>
   </g>
 
   <g font-family="Aptos, Avenir Next, Segoe UI, Arial, sans-serif">
