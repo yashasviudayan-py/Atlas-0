@@ -4511,6 +4511,21 @@ def _validate_upload_constraints(content_type: str, content: bytes) -> None:
             ),
         )
 
+    max_video_pixels = int(getattr(_upload_cfg, "max_video_pixels", 0) or 0)
+    if (
+        max_video_pixels > 0
+        and metadata.width > 0
+        and metadata.height > 0
+        and metadata.width * metadata.height > max_video_pixels
+    ):
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Video resolution {metadata.width}x{metadata.height} exceeds the "
+                f"{max_video_pixels}-pixel limit."
+            ),
+        )
+
 
 @app.post("/upload", response_model=UploadJobStatus)
 async def upload_media(request: Request) -> UploadJobStatus:

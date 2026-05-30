@@ -184,6 +184,83 @@ def test_extract_frames_no_video_stream_returns_empty() -> None:
     assert result == []
 
 
+def _mock_video_container(*, width: int, height: int, frames: int = 4) -> MagicMock:
+    """Build a mock PyAV container exposing one video stream with dimensions."""
+    from fractions import Fraction
+
+    mock_stream = MagicMock()
+    mock_stream.type = "video"
+    mock_stream.frames = frames
+    mock_stream.duration = 100
+    mock_stream.time_base = Fraction(1, 10)
+    mock_stream.width = width
+    mock_stream.height = height
+
+    packet = MagicMock()
+    packet.decode.return_value = [_make_mock_frame()]
+
+    mock_container = MagicMock()
+    mock_container.streams = [mock_stream]
+    mock_container.duration = 1_000_000
+    mock_container.demux.return_value = iter([packet])
+    mock_container.__enter__ = MagicMock(return_value=mock_container)
+    mock_container.__exit__ = MagicMock(return_value=False)
+    return mock_container
+
+
+def test_extract_frames_rejects_oversized_resolution() -> None:
+    """A video whose coded resolution exceeds max_pixels yields no frames."""
+    mock_av = MagicMock()
+    mock_av.open.return_value = _mock_video_container(width=20_000, height=20_000)
+
+    with patch.dict("sys.modules", {"av": mock_av}):
+        result = extract_frames(b"fake_video", max_frames=4, max_pixels=33_177_600)
+
+    # 20000*20000 = 400 MP > 33.2 MP cap -> rejected before any decode.
+    assert result == []
+    mock_av.open.return_value.demux.assert_not_called()
+
+
+def test_extract_frames_allows_resolution_within_cap() -> None:
+    """A video within the resolution cap is decoded normally."""
+    mock_av = MagicMock()
+    mock_av.open.return_value = _mock_video_container(width=1920, height=1080)
+
+    with (
+        patch.dict("sys.modules", {"av": mock_av}),
+        patch("atlas.utils.video._frame_to_jpeg", return_value=b"\xff\xd8\xff"),
+    ):
+        result = extract_frames(b"fake_video", max_frames=4, max_pixels=33_177_600)
+
+    assert len(result) >= 1
+
+
+def test_extract_frames_without_cap_skips_resolution_check() -> None:
+    """When max_pixels is None the resolution guard is disabled (back-compat)."""
+    mock_av = MagicMock()
+    mock_av.open.return_value = _mock_video_container(width=20_000, height=20_000)
+
+    with (
+        patch.dict("sys.modules", {"av": mock_av}),
+        patch("atlas.utils.video._frame_to_jpeg", return_value=b"\xff\xd8\xff"),
+    ):
+        result = extract_frames(b"fake_video", max_frames=4)
+
+    assert len(result) >= 1
+
+
+def test_probe_video_metadata_includes_dimensions() -> None:
+    mock_av = MagicMock()
+    mock_av.open.return_value = _mock_video_container(width=1280, height=720)
+
+    with patch.dict("sys.modules", {"av": mock_av}):
+        metadata = probe_video_metadata(b"video-bytes")
+
+    assert metadata is not None
+    assert metadata.width == 1280
+    assert metadata.height == 720
+
+
 def test_probe_video_metadata_returns_duration_and_frame_count() -> None:
     from fractions import Fraction
 

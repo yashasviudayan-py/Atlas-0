@@ -1447,6 +1447,25 @@ def test_upload_rejects_video_over_duration_limit(monkeypatch: pytest.MonkeyPatc
     assert response.status_code == 413
 
 
+def test_upload_rejects_video_over_resolution_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    _upload_cfg.max_video_duration_seconds = 60.0
+    _upload_cfg.max_video_pixels = 33_177_600
+    monkeypatch.setattr(
+        server_mod,
+        "probe_video_metadata",
+        lambda _content: VideoMetadata(duration_s=5.0, frame_count=42, width=20_000, height=20_000),
+    )
+
+    response = client.post(
+        "/upload",
+        headers={"content-type": "video/mp4", "x-filename": "huge.mp4"},
+        content=b"fake-video",
+    )
+
+    assert response.status_code == 413
+    assert "resolution" in response.json()["detail"].lower()
+
+
 def test_upload_persists_job_input_and_enqueues_work(monkeypatch: pytest.MonkeyPatch) -> None:
     queued: list[str] = []
 

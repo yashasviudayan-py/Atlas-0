@@ -473,7 +473,9 @@ async def analyze_uploaded_video(
     max_frames: int = 6,
 ) -> UploadAnalysisResult:
     """Analyze a video upload by sampling frames and localizing tracked regions."""
-    frame_samples = extract_frame_samples(content, max_frames=max_frames)
+    upload_cfg = load_config().uploads
+    max_pixels = int(getattr(upload_cfg, "max_video_pixels", 0) or 0) or None
+    frame_samples = extract_frame_samples(content, max_frames=max_frames, max_pixels=max_pixels)
     if not frame_samples:
         raise ValueError(
             "Could not extract frames from the video file. Ensure it is a"
