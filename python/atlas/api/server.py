@@ -10,7 +10,6 @@ Provides endpoints for:
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
 import hmac
 import io
@@ -38,8 +37,24 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
+from atlas.api.helpers import (
+    _PUBLIC_PRODUCT_EVENTS,  # noqa: F401 — re-exported for tests/back-compat
+    _bounded_text,
+    _collapsed_text,
+    _finding_key,
+    _fmt_pos,
+    _iso_sort_key,
+    _mask_waitlist_email,
+    _normalize_follow_up_status,
+    _normalize_public_event_name,
+    _normalize_room_label,
+    _normalize_waitlist_email,
+    _safe_request_id,
+    _trace_id_from_traceparent,
+    _traceparent,
+    _utc_now_iso,
+)
 from atlas.api.metrics import (
     CONTENT_TYPE_LATEST,
     REGISTRY,
@@ -61,7 +76,32 @@ from atlas.api.metrics import (
     waitlist_signup_total,
     ws_clients_active,
 )
+from atlas.api.models import (
+    EvalCandidateRequest,
+    FindingFeedbackRequest,
+    FindingFollowUpRequest,
+    HealthResponse,
+    JobEvaluationRequest,
+    ObjectInfo,
+    OperatorAccessResponse,
+    OperatorSettingsResponse,
+    OverlayRiskEntry,
+    PrivacyPolicyResponse,
+    ProductEventRequest,
+    RiskDeltaMessage,
+    RiskInfo,
+    SceneState,
+    SpatialQuery,
+    SpatialQueryResult,
+    StoragePruneResponse,
+    TrustProofResponse,
+    UploadGuidanceResponse,
+    UploadJobStatus,
+    WaitlistRequest,
+    WaitlistResponse,
+)
 from atlas.api.overlay import CameraParams, OverlayBuilder
+from atlas.api.reports import _build_pdf_report
 from atlas.api.upload_analysis import (
     analyze_frame_samples,
     analyze_uploaded_image,
@@ -131,28 +171,6 @@ _BASE_SECURITY_HEADERS = {
     "Permissions-Policy": "camera=(self), microphone=(), geolocation=()",
 }
 _PRIVATE_CACHE_PREFIXES = ("/upload", "/jobs", "/reports")
-_TRACEPARENT_VERSION = "00"
-
-
-def _safe_request_id(value: str | None) -> str:
-    """Return a bounded request ID safe to echo in headers and logs."""
-    token = "".join(ch for ch in str(value or "") if ch.isalnum() or ch in {"-", "_"})
-    return token[:80] or uuid.uuid4().hex
-
-
-def _trace_id_from_traceparent(value: str | None) -> str:
-    """Extract a W3C trace ID or generate a fresh one."""
-    parts = str(value or "").split("-")
-    if len(parts) >= 4 and len(parts[1]) == 32:
-        trace_id = parts[1].lower()
-        if trace_id != "0" * 32 and all(ch in "0123456789abcdef" for ch in trace_id):
-            return trace_id
-    return uuid.uuid4().hex
-
-
-def _traceparent(trace_id: str) -> str:
-    """Build a minimal W3C traceparent header for downstream correlation."""
-    return f"{_TRACEPARENT_VERSION}-{trace_id}-{uuid.uuid4().hex[:16]}-01"
 
 
 def _rate_limit_scope(request: Request) -> tuple[str, int] | None:
@@ -358,235 +376,6 @@ def _current_objects(agent: WorldModelAgent) -> list[SemanticObject]:
     """Return the best available object list for API responses."""
     objects = agent.get_objects_sync()
     return objects or agent.build_objects_from_store()
-
-
-# ── Pydantic models ───────────────────────────────────────────────────────────
-
-
-class HealthResponse(BaseModel):
-    """Response model for GET /health."""
-
-    status: str
-    slam_active: bool
-    vlm_active: bool
-    frame_count: int
-    object_count: int
-    risk_count: int
-    risks_stale_seconds: float
-    deployment_ready: bool = False
-    worker_mode: str = "in_process"
-    warnings: list[str] = []
-
-
-class SpatialQuery(BaseModel):
-    """Request body for POST /query."""
-
-    query: str
-    max_results: int = 5
-
-
-class SpatialQueryResult(BaseModel):
-    """A single result returned by POST /query."""
-
-    object_label: str
-    position: list[float]
-    confidence: float
-    risk_level: float
-    description: str
-
-
-class ObjectInfo(BaseModel):
-    """Physical and spatial metadata for one labeled object."""
-
-    object_id: int
-    label: str
-    material: str
-    mass_kg: float
-    fragility: float
-    friction: float
-    confidence: float
-    position: list[float]
-    relationships: list[str]
-
-
-class RiskInfo(BaseModel):
-    """Summary of one risk entry."""
-
-    object_id: int
-    object_label: str
-    position: list[float]
-    risk_score: float
-    description: str
-
-
-class SceneState(BaseModel):
-    """Full snapshot of the current scene."""
-
-    object_count: int
-    objects: list[ObjectInfo]
-    risk_count: int
-    risks: list[RiskInfo]
-    point_cloud: list[list[float]] = []
-    """Pseudo-depth point cloud from uploaded images — each entry is [x, y, z, r, g, b]
-    where rgb is normalised 0-1.  Used by the 3DGS frontend to render upload-derived
-    structure in world space."""
-
-
-class OperatorAccessResponse(BaseModel):
-    """Public-facing access policy used by the hosted frontend."""
-
-    requires_token: bool
-    allow_unauthenticated_loopback: bool
-    enable_job_listing: bool
-    mode: str
-
-
-class OperatorSettingsResponse(BaseModel):
-    """Protected operator diagnostics for hosted beta deployments."""
-
-    access: dict[str, Any]
-    uploads: dict[str, Any]
-    queue: dict[str, Any]
-    storage: dict[str, Any]
-    system: dict[str, Any]
-    providers: dict[str, Any]
-    evaluation: dict[str, Any]
-    product: dict[str, Any]
-    beta_inbox: dict[str, Any]
-
-
-class PrivacyPolicyResponse(BaseModel):
-    """Public privacy posture exposed to the hosted frontend."""
-
-    retention_days: int
-    save_original_uploads: bool
-    delete_supported: bool
-    text_redaction_enabled: bool
-    summary: str
-    details: list[str]
-    artifact_backend: str = "local_fs"
-
-
-class UploadGuidanceResponse(BaseModel):
-    """Public upload limits and capture guidance for the hosted frontend."""
-
-    max_upload_bytes: int
-    max_video_duration_seconds: float
-    recommended_duration_seconds: dict[str, int]
-    accepted_extensions: list[str]
-    accepted_media_prefixes: list[str]
-    one_room_only: bool
-    checklist: list[str]
-    retry_guidance: list[str]
-
-
-class TrustProofResponse(BaseModel):
-    """Privacy-safe public proof signals for product trust UX."""
-
-    completed_scans: int
-    rejected_or_downgraded_scans: int
-    evidence_backed_reports: int
-    useful_feedback_count: int
-    negative_feedback_count: int
-    eval_ready_reports: int
-    sample_report_available: bool
-    known_limits: list[str]
-    proof_points: list[dict[str, str]]
-    privacy_notes: list[str]
-
-
-class ProductEventRequest(BaseModel):
-    """One lightweight public product analytics event."""
-
-    event_name: str
-    surface: str | None = None
-    job_id: str | None = None
-    sample_key: str | None = None
-    audience_mode: str | None = None
-    room_labeled: bool | None = None
-    room_label: str | None = None
-    session_id: str | None = None
-    client_ts: str | None = None
-    referrer: str | None = None
-    utm_source: str | None = None
-    utm_campaign: str | None = None
-    persona: str | None = None
-    use_case: str | None = None
-    referral_code: str | None = None
-    mission_id: str | None = None
-    challenge_id: str | None = None
-    file_type: str | None = None
-    file_size: int | None = None
-    reason: str | None = None
-
-
-class WaitlistRequest(BaseModel):
-    """One public waitlist signup submission."""
-
-    email: str
-    use_case: str | None = None
-    name: str | None = None
-    notes: str | None = None
-    source: str | None = None
-    audience_mode: str | None = None
-    persona: str | None = None
-    referral_code: str | None = None
-
-
-class WaitlistResponse(BaseModel):
-    """Public response returned after a waitlist signup."""
-
-    accepted: bool
-    waitlist_count: int
-    message: str
-
-
-class StoragePruneResponse(BaseModel):
-    """Protected response returned after a manual storage prune."""
-
-    deleted_jobs: int
-    bytes_reclaimed: int
-    remaining_jobs: int
-    remaining_bytes: int
-    pruned_at: str
-
-
-class EvalCandidateRequest(BaseModel):
-    """Operator request to export a reviewed report as an eval candidate."""
-
-    label: str | None = None
-    note: str | None = None
-
-
-class OverlayRiskEntry(BaseModel):
-    """Richer risk payload sent over the WebSocket delta stream.
-
-    Carries physics + heuristic merged scores, trajectory data, and
-    pre-built overlay primitives ready for the Three.js renderer.
-    """
-
-    object_id: int
-    object_label: str
-    position: list[float] | None
-    combined_score: float
-    physics_score: float
-    heuristic_score: float
-    risk_type: str
-    impact_point: list[float] | None
-    trajectory_points: list[list[float]] | None
-    description: str
-    overlay: dict[str, Any]
-
-
-class RiskDeltaMessage(BaseModel):
-    """Delta update message pushed over ``/ws/risks``.
-
-    Only items that changed since the previous tick are included.
-    """
-
-    added: list[OverlayRiskEntry]
-    updated: list[OverlayRiskEntry]
-    removed: list[int]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -1169,11 +958,6 @@ def _risk_score_for(object_id: int, risks: list[RiskEntry]) -> float:
     return 0.0
 
 
-def _fmt_pos(pos: tuple[float, float, float]) -> str:
-    """Format a 3D position as ``(x.xx, y.yy, z.zz)``."""
-    return f"({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})"
-
-
 def _to_object_info(obj: SemanticObject, risks: list[RiskEntry]) -> ObjectInfo:
     """Convert *obj* to an :class:`ObjectInfo` response model.
 
@@ -1696,132 +1480,6 @@ def _feedback_counts(events: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
-_PUBLIC_PRODUCT_EVENTS = {
-    "beta_onboarding_started",
-    "beta_invite_copied",
-    "before_after_card_copied",
-    "capture_coach_checked",
-    "capture_mode_changed",
-    "confidence_inspector_opened",
-    "cta_start_scan",
-    "daily_mission_completed",
-    "daily_mission_started",
-    "field_note_expanded",
-    "first_run_started",
-    "fix_guide_opened",
-    "fix_checklist_toggled",
-    "fix_library_opened",
-    "fix_plan_copied",
-    "fix_quest_completed",
-    "fix_today_copied",
-    "home_bingo_task_completed",
-    "home_journal_opened",
-    "home_pulse_opened",
-    "landing_section_viewed",
-    "live_capture_coach_started",
-    "live_capture_quality_checked",
-    "mystery_mode_started",
-    "personal_mode_selected",
-    "pdf_export_clicked",
-    "one_thing_today_completed",
-    "one_thing_today_started",
-    "offline_upload_queued",
-    "offline_upload_retried",
-    "post_report_feedback_submitted",
-    "pwa_offline_ready",
-    "privacy_receipt_copied",
-    "privacy_receipt_opened",
-    "report_share_card_copied",
-    "report_answer_copied",
-    "report_question_asked",
-    "room_map_preview_opened",
-    "room_compare_opened",
-    "room_care_calendar_opened",
-    "room_care_task_completed",
-    "room_care_week_regenerated",
-    "room_health_timeline_opened",
-    "room_passport_opened",
-    "room_personality_viewed",
-    "room_playbook_started",
-    "sample_cta_clicked",
-    "sample_gallery_opened",
-    "sample_journey_opened",
-    "sample_report_opened",
-    "share_card_style_changed",
-    "share_card_studio_copied",
-    "evidence_privacy_toggled",
-    "trust_dashboard_opened",
-    "room_win_card_shared",
-    "weekly_recap_copied",
-    "weekly_challenge_completed",
-    "room_win_copied",
-    "room_reminder_clicked",
-    "room_ritual_completed",
-    "room_ritual_started",
-    "rescan_prompt_clicked",
-    "same_room_rescan_started",
-    "scan_preflight_failed",
-    "settings_accessibility_changed",
-    "settings_data_cleared",
-    "settings_default_scan_changed",
-    "settings_feedback_clicked",
-    "settings_daily_value_changed",
-    "settings_local_backup_exported",
-    "settings_local_backup_imported",
-    "seasonal_pack_started",
-    "seasonal_pack_selected",
-    "smart_rescan_coach_opened",
-    "settings_motion_changed",
-    "settings_report_preferences_changed",
-    "settings_sample_opened",
-    "settings_theme_changed",
-    "fix_verification_started",
-    "fix_verification_copied",
-    "evidence_frame_focused",
-    "evidence_story_opened",
-    "confidence_explainer_opened",
-    "welcome_tour_completed",
-    "upload_started",
-    "upload_completed",
-    "report_viewed",
-    "report_theme_changed",
-    "report_share_copied",
-    "report_pdf_downloaded",
-    "waitlist_submitted",
-}
-
-
-def _normalize_public_event_name(value: str | None) -> str | None:
-    """Normalize one public-facing product event name."""
-    event_name = str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
-    return event_name if event_name in _PUBLIC_PRODUCT_EVENTS else None
-
-
-def _bounded_text(value: str | None, *, max_len: int) -> str | None:
-    """Collapse whitespace and keep public product metadata safely bounded."""
-    text = _collapsed_text(value)
-    if not text:
-        return None
-    return text[:max_len]
-
-
-def _collapsed_text(value: str | None) -> str | None:
-    """Collapse whitespace in optional user-provided text."""
-    text = " ".join(str(value or "").strip().split())
-    return text or None
-
-
-def _normalize_waitlist_email(value: str | None) -> str | None:
-    """Normalize and lightly validate one waitlist email address."""
-    email = str(value or "").strip().lower()
-    if not email or len(email) > 160 or "@" not in email:
-        return None
-    local, _sep, domain = email.partition("@")
-    if not local or "." not in domain or domain.startswith(".") or domain.endswith("."):
-        return None
-    return email
-
-
 def _load_eval_candidate_entries() -> list[dict[str, Any]]:
     """Load saved operator-exported evaluation candidates from disk."""
     return _upload_store.load_eval_candidates()
@@ -1832,14 +1490,6 @@ def _review_ready_for_eval(job: dict[str, Any]) -> bool:
     evaluation = dict(job.get("evaluation_summary") or {})
     human = dict(job.get("human_evaluation") or {})
     return bool(human) or int(evaluation.get("reviewed_findings", 0) or 0) > 0
-
-
-def _normalize_follow_up_status(value: str | None) -> str | None:
-    """Normalize one persisted finding follow-up status."""
-    status = str(value or "").strip().lower()
-    if status in {"resolved", "monitor", "ignored"}:
-        return status
-    return None
 
 
 def _apply_follow_up_events(job: dict[str, Any]) -> None:
@@ -2293,16 +1943,6 @@ def _provider_runtime_summary() -> dict[str, Any]:
     }
 
 
-def _mask_waitlist_email(email: str | None) -> str:
-    """Return a privacy-safe email preview for operator beta triage."""
-    value = str(email or "").strip().lower()
-    local, sep, domain = value.partition("@")
-    if not sep or not local or not domain:
-        return "unknown"
-    visible = local[:2] if len(local) > 2 else local[:1]
-    return f"{visible}***@{domain}"
-
-
 def _job_started_seconds(job: dict[str, Any]) -> float | None:
     """Return elapsed seconds between a job start and terminal timestamp."""
     started_at = job.get("started_at") or job.get("created_at")
@@ -2605,19 +2245,6 @@ def _build_evaluation_summary(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _iso_sort_key(job: dict[str, Any]) -> str:
-    """Return a stable descending sort key for job recency."""
-    return str(job.get("completed_at") or job.get("queued_at") or job.get("job_id") or "")
-
-
-def _normalize_room_label(value: str | None) -> str | None:
-    """Normalize a user-facing room label for storage and comparison."""
-    label = " ".join(str(value or "").strip().split())
-    if not label:
-        return None
-    return label
-
-
 def _share_path_for_job(job_id: str) -> str:
     """Return the frontend deep link for one upload report."""
     return f"/app?view=report&job={job_id}"
@@ -2863,14 +2490,6 @@ for _job in _upload_jobs.values():
     _ensure_job_derived_fields(_job)
 
 
-def _finding_key(hazard: dict[str, Any]) -> str:
-    """Build a stable identifier for one report finding."""
-    return (
-        f"{hazard.get('object_id') or hazard.get('object_label') or 'finding'}:"
-        f"{hazard.get('hazard_code') or 'unknown'}"
-    )
-
-
 def _request_host(request: Request) -> str:
     """Return the peer host string for one request."""
     return str(request.client.host if request.client else "")
@@ -2927,11 +2546,6 @@ def _require_private_access(request: Request) -> None:
             " api.access_token is configured."
         ),
     )
-
-
-def _utc_now_iso() -> str:
-    """Return the current UTC timestamp in ISO-8601 format."""
-    return datetime.now(UTC).isoformat()
 
 
 def _sample_report_frames_dir() -> pathlib.Path:
@@ -3479,75 +3093,6 @@ def _active_upload_job_count() -> int:
     )
 
 
-class UploadJobStatus(BaseModel):
-    """Status of a media upload and analysis job."""
-
-    job_id: str
-    filename: str
-    room_label: str | None = None
-    is_sample: bool = False
-    sample_key: str | None = None
-    audience_mode: str | None = None
-    status: str  # queued | processing | complete | error
-    stage: str  # upload | ingest | vlm | risk | complete
-    progress: float
-    objects: list[dict[str, Any]] | None = None
-    risks: list[dict[str, Any]] | None = None
-    fix_first: list[dict[str, Any]] | None = None
-    weekend_fix_list: list[dict[str, Any]] | None = None
-    summary: dict[str, Any] | None = None
-    recommendations: list[dict[str, Any]] | None = None
-    evidence_frames: list[dict[str, Any]] | None = None
-    scan_quality: dict[str, Any] | None = None
-    trust_notes: list[str] | None = None
-    scene_source: str | None = None
-    finding_feedback: list[dict[str, Any]] | None = None
-    feedback_summary: dict[str, int] | None = None
-    evaluation_summary: dict[str, Any] | None = None
-    human_evaluation: dict[str, Any] | None = None
-    room_history: list[dict[str, Any]] | None = None
-    room_comparison: dict[str, Any] | None = None
-    room_wins: list[dict[str, Any]] | None = None
-    finding_follow_up: list[dict[str, Any]] | None = None
-    resolution_summary: dict[str, Any] | None = None
-    report_url: str | None = None
-    share_url: str | None = None
-    error: str | None = None
-    artifacts: dict[str, Any] | None = None
-    attempt_count: int = 0
-    expires_at: str | None = None
-    queued_at: str | None = None
-    started_at: str | None = None
-    completed_at: str | None = None
-
-
-class FindingFeedbackRequest(BaseModel):
-    """One user feedback event for a specific report finding."""
-
-    hazard_code: str
-    verdict: str
-    object_id: str | None = None
-    note: str | None = None
-
-
-class FindingFollowUpRequest(BaseModel):
-    """Persist a lightweight follow-up status for one report finding."""
-
-    hazard_code: str
-    status: str
-    object_id: str | None = None
-    note: str | None = None
-
-
-class JobEvaluationRequest(BaseModel):
-    """One human review verdict for a completed report."""
-
-    status: str
-    benchmark_label: str | None = None
-    missed_hazards: list[str] | None = None
-    note: str | None = None
-
-
 async def _get_or_init_upload_vlm() -> VLMEngine:
     """Return a cached, initialised :class:`VLMEngine` for upload analysis."""
     if "upload_vlm" not in _state:
@@ -3757,514 +3302,6 @@ def _analyze_image_heuristic(content: bytes) -> SemanticLabel:
             friction=0.5,
             confidence=0.30,
         )
-
-
-def _point_cloud_centroid(points: list[list[float]]) -> tuple[float, float, float]:
-    """Estimate a stable object position from an upload-derived point cloud."""
-    if not points:
-        return (0.0, 0.8, 1.5)
-
-    xs = [float(p[0]) for p in points]
-    ys = [float(p[1]) for p in points]
-    zs = [float(p[2]) for p in points]
-    return (
-        round(sum(xs) / len(xs), 3),
-        round(sum(ys) / len(ys), 3),
-        round(sum(zs) / len(zs), 3),
-    )
-
-
-def _encode_data_url(content: bytes, mime_type: str) -> str:
-    """Encode raw media bytes as a data URL for inline evidence previews."""
-    encoded = base64.b64encode(content).decode("ascii")
-    return f"data:{mime_type};base64,{encoded}"
-
-
-def _risk_severity(score: float) -> str:
-    """Convert a numeric score into a user-facing severity bucket."""
-    if score >= 0.78:
-        return "critical"
-    if score >= 0.58:
-        return "high"
-    if score >= 0.35:
-        return "moderate"
-    return "low"
-
-
-def _location_label(position: tuple[float, float, float]) -> str:
-    """Describe an approximate room zone from an estimated object position."""
-    x, _y, z = position
-    horizontal = "center"
-    depth = "middle"
-
-    if x < -0.8:
-        horizontal = "left"
-    elif x > 0.8:
-        horizontal = "right"
-
-    if z < 0.8:
-        depth = "front"
-    elif z > 1.8:
-        depth = "back"
-
-    if horizontal == "center" and depth == "middle":
-        return "center area"
-    return f"{depth}-{horizontal}".replace("-center", "")
-
-
-def _build_trust_notes(scene_source: str) -> list[str]:
-    """Return explicit honesty notes for the current scene estimation mode."""
-    if scene_source == "heuristic_estimate":
-        return [
-            "This scan uses upload-side heuristic grounding rather than full SLAM reconstruction.",
-            (
-                "Object locations are approximate and should be treated as"
-                " directional, not survey-grade."
-            ),
-            (
-                "Use the evidence frames and recommendations as the primary"
-                " output, not the point cloud alone."
-            ),
-        ]
-    return ["This report is based on measured scene data."]
-
-
-def _recommendation_for(
-    obj: dict[str, Any],
-    risk: dict[str, Any],
-) -> dict[str, Any]:
-    """Generate a deterministic action card for one risky object."""
-    label = str(obj.get("label", "Object"))
-    material = str(obj.get("material", "Unknown"))
-    risk_score = float(risk.get("risk_score", 0.0))
-    fragility = float(obj.get("fragility", 0.0))
-    mass_kg = float(obj.get("mass_kg", 0.0))
-    location = str(obj.get("location_label", "scan area"))
-    label_lower = label.lower()
-
-    action = "Reposition this item to a more stable location."
-    why = f"{label} is one of the higher-risk items in the scan."
-    priority = _risk_severity(risk_score)
-
-    if (
-        any(word in label_lower for word in ("glass", "vase", "cup", "mug", "bottle"))
-        or fragility > 0.72
-    ):
-        action = "Move it farther from edges and lower it onto a wider, more stable surface."
-        why = f"It appears fragile ({material}) and likely to break if tipped or dropped."
-    elif any(word in label_lower for word in ("lamp", "shelf", "bookcase", "rack")):
-        action = "Stabilize or anchor it, and clear the surrounding fall zone."
-        why = "It looks tall or top-heavy, which raises tipping risk."
-    elif mass_kg > 5.0:
-        action = "Lower it and keep heavy weight below waist height if possible."
-        why = "Heavier objects create more impact risk if they shift or fall."
-    elif material.lower() in {"plant", "plastic", "mixed"}:
-        action = "Reduce clutter around it and move it away from walk paths or edges."
-        why = "Its current placement appears more risky than the object itself."
-
-    return {
-        "title": f"Stabilize {label}",
-        "priority": priority,
-        "location": location,
-        "action": action,
-        "why": why,
-    }
-
-
-def _build_recommendations(
-    objects: list[dict[str, Any]],
-    risks: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Build ordered recommendation cards from the current risk list."""
-    objects_by_label = {str(obj.get("label", "")).lower(): obj for obj in objects}
-    recommendations: list[dict[str, Any]] = []
-
-    ranked_risks = sorted(
-        risks,
-        key=lambda entry: float(entry.get("risk_score", 0.0)),
-        reverse=True,
-    )
-
-    for risk in ranked_risks[:5]:
-        key = str(risk.get("object_label", "")).lower()
-        obj = objects_by_label.get(key)
-        if obj is None:
-            continue
-        recommendations.append(_recommendation_for(obj, risk))
-
-    return recommendations
-
-
-def _build_summary(
-    filename: str,
-    objects: list[dict[str, Any]],
-    risks: list[dict[str, Any]],
-    scene_source: str,
-) -> dict[str, Any]:
-    """Build a compact report summary for the frontend."""
-    top_risk = max(risks, key=lambda entry: float(entry.get("risk_score", 0.0)), default=None)
-    return {
-        "filename": filename,
-        "object_count": len(objects),
-        "hazard_count": len(risks),
-        "top_severity": (
-            _risk_severity(float(top_risk.get("risk_score", 0.0))) if top_risk else "none"
-        ),
-        "top_hazard_label": top_risk.get("object_label") if top_risk else None,
-        "scene_source": scene_source,
-        "confidence_label": (
-            "Approximate spatial grounding"
-            if scene_source == "heuristic_estimate"
-            else "Measured scene grounding"
-        ),
-    }
-
-
-def _build_pdf_report(job: dict[str, Any]) -> bytes:
-    """Generate a compact PDF report without extra runtime dependencies."""
-    summary = job.get("summary") or {}
-    risks = job.get("risks") or []
-    fix_first = job.get("fix_first") or []
-    weekend_fix_list = job.get("weekend_fix_list") or []
-    recommendations = job.get("recommendations") or []
-    scan_quality = job.get("scan_quality") or {}
-    trust_notes = job.get("trust_notes") or []
-    evaluation_summary = job.get("evaluation_summary") or {}
-    room_wins = job.get("room_wins") or []
-
-    lines = [
-        "ATLAS-0 Room Safety Report",
-        f"Scan file: {summary.get('filename', 'unknown')}",
-        (
-            "Audience mode: "
-            f"{summary.get('audience_label', audience_mode_label(job.get('audience_mode')))}"
-        ),
-        f"Hazards found: {summary.get('hazard_count', 0)}",
-        f"Objects detected: {summary.get('object_count', 0)}",
-        f"Scene source: {summary.get('scene_source', 'unknown')}",
-        f"Report posture: {summary.get('report_posture', 'screening')}",
-        (
-            "Scan quality: "
-            f"{str(scan_quality.get('status', 'unknown')).upper()} "
-            f"({int(float(scan_quality.get('score', 0.0)) * 100)} / 100)"
-        ),
-        f"Coverage: {summary.get('coverage_label', 'Unknown')}",
-        summary.get(
-            "screening_statement",
-            (
-                "This report flags likely hazards from the uploaded scan."
-                " It does not certify that the room is safe."
-            ),
-        ),
-        "",
-        "Fix first:",
-    ]
-
-    if fix_first:
-        for action in fix_first[:3]:
-            lines.append(f"- {action.get('title', 'Action')}: {action.get('action', '')}")
-    else:
-        lines.append("- No high-priority actions were generated.")
-
-    lines.extend(["", "Weekend fix list:"])
-    if weekend_fix_list:
-        for item in weekend_fix_list[:3]:
-            lines.append(
-                f"- {item.get('title', 'Weekend fix')} ({item.get('effort', '20-30 minutes')}): "
-                f"{item.get('task', '')}"
-            )
-    else:
-        lines.append("- No weekend fix list was generated.")
-
-    lines.extend(
-        [
-            "",
-            "Top hazards:",
-        ]
-    )
-
-    if risks:
-        for risk in risks[:5]:
-            lines.append(
-                f"- {risk.get('hazard_title', risk.get('object_label', 'Object'))} "
-                f"({str(risk.get('severity', 'low')).upper()}): "
-                f"{risk.get('what', risk.get('description', ''))}"
-            )
-    else:
-        lines.append(
-            "- No high-confidence hazards were detected in this scan."
-            " This is not a safety clearance."
-        )
-
-    lines.extend(["", "Recommended actions:"])
-    if recommendations:
-        for rec in recommendations[:5]:
-            lines.append(f"- {rec.get('title', 'Action')}: {rec.get('action', '')}")
-    else:
-        lines.append("- No follow-up actions were generated.")
-
-    if scan_quality.get("warnings"):
-        lines.extend(["", "Scan quality warnings:"])
-        for warning in scan_quality["warnings"][:3]:
-            lines.append(f"- {warning}")
-
-    if trust_notes:
-        lines.extend(["", "Trust notes:"])
-        for note in trust_notes[:3]:
-            lines.append(f"- {note}")
-
-    if room_wins:
-        lines.extend(["", "Positive signs in this scan:"])
-        for win in room_wins[:3]:
-            lines.append(f"- {win.get('title', 'Positive sign')}: {win.get('detail', '')}")
-
-    if evaluation_summary:
-        lines.extend(
-            [
-                "",
-                "Review loop:",
-                f"- {evaluation_summary.get('summary', 'No review summary available.')}",
-                (
-                    f"- Precision proxy: "
-                    f"{int(float(evaluation_summary.get('precision_proxy', 0.0)) * 100)} / 100"
-                ),
-                (
-                    f"- Recall proxy: "
-                    f"{int(float(evaluation_summary.get('recall_proxy', 0.0)) * 100)} / 100"
-                ),
-            ]
-        )
-
-    max_lines = 34
-    visible_lines = lines[:max_lines]
-
-    def _pdf_escape(text: str) -> str:
-        return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
-
-    y = 790
-    content_lines: list[str] = []
-    for index, line in enumerate(visible_lines):
-        font_size = 18 if index == 0 else 11
-        content_lines.append(f"BT /F1 {font_size} Tf 48 {y} Td ({_pdf_escape(line)}) Tj ET")
-        y -= 24 if index == 0 else 17
-
-    stream = "\n".join(content_lines).encode("latin-1", "replace")
-    objects = [
-        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
-        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
-        (
-            b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] "
-            b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n"
-        ),
-        b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
-        (
-            f"5 0 obj << /Length {len(stream)} >> stream\n".encode("ascii")
-            + stream
-            + b"\nendstream endobj\n"
-        ),
-    ]
-
-    pdf = bytearray(b"%PDF-1.4\n")
-    offsets: list[int] = []
-    for obj in objects:
-        offsets.append(len(pdf))
-        pdf.extend(obj)
-
-    xref_offset = len(pdf)
-    pdf.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
-    pdf.extend(b"0000000000 65535 f \n")
-    for offset in offsets:
-        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
-    pdf.extend(
-        (
-            f"trailer << /Size {len(objects) + 1} /Root 1 0 R >>\n"
-            f"startxref\n{xref_offset}\n%%EOF\n"
-        ).encode("ascii")
-    )
-    return bytes(pdf)
-
-
-async def _process_video_upload(job: dict[str, Any], content: bytes) -> None:
-    """Extract frames from a video and run the full analysis pipeline on each.
-
-    Frames are sampled evenly across the video duration. Each frame is analyzed
-    by the VLM and contributes to the point cloud. Results are merged: objects
-    are deduplicated by label, risks take the max score across frames.
-
-    Args:
-        job: The in-memory job dict to update with status and results.
-        content: Raw video file bytes (MP4, MOV, WEBM, AVI).
-    """
-    from atlas.utils.video import extract_frames, is_video_available
-
-    if not is_video_available():
-        job.update(
-            {
-                "status": "error",
-                "stage": "complete",
-                "progress": 1.0,
-                "objects": [],
-                "risks": [],
-                "error": (
-                    "Video support requires the 'av' package. "
-                    'Install it with: pip install "atlas-0[video]"'
-                ),
-            }
-        )
-        return
-
-    job.update({"stage": "ingest", "progress": 0.1})
-
-    frames = extract_frames(content, max_frames=8)
-    if not frames:
-        job.update(
-            {
-                "status": "error",
-                "stage": "complete",
-                "progress": 1.0,
-                "objects": [],
-                "risks": [],
-                "error": "Could not extract frames from the video file. "
-                "Ensure the file is a valid MP4, MOV, WEBM, or AVI.",
-            }
-        )
-        return
-
-    logger.info("video_upload_frames_extracted", frame_count=len(frames))
-    engine = await _get_or_init_upload_vlm()
-    evidence_frames: list[dict[str, Any]] = []
-
-    # Maps label -> best SemanticLabel seen across frames (by confidence).
-    best_labels: dict[str, Any] = {}
-    all_points: list[list[float]] = []
-
-    for i, frame_bytes in enumerate(frames):
-        progress = 0.15 + (i / len(frames)) * 0.70
-        job.update({"stage": "vlm", "progress": round(progress, 2)})
-
-        label = await engine.label_region(frame_bytes, region_hint=f"video frame {i + 1}")
-        if label.label in ("unknown", "") or label.confidence < 0.35:
-            label = _analyze_image_heuristic(frame_bytes)
-
-        if len(evidence_frames) < 4:
-            evidence_frames.append(
-                {
-                    "caption": f"Evidence frame {i + 1}",
-                    "kind": "video_frame",
-                    "confidence": round(label.confidence, 2),
-                    "image_url": _encode_data_url(frame_bytes, "image/jpeg"),
-                }
-            )
-
-        # Contribute this frame's point cloud (offset along Z by frame index
-        # so multi-frame clouds have spatial spread rather than all stacking).
-        frame_points = _generate_depth_pointcloud(frame_bytes, n_points=400)
-        z_offset = i * 0.4  # metres apart per frame
-        for pt in frame_points:
-            all_points.append([pt[0], pt[1], pt[2] + z_offset, pt[3], pt[4], pt[5]])
-        frame_position = _point_cloud_centroid(
-            [[pt[0], pt[1], pt[2] + z_offset] for pt in frame_points]
-        )
-
-        existing = best_labels.get(label.label)
-        if existing is None:
-            best_labels[label.label] = {
-                "label": label.label,
-                "material": label.material,
-                "mass_kg": label.mass_kg,
-                "fragility": label.fragility,
-                "friction": label.friction,
-                "confidence": label.confidence,
-                "positions": [frame_position],
-                "observations": 1,
-            }
-            continue
-
-        existing["positions"].append(frame_position)
-        existing["observations"] += 1
-        if label.confidence > existing["confidence"]:
-            existing.update(
-                {
-                    "label": label.label,
-                    "material": label.material,
-                    "mass_kg": label.mass_kg,
-                    "fragility": label.fragility,
-                    "friction": label.friction,
-                    "confidence": label.confidence,
-                }
-            )
-
-    job.update({"stage": "risk", "progress": 0.90})
-
-    objects = []
-    for obj_data in best_labels.values():
-        position = _point_cloud_centroid(
-            [[x, y, z] for x, y, z in obj_data.get("positions", [(0.0, 0.8, 1.5)])]
-        )
-        obj_data["position"] = [position[0], position[1], position[2]]
-        obj_data["location_label"] = _location_label(position)
-        objects.append(obj_data)
-
-    risks: list[dict[str, Any]] = []
-    agent = _get_agent()
-    scene_source = "heuristic_estimate"
-    trust_notes = _build_trust_notes(scene_source)
-
-    for obj_data in objects:
-        mass_factor = min(obj_data["mass_kg"] / 20.0, 0.3) * 0.3
-        risk_score = min(1.0, obj_data["fragility"] * 0.4 + mass_factor + 0.1)
-        if risk_score > 0.25:
-            risks.append(
-                {
-                    "object_label": obj_data["label"],
-                    "risk_score": round(risk_score, 3),
-                    "severity": _risk_severity(risk_score),
-                    "location_label": obj_data["location_label"],
-                    "description": (
-                        f"{obj_data['label']} — fragility {obj_data['fragility']:.2f}, "
-                        f"mass {obj_data['mass_kg']:.1f} kg, approx. {obj_data['location_label']}"
-                    ),
-                }
-            )
-        # Inject into the live world model so /objects and /scene update.
-        from atlas.vlm.inference import SemanticLabel
-
-        sl = SemanticLabel(
-            label=obj_data["label"],
-            material=obj_data["material"],
-            mass_kg=obj_data["mass_kg"],
-            fragility=obj_data["fragility"],
-            friction=obj_data["friction"],
-            confidence=obj_data["confidence"],
-        )
-        position = tuple(obj_data["position"])
-        await agent.ingest_from_upload(sl, position=position)
-
-    recommendations = _build_recommendations(objects, risks)
-    summary = _build_summary(job["filename"], objects, risks, scene_source)
-
-    job.update(
-        {
-            "status": "complete",
-            "stage": "complete",
-            "progress": 1.0,
-            "objects": objects,
-            "risks": risks,
-            "point_cloud": all_points,
-            "summary": summary,
-            "recommendations": recommendations,
-            "evidence_frames": evidence_frames,
-            "trust_notes": trust_notes,
-            "scene_source": scene_source,
-            "report_url": f"/reports/{job['job_id']}.pdf",
-        }
-    )
-    logger.info(
-        "video_upload_complete",
-        objects=len(objects),
-        risks=len(risks),
-        points=len(all_points),
-    )
 
 
 async def _process_upload(job_id: str, *, worker_id: str | None = None) -> None:
@@ -4691,6 +3728,21 @@ def _validate_upload_constraints(content_type: str, content: bytes) -> None:
             detail=(
                 f"Video duration {metadata.duration_s:.1f}s exceeds the "
                 f"{_upload_cfg.max_video_duration_seconds:.1f}s limit."
+            ),
+        )
+
+    max_video_pixels = int(getattr(_upload_cfg, "max_video_pixels", 0) or 0)
+    if (
+        max_video_pixels > 0
+        and metadata.width > 0
+        and metadata.height > 0
+        and metadata.width * metadata.height > max_video_pixels
+    ):
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Video resolution {metadata.width}x{metadata.height} exceeds the "
+                f"{max_video_pixels}-pixel limit."
             ),
         )
 

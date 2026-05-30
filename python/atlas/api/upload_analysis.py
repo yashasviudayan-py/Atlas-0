@@ -26,6 +26,44 @@ from atlas.world_model.hazards import (
 
 Labeler = Callable[[bytes, str], Awaitable[SemanticLabel]]
 
+# Fallback decompression-bomb cap used when no explicit limit is threaded
+# through (e.g. for derived crops).  The live upload path passes the
+# operator-configured ``uploads.max_image_pixels`` instead.
+_DEFAULT_MAX_IMAGE_PIXELS = 50_000_000
+
+
+class ImageTooLargeError(ValueError):
+    """Raised when an image's pixel dimensions exceed the safety cap."""
+
+
+def _open_image_guarded(image_bytes: bytes, max_pixels: int) -> Image.Image:
+    """Open untrusted image bytes, rejecting decompression bombs.
+
+    PIL opens lazily and reads only the header, so the pixel dimensions are
+    known before the full RGB decode allocates any pixel buffer.  Validating
+    here means a small file that declares enormous dimensions is rejected
+    before it can exhaust memory.
+
+    Args:
+        image_bytes: Raw, untrusted image bytes.
+        max_pixels: Maximum allowed ``width * height``.
+
+    Returns:
+        An opened (not yet decoded) :class:`PIL.Image.Image`.
+
+    Raises:
+        ImageTooLargeError: If the declared dimensions exceed ``max_pixels``.
+    """
+    image = Image.open(io.BytesIO(image_bytes))
+    width, height = image.size
+    if width <= 0 or height <= 0 or width * height > max_pixels:
+        image.close()
+        raise ImageTooLargeError(
+            f"Image dimensions {width}x{height} exceed the {max_pixels}-pixel "
+            "safety limit (possible decompression bomb)."
+        )
+    return image
+
 
 @dataclass(frozen=True)
 class RegionCandidate:
@@ -200,7 +238,8 @@ def _sanitize_region_crop(
 def analyze_image_heuristic(content: bytes) -> SemanticLabel:
     """Derive a semantic label from image pixels when the VLM is unavailable."""
     try:
-        img = Image.open(io.BytesIO(content)).convert("RGB")
+        with _open_image_guarded(content, _DEFAULT_MAX_IMAGE_PIXELS) as opened:
+            img = opened.convert("RGB")
         img.thumbnail((128, 128))
         arr = np.array(img, dtype=np.float32)
 
@@ -277,7 +316,8 @@ def analyze_image_heuristic(content: bytes) -> SemanticLabel:
 def generate_depth_pointcloud(content: bytes, n_points: int = 320) -> list[list[float]]:
     """Sample a pseudo-depth point cloud from image luminance."""
     try:
-        img = Image.open(io.BytesIO(content)).convert("RGB")
+        with _open_image_guarded(content, _DEFAULT_MAX_IMAGE_PIXELS) as opened:
+            img = opened.convert("RGB")
         max_side = 160
         w, h = img.size
         scale = min(max_side / max(w, 1), max_side / max(h, 1))
@@ -433,7 +473,9 @@ async def analyze_uploaded_video(
     max_frames: int = 6,
 ) -> UploadAnalysisResult:
     """Analyze a video upload by sampling frames and localizing tracked regions."""
-    frame_samples = extract_frame_samples(content, max_frames=max_frames)
+    upload_cfg = load_config().uploads
+    max_pixels = int(getattr(upload_cfg, "max_video_pixels", 0) or 0) or None
+    frame_samples = extract_frame_samples(content, max_frames=max_frames, max_pixels=max_pixels)
     if not frame_samples:
         raise ValueError(
             "Could not extract frames from the video file. Ensure it is a"
@@ -466,7 +508,10 @@ async def analyze_frame_samples(
     audience_mode = normalize_audience_mode(audience_mode)
     upload_cfg = load_config().uploads
 
-    decoded_frames = [_decode_rgb(sample.image_bytes) for sample in frame_samples]
+    max_image_pixels = int(getattr(upload_cfg, "max_image_pixels", _DEFAULT_MAX_IMAGE_PIXELS))
+    decoded_frames = [
+        _decode_rgb(sample.image_bytes, max_pixels=max_image_pixels) for sample in frame_samples
+    ]
     camera_positions = _estimate_camera_path(decoded_frames)
     regions_per_frame = [_extract_salient_regions(frame_arr) for frame_arr in decoded_frames]
     scan_quality = _assess_scan_quality(
@@ -590,9 +635,20 @@ async def analyze_frame_samples(
     )
 
 
-def _decode_rgb(image_bytes: bytes) -> np.ndarray:
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    return np.array(image, dtype=np.uint8)
+def _decode_rgb(
+    image_bytes: bytes,
+    *,
+    max_pixels: int = _DEFAULT_MAX_IMAGE_PIXELS,
+) -> np.ndarray:
+    """Decode untrusted image bytes to an RGB array under a pixel-count cap.
+
+    Raises:
+        ImageTooLargeError: If the image exceeds ``max_pixels`` (decompression
+            bomb guard).  Raised before any full-resolution decode occurs.
+    """
+    with _open_image_guarded(image_bytes, max_pixels) as image:
+        rgb = image.convert("RGB")
+    return np.array(rgb, dtype=np.uint8)
 
 
 def _extract_salient_regions(frame_arr: np.ndarray, max_regions: int = 3) -> list[RegionCandidate]:
