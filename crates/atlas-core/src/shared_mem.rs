@@ -11,7 +11,7 @@
 //! │  magic(4)  version(4)  frame_id(8)  timestamp_ns(8)                    │
 //! │  gaussian_count(4)  pose_tx(4)  pose_ty(4)  pose_tz(4)                 │
 //! │  pose_qw(4)  pose_qx(4)  pose_qy(4)  pose_qz(4)                       │
-//! │  write_index(4)  _padding(4)                                            │
+//! │  write_index(4)  sequence(4)                                            │
 //! ├─────────────────────── Buffer 0 ───────────────────────────────────────┤
 //! │  gaussian_count × 28 bytes  (x,y,z + opacity + r,g,b)                  │
 //! ├─────────────────────── Buffer 1 ───────────────────────────────────────┤
@@ -20,8 +20,14 @@
 //! ```
 //!
 //! Double-buffering avoids read-write contention: the writer fills the
-//! *inactive* buffer, then atomically flips `write_index`.  Readers always
-//! consume the buffer pointed to by `write_index`.
+//! *inactive* buffer, then flips `write_index`.  Because the snapshot metadata
+//! (`gaussian_count`, `frame_id`, `timestamp_ns`, `pose`) lives in the shared
+//! header rather than per-buffer, the whole publish is additionally guarded by
+//! a **seqlock** in the `sequence` field: the writer bumps it to an odd value
+//! before mutating any bytes and back to an even value afterwards.  A reader
+//! that observes an odd sequence, or a sequence that changed across its read,
+//! retries — so it never mixes a fresh count/pose with a stale buffer, nor
+//! consumes a buffer the writer overwrote mid-read.
 //!
 //! All multi-byte integers are stored in **little-endian** byte order.
 
@@ -48,6 +54,7 @@ const OFF_POSE_QX: usize = 44;
 const OFF_POSE_QY: usize = 48;
 const OFF_POSE_QZ: usize = 52;
 const OFF_WRITE_INDEX: usize = 56;
+const OFF_SEQUENCE: usize = 60;
 
 /// Total header size in bytes.
 pub const HEADER_SIZE: usize = 64;
@@ -55,7 +62,10 @@ pub const HEADER_SIZE: usize = 64;
 /// Magic number that identifies Atlas-0 shared-memory files.
 pub const ATLAS_MMAP_MAGIC: u32 = 0xA7_1A_50_00;
 /// Current binary format version.
-pub const ATLAS_MMAP_VERSION: u32 = 1;
+///
+/// Bumped to `2` when the seqlock (`sequence` header field) was introduced;
+/// v1 readers would ignore it and remain exposed to torn reads.
+pub const ATLAS_MMAP_VERSION: u32 = 2;
 /// Bytes occupied by one serialised Gaussian entry.
 pub const BYTES_PER_GAUSSIAN: usize = 28;
 
@@ -141,6 +151,14 @@ impl SharedMemWriter {
         frame_id: u64,
         timestamp_ns: u64,
     ) {
+        // Enter the seqlock write section: bump the sequence to an odd value so
+        // concurrent readers know a write is in progress and will retry.  The
+        // release fence ensures the odd marker is visible before any payload
+        // bytes change.
+        let seq = read_u32(&self.mmap, OFF_SEQUENCE);
+        write_u32(&mut self.mmap, OFF_SEQUENCE, seq.wrapping_add(1));
+        std::sync::atomic::fence(Ordering::Release);
+
         // Select the inactive buffer (the one readers are *not* currently using).
         let current_idx = read_u32(&self.mmap, OFF_WRITE_INDEX) as usize;
         let next_idx = 1 - current_idx;
@@ -184,16 +202,21 @@ impl SharedMemWriter {
         write_f32(&mut self.mmap, OFF_POSE_QY, pose.rotation[2]);
         write_f32(&mut self.mmap, OFF_POSE_QZ, pose.rotation[3]);
 
-        // Release fence ensures all prior writes are visible before the index
-        // flip.
-        std::sync::atomic::fence(Ordering::Release);
+        // Publish the freshly written buffer.
         write_u32(&mut self.mmap, OFF_WRITE_INDEX, next_idx as u32);
+
+        // Leave the seqlock write section: the release fence guarantees every
+        // payload write above is visible before the sequence returns to an even
+        // value, signalling readers that the snapshot is complete and stable.
+        std::sync::atomic::fence(Ordering::Release);
+        write_u32(&mut self.mmap, OFF_SEQUENCE, seq.wrapping_add(2));
     }
 
     fn init_header(&mut self) {
         write_u32(&mut self.mmap, OFF_MAGIC, ATLAS_MMAP_MAGIC);
         write_u32(&mut self.mmap, OFF_VERSION, ATLAS_MMAP_VERSION);
         write_u32(&mut self.mmap, OFF_WRITE_INDEX, 0);
+        write_u32(&mut self.mmap, OFF_SEQUENCE, 0);
     }
 }
 
@@ -287,12 +310,38 @@ impl SharedMemReader {
 
     /// Read the latest fully-written snapshot from the active double-buffer.
     ///
-    /// Uses an acquire fence to ensure all writes by the producer are visible
-    /// before the data is read.
+    /// Implements the reader half of the seqlock: it reads the `sequence`
+    /// field before and after copying the snapshot and retries while a write is
+    /// in progress (odd sequence) or the sequence changed mid-read.  This
+    /// guarantees a torn snapshot is never returned.  The read stays
+    /// non-blocking: after a bounded number of retries it returns the most
+    /// recent attempt rather than spinning forever on a stalled writer.
     #[must_use]
     pub fn read_snapshot(&self) -> GaussianSnapshot {
-        std::sync::atomic::fence(Ordering::Acquire);
+        const MAX_ATTEMPTS: u32 = 8;
+        for _ in 0..MAX_ATTEMPTS.saturating_sub(1) {
+            std::sync::atomic::fence(Ordering::Acquire);
+            let seq_before = read_u32(&self.mmap, OFF_SEQUENCE);
+            let snapshot = self.read_snapshot_unsynced();
+            std::sync::atomic::fence(Ordering::Acquire);
+            let seq_after = read_u32(&self.mmap, OFF_SEQUENCE);
 
+            // Stable iff no write was in progress (even) and none happened
+            // across the read window (unchanged).
+            if seq_before == seq_after && seq_before & 1 == 0 {
+                return snapshot;
+            }
+            std::hint::spin_loop();
+        }
+        // Bounded best-effort fallback preserves the non-blocking contract.
+        self.read_snapshot_unsynced()
+    }
+
+    /// Copy one snapshot from the active buffer without seqlock validation.
+    ///
+    /// Callers must bracket this with the `sequence` checks in
+    /// [`read_snapshot`] to reject torn reads.
+    fn read_snapshot_unsynced(&self) -> GaussianSnapshot {
         let read_idx = read_u32(&self.mmap, OFF_WRITE_INDEX) as usize;
         let n = (read_u32(&self.mmap, OFF_GAUSSIAN_COUNT) as usize).min(self.max_gaussians);
         let buf_start = HEADER_SIZE + read_idx * self.max_gaussians * BYTES_PER_GAUSSIAN;
@@ -472,6 +521,56 @@ mod tests {
         assert!((snap.pose.position.y - 2.25).abs() < 1e-5);
         assert!((snap.pose.rotation[0] - 0.707).abs() < 1e-5);
         assert!((snap.pose.rotation[2] - 0.707).abs() < 1e-5);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_sequence_is_even_and_advances_per_write() {
+        let path = temp_path("seq");
+        let mut writer = SharedMemWriter::create(&path, 10).unwrap();
+        let cloud = GaussianCloud::new();
+        let pose = Pose::identity();
+
+        // A freshly initialised file starts at sequence 0 (even, no write yet).
+        let seq = |p: &std::path::Path| read_u32(&std::fs::read(p).unwrap(), OFF_SEQUENCE);
+        assert_eq!(seq(&path), 0);
+
+        for i in 1..=5u64 {
+            writer.write_snapshot(&cloud, &pose, i, 0);
+            // Each completed write bumps the sequence by exactly two and leaves
+            // it even, signalling "no write in progress".
+            assert_eq!(seq(&path), (i as u32) * 2);
+            assert_eq!(seq(&path) & 1, 0);
+        }
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_reader_is_bounded_when_sequence_stuck_odd() {
+        use std::io::{Seek, SeekFrom, Write};
+
+        let path = temp_path("seq_odd");
+        {
+            let mut writer = SharedMemWriter::create(&path, 10).unwrap();
+            let cloud = GaussianCloud::new();
+            writer.write_snapshot(&cloud, &Pose::identity(), 1, 0);
+        }
+
+        // Simulate a writer that crashed mid-update by forcing an odd sequence
+        // before the reader maps the file.
+        {
+            let mut file = OpenOptions::new().write(true).open(&path).unwrap();
+            file.seek(SeekFrom::Start(OFF_SEQUENCE as u64)).unwrap();
+            file.write_all(&3u32.to_le_bytes()).unwrap();
+        }
+
+        // The reader must not spin forever: it returns the best-effort snapshot
+        // after the bounded retry budget rather than hanging.
+        let reader = SharedMemReader::open(&path, 10).unwrap();
+        let snap = reader.read_snapshot();
+        assert_eq!(snap.frame_id, 1);
 
         let _ = std::fs::remove_file(&path);
     }

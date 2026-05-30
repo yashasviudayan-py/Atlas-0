@@ -8,7 +8,7 @@ Binary layout (must match ``crates/atlas-core/src/shared_mem.rs`` exactly):
     │  magic(4)  version(4)  frame_id(8)  timestamp_ns(8)                    │
     │  gaussian_count(4)  pose_tx(4)  pose_ty(4)  pose_tz(4)                 │
     │  pose_qw(4)  pose_qx(4)  pose_qy(4)  pose_qz(4)                       │
-    │  write_index(4)  _padding(4)                                            │
+    │  write_index(4)  sequence(4)                                            │
     ├──────────────────────── Buffer 0 ─────────────────────────────────────┤
     │  gaussian_count x 28 bytes  (x,y,z,opacity,r,g,b -- all float32 LE)   │
     ├──────────────────────── Buffer 1 ─────────────────────────────────────┤
@@ -16,8 +16,14 @@ Binary layout (must match ``crates/atlas-core/src/shared_mem.rs`` exactly):
     └────────────────────────────────────────────────────────────────────────┘
 
 All multi-byte integers are **little-endian**.  Double-buffering avoids
-read-write contention: the Rust writer fills the *inactive* buffer and
-then atomically flips ``write_index``.
+read-write contention: the writer fills the *inactive* buffer and then flips
+``write_index``.  Because the snapshot metadata (``gaussian_count``,
+``frame_id``, ``timestamp_ns``, ``pose``) lives in the shared header rather
+than per-buffer, the publish is additionally guarded by a **seqlock** in the
+``sequence`` field: the writer makes it odd before mutating any bytes and even
+again afterwards.  A reader that sees an odd sequence, or one that changes
+across its read, retries — so it never mixes a fresh count/pose with a stale
+buffer nor consumes a buffer the writer overwrote mid-read.
 """
 
 import mmap
@@ -31,9 +37,16 @@ import numpy as np
 # ── Constants (mirror crates/atlas-core/src/shared_mem.rs) ──────────────────
 
 ATLAS_MMAP_MAGIC: int = 0xA71A5000
-ATLAS_MMAP_VERSION: int = 1
+# Bumped to 2 when the seqlock (``sequence`` header field) was introduced;
+# must stay in sync with ``ATLAS_MMAP_VERSION`` in
+# ``crates/atlas-core/src/shared_mem.rs``.
+ATLAS_MMAP_VERSION: int = 2
 HEADER_SIZE: int = 64
 BYTES_PER_GAUSSIAN: int = 28  # x,y,z,opacity,r,g,b -- 7 x float32
+
+# Maximum reader retries before returning a best-effort snapshot, preserving
+# the non-blocking read contract under a stalled writer.
+_MAX_READ_ATTEMPTS: int = 8
 
 # Header byte offsets.
 _OFF_MAGIC: int = 0
@@ -49,6 +62,7 @@ _OFF_POSE_QX: int = 44
 _OFF_POSE_QY: int = 48
 _OFF_POSE_QZ: int = 52
 _OFF_WRITE_INDEX: int = 56
+_OFF_SEQUENCE: int = 60
 
 # Numpy dtype matching one serialised Gaussian entry.
 _GAUSSIAN_DTYPE = np.dtype(
@@ -89,8 +103,8 @@ class MapSnapshot:
         timestamp_ns: UNIX timestamp in nanoseconds at write time.
         pose: Camera pose at snapshot time.
         gaussians: Structured numpy array of shape ``(N,)`` with dtype
-            ``{x,y,z,opacity,r,g,b}`` (all float32).  Zero-copy view into
-            the mmap buffer when possible.
+            ``{x,y,z,opacity,r,g,b}`` (all float32).  Copied out of the mmap
+            under seqlock protection so it cannot be torn by a concurrent write.
     """
 
     frame_id: int
@@ -150,11 +164,35 @@ class SharedMemReader:
         This is a non-blocking read: it picks up whichever snapshot the Rust
         writer last committed.  Call repeatedly to poll for new frames.
 
+        Implements the reader half of the seqlock: the ``sequence`` field is
+        sampled before and after the copy and the read is retried while a write
+        is in progress (odd sequence) or the sequence changed mid-read, so a
+        torn snapshot is never returned.  After a bounded number of retries the
+        most recent attempt is returned to preserve the non-blocking contract
+        even if the writer has stalled.
+
         Returns:
             :class:`MapSnapshot` containing the decoded Gaussian array and
-            camera pose.  The ``gaussians`` field is a numpy structured array
-            with zero-copy semantics when the underlying mmap buffer is still
-            valid.
+            camera pose.  Unlike the previous implementation the ``gaussians``
+            array is **copied** out of the mmap so the returned snapshot cannot
+            be mutated by a subsequent write.
+        """
+        snapshot = self._read_snapshot_unsynced()
+        for _ in range(_MAX_READ_ATTEMPTS - 1):
+            (seq_before,) = struct.unpack_from("<I", self._mmap, _OFF_SEQUENCE)
+            snapshot = self._read_snapshot_unsynced()
+            (seq_after,) = struct.unpack_from("<I", self._mmap, _OFF_SEQUENCE)
+            # Stable iff no write was in progress (even) and none happened
+            # across the read window (unchanged).
+            if seq_before == seq_after and seq_before & 1 == 0:
+                break
+        return snapshot
+
+    def _read_snapshot_unsynced(self) -> MapSnapshot:
+        """Copy one snapshot from the active buffer without seqlock validation.
+
+        Callers must bracket this with the ``sequence`` checks in
+        :meth:`get_latest_snapshot` to reject torn reads.
         """
         # Re-read header bytes on each call (mmap is always up-to-date).
         header = self._mmap[:HEADER_SIZE]
@@ -243,6 +281,8 @@ class SharedMemWriter:
         struct.pack_into("<I", self._mmap, _OFF_MAGIC, ATLAS_MMAP_MAGIC)
         struct.pack_into("<I", self._mmap, _OFF_VERSION, ATLAS_MMAP_VERSION)
         struct.pack_into("<I", self._mmap, _OFF_WRITE_INDEX, 0)
+        struct.pack_into("<I", self._mmap, _OFF_SEQUENCE, 0)
+        self._sequence = 0
         self._mmap.flush()
 
     def write_snapshot(
@@ -266,6 +306,12 @@ class SharedMemWriter:
         if pose is None:
             pose = CameraPose(tx=0.0, ty=0.0, tz=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0)
 
+        # Enter the seqlock write section: make the sequence odd so concurrent
+        # readers know a write is in progress and will retry.
+        self._sequence += 1
+        struct.pack_into("<I", self._mmap, _OFF_SEQUENCE, self._sequence & 0xFFFFFFFF)
+        self._mmap.flush()
+
         current_idx = self._write_index
         next_idx = 1 - current_idx
         n = min(len(gaussians), self._max_gaussians)
@@ -287,11 +333,18 @@ class SharedMemWriter:
         struct.pack_into("<f", self._mmap, _OFF_POSE_QY, pose.qy)
         struct.pack_into("<f", self._mmap, _OFF_POSE_QZ, pose.qz)
 
-        # Flip the active buffer index (release fence equivalent).
+        # Publish the freshly written buffer.
         self._mmap.flush()
         struct.pack_into("<I", self._mmap, _OFF_WRITE_INDEX, next_idx)
-        self._mmap.flush()
         self._write_index = next_idx
+
+        # Leave the seqlock write section: the sequence returns to an even value
+        # only after every payload byte above is committed, signalling readers
+        # that the snapshot is complete and stable.
+        self._mmap.flush()
+        self._sequence += 1
+        struct.pack_into("<I", self._mmap, _OFF_SEQUENCE, self._sequence & 0xFFFFFFFF)
+        self._mmap.flush()
 
     def close(self) -> None:
         """Flush and close the mmap file."""

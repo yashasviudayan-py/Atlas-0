@@ -142,6 +142,48 @@ def test_double_buffer_flip(tmp_mmap: Path) -> None:
                 assert snap.frame_id == fid
 
 
+def test_sequence_is_even_and_advances_per_write(tmp_mmap: Path) -> None:
+    """Each completed write bumps the seqlock by two and leaves it even."""
+    from atlas.utils.shared_mem import _OFF_SEQUENCE  # noqa: PLC0415
+
+    max_g = 10
+    empty = np.empty(0, dtype=SharedMemWriter.GAUSSIAN_DTYPE)
+
+    def read_sequence() -> int:
+        with open(tmp_mmap, "rb") as handle:
+            raw = handle.read(HEADER_SIZE)
+        return struct.unpack_from("<I", raw, _OFF_SEQUENCE)[0]
+
+    with SharedMemWriter(tmp_mmap, max_g) as writer:
+        assert read_sequence() == 0
+        for fid in range(1, 6):
+            writer.write_snapshot(empty, pose=None, frame_id=fid, timestamp_ns=0)
+            assert read_sequence() == fid * 2
+            assert read_sequence() & 1 == 0
+
+
+def test_reader_is_bounded_when_sequence_stuck_odd(tmp_mmap: Path) -> None:
+    """A reader returns a best-effort snapshot instead of hanging on an odd seq."""
+    from atlas.utils.shared_mem import _OFF_SEQUENCE  # noqa: PLC0415
+
+    max_g = 10
+    empty = np.empty(0, dtype=SharedMemWriter.GAUSSIAN_DTYPE)
+
+    with SharedMemWriter(tmp_mmap, max_g) as writer:
+        writer.write_snapshot(empty, pose=None, frame_id=7, timestamp_ns=0)
+
+    # Simulate a writer that crashed mid-update by forcing an odd sequence.
+    with open(tmp_mmap, "r+b") as handle:
+        handle.seek(_OFF_SEQUENCE)
+        handle.write(struct.pack("<I", 3))
+
+    with SharedMemReader(tmp_mmap, max_g) as reader:
+        snap = reader.get_latest_snapshot()
+
+    # Bounded retry budget exhausts and returns the last attempt.
+    assert snap.frame_id == 7
+
+
 def test_truncation_at_max_gaussians(tmp_mmap: Path) -> None:
     """Gaussians beyond max_gaussians are silently truncated."""
     max_g = 5
