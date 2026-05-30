@@ -5,9 +5,13 @@ from __future__ import annotations
 import asyncio
 import io
 
+import pytest
 from atlas.api.upload_analysis import (
+    ImageTooLargeError,
     _apply_scan_acceptance_policy,
     _calibrate_risks_for_scan,
+    _decode_rgb,
+    _open_image_guarded,
     _sanitize_region_crop,
     analyze_frame_samples,
     build_finding_replays,
@@ -16,6 +20,29 @@ from atlas.utils.config import UploadsConfig
 from atlas.utils.video import ExtractedFrame
 from atlas.vlm.inference import SemanticLabel
 from PIL import Image, ImageDraw
+
+
+def _jpeg_bytes(width: int, height: int, color: str = "#3344aa") -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), color=color).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def test_decode_rgb_accepts_image_within_pixel_cap() -> None:
+    arr = _decode_rgb(_jpeg_bytes(32, 24), max_pixels=10_000)
+    assert arr.shape == (24, 32, 3)
+
+
+def test_decode_rgb_rejects_image_over_pixel_cap_before_decode() -> None:
+    # 48*48 = 2304 pixels exceeds the 100-pixel cap, so the guard must reject
+    # the image at header-read time rather than decoding it.
+    with pytest.raises(ImageTooLargeError):
+        _decode_rgb(_jpeg_bytes(48, 48), max_pixels=100)
+
+
+def test_open_image_guarded_rejects_zero_dimension() -> None:
+    with pytest.raises(ImageTooLargeError):
+        _open_image_guarded(_jpeg_bytes(40, 40), max_pixels=0)
 
 
 def test_build_finding_replays_generates_gif_for_top_findings() -> None:

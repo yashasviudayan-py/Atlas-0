@@ -290,6 +290,10 @@ class UploadsConfig(BaseModel):
     retention_days: int = 14
     max_upload_bytes: int = 75_000_000
     max_video_duration_seconds: float = 75.0
+    # Hard cap on decoded image dimensions (width * height) to reject
+    # decompression bombs before the full RGB decode allocates memory.
+    # 50 MP comfortably covers modern phone cameras (~12-48 MP).
+    max_image_pixels: int = 50_000_000
     max_concurrent_jobs: int = 2
     max_queue_depth: int = 24
     max_job_attempts: int = 2
@@ -309,6 +313,7 @@ class UploadsConfig(BaseModel):
         "max_persisted_jobs",
         "retention_days",
         "max_upload_bytes",
+        "max_image_pixels",
         "max_concurrent_jobs",
         "max_queue_depth",
         "max_job_attempts",
