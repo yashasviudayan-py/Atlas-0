@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from atlas.api import pipeline, reports, upload_analysis
 from atlas.api import server as server_mod
 from atlas.api.server import _api_cfg, _state, _upload_cfg, _upload_jobs, _upload_store, app
 from atlas.utils.video import VideoMetadata
@@ -709,7 +710,7 @@ def test_sample_report_is_public(monkeypatch: pytest.MonkeyPatch) -> None:
             "report_pdf": b"pdf",
         }
 
-    monkeypatch.setattr(server_mod, "_build_sample_report", fake_sample_report)
+    monkeypatch.setattr(pipeline, "_build_sample_report", fake_sample_report)
 
     response = client.get("/sample-report")
 
@@ -1433,7 +1434,7 @@ def test_upload_rejects_request_over_size_limit() -> None:
 def test_upload_rejects_video_over_duration_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     _upload_cfg.max_video_duration_seconds = 10.0
     monkeypatch.setattr(
-        server_mod,
+        pipeline,
         "probe_video_metadata",
         lambda _content: VideoMetadata(duration_s=12.5, frame_count=42),
     )
@@ -1451,7 +1452,7 @@ def test_upload_rejects_video_over_resolution_limit(monkeypatch: pytest.MonkeyPa
     _upload_cfg.max_video_duration_seconds = 60.0
     _upload_cfg.max_video_pixels = 33_177_600
     monkeypatch.setattr(
-        server_mod,
+        pipeline,
         "probe_video_metadata",
         lambda _content: VideoMetadata(duration_s=5.0, frame_count=42, width=20_000, height=20_000),
     )
@@ -1472,7 +1473,7 @@ def test_upload_persists_job_input_and_enqueues_work(monkeypatch: pytest.MonkeyP
     async def fake_enqueue(job_id: str) -> None:
         queued.append(job_id)
 
-    monkeypatch.setattr(server_mod, "_enqueue_upload_job", fake_enqueue)
+    monkeypatch.setattr(pipeline, "_enqueue_upload_job", fake_enqueue)
 
     response = client.post(
         "/upload",
@@ -1494,7 +1495,7 @@ def test_upload_accepts_room_label_header(monkeypatch: pytest.MonkeyPatch) -> No
     async def fake_enqueue(job_id: str) -> None:
         queued.append(job_id)
 
-    monkeypatch.setattr(server_mod, "_enqueue_upload_job", fake_enqueue)
+    monkeypatch.setattr(pipeline, "_enqueue_upload_job", fake_enqueue)
 
     response = client.post(
         "/upload",
@@ -1518,7 +1519,7 @@ def test_upload_accepts_audience_mode_header(monkeypatch: pytest.MonkeyPatch) ->
     async def fake_enqueue(job_id: str) -> None:
         queued.append(job_id)
 
-    monkeypatch.setattr(server_mod, "_enqueue_upload_job", fake_enqueue)
+    monkeypatch.setattr(pipeline, "_enqueue_upload_job", fake_enqueue)
 
     response = client.post(
         "/upload",
@@ -1783,10 +1784,10 @@ async def test_detached_upload_worker_claims_and_completes_job(
     async def fake_ingest(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(server_mod, "analyze_uploaded_image", fake_analyze)
-    monkeypatch.setattr(server_mod, "_build_pdf_report", lambda _job: b"%PDF-1.4\nfixture\n")
+    monkeypatch.setattr(upload_analysis, "analyze_uploaded_image", fake_analyze)
+    monkeypatch.setattr(reports, "_build_pdf_report", lambda _job: b"%PDF-1.4\nfixture\n")
     monkeypatch.setattr(
-        server_mod,
+        pipeline,
         "_get_agent",
         lambda: SimpleNamespace(ingest_from_upload=fake_ingest),
     )
@@ -1879,10 +1880,10 @@ async def test_process_upload_retries_then_completes(monkeypatch: pytest.MonkeyP
     async def fake_ingest(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(server_mod, "analyze_uploaded_image", fake_analyze)
-    monkeypatch.setattr(server_mod, "_build_pdf_report", lambda _job: b"%PDF-1.4\nfixture\n")
+    monkeypatch.setattr(upload_analysis, "analyze_uploaded_image", fake_analyze)
+    monkeypatch.setattr(reports, "_build_pdf_report", lambda _job: b"%PDF-1.4\nfixture\n")
     monkeypatch.setattr(
-        server_mod,
+        pipeline,
         "_get_agent",
         lambda: SimpleNamespace(ingest_from_upload=fake_ingest),
     )
@@ -1964,10 +1965,10 @@ async def test_process_upload_persists_finding_replays(monkeypatch: pytest.Monke
     async def fake_ingest(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(server_mod, "analyze_uploaded_image", fake_analyze)
-    monkeypatch.setattr(server_mod, "_build_pdf_report", lambda _job: b"%PDF-1.4\nfixture\n")
+    monkeypatch.setattr(upload_analysis, "analyze_uploaded_image", fake_analyze)
+    monkeypatch.setattr(reports, "_build_pdf_report", lambda _job: b"%PDF-1.4\nfixture\n")
     monkeypatch.setattr(
-        server_mod,
+        pipeline,
         "build_finding_replays",
         lambda *_args, **_kwargs: (
             [
@@ -1985,7 +1986,7 @@ async def test_process_upload_persists_finding_replays(monkeypatch: pytest.Monke
         ),
     )
     monkeypatch.setattr(
-        server_mod,
+        pipeline,
         "_get_agent",
         lambda: SimpleNamespace(ingest_from_upload=fake_ingest),
     )
