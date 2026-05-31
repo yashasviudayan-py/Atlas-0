@@ -137,7 +137,10 @@ function betaSessionId() {
   if (existing) {
     return existing;
   }
-  const generated = `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  const rand = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  const generated = `s_${Date.now().toString(36)}_${rand}`;
   writeStoredPreference(SESSION_STORAGE_KEY, generated);
   return generated;
 }
