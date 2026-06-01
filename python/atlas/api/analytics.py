@@ -938,12 +938,32 @@ def _require_private_access(request: Request) -> None:
     )
 
 
+def _require_demo_access(request: Request) -> None:
+    """Gate the visitor-facing upload/report endpoints.
+
+    In public demo mode (``api.public_demo``) these per-job endpoints are
+    intentionally open so anonymous hosted visitors can run their own scan.
+    A configured ``access_token`` still wins: when one is set it is enforced
+    even in demo mode, so an operator can lock the instance down again. When
+    demo mode is off this falls back to the private-beta gate.
+
+    Operator endpoints (job listing, deletion, evaluation, eval export) keep
+    calling :func:`_require_private_access` directly and stay private.
+    """
+    if _api_cfg.public_demo and not _api_cfg.access_token:
+        return
+    _require_private_access(request)
+
+
 def _operator_access_descriptor() -> dict[str, Any]:
     """Return the effective access policy for upload/report features."""
     requires_token = bool(_api_cfg.access_token)
+    public_demo = bool(_api_cfg.public_demo and not requires_token)
     mode = (
         "token"
         if requires_token
+        else "demo"
+        if public_demo
         else "loopback"
         if _api_cfg.allow_unauthenticated_loopback
         else "restricted"
@@ -952,6 +972,7 @@ def _operator_access_descriptor() -> dict[str, Any]:
         "requires_token": requires_token,
         "allow_unauthenticated_loopback": _api_cfg.allow_unauthenticated_loopback,
         "enable_job_listing": _api_cfg.enable_job_listing,
+        "public_demo": public_demo,
         "mode": mode,
     }
 

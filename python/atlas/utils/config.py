@@ -221,6 +221,7 @@ class ApiConfig(BaseModel):
     access_token: str | None = None
     allow_unauthenticated_loopback: bool = True
     enable_job_listing: bool = False
+    public_demo: bool = False
     rate_limit_window_seconds: float = 60.0
     rate_limit_public_requests: int = 600
     rate_limit_upload_requests: int = 30
