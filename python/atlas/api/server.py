@@ -27,7 +27,7 @@ from typing import Any
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from atlas.api.analytics import (
@@ -258,6 +258,16 @@ app.add_middleware(
 # layer) the API still starts normally.
 if _FRONTEND_DIR.exists():
     app.mount("/app", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")
+
+    @app.get("/", include_in_schema=False)
+    async def _root_redirect() -> RedirectResponse:
+        """Send visitors who hit the bare host straight to the web app."""
+        return RedirectResponse(url="/app/", status_code=307)
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def _favicon_redirect() -> RedirectResponse:
+        """Serve the app icon for browsers requesting a root favicon."""
+        return RedirectResponse(url="/app/atlas-icon.svg", status_code=307)
 
 app.include_router(core_router.router)
 app.include_router(product_router.router)

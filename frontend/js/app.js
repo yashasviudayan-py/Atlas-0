@@ -2526,7 +2526,7 @@ function initLandingSectionTracking() {
   sections.forEach((section) => observer.observe(section));
 }
 
-function switchView(id) {
+function switchView(id, { scroll = true } = {}) {
   state.activeView = id;
   navButtons.forEach((button) => {
     button.classList.toggle('active', button.dataset.view === id);
@@ -2548,6 +2548,20 @@ function switchView(id) {
       room_count: journalEntries().length,
     });
   }
+
+  // The persistent landing hero sits above every view, so a class swap alone
+  // leaves the user looking at the same scroll position. Bring the freshly
+  // activated view into sight so navigating (or loading the sample report)
+  // visibly moves the journey forward.
+  if (scroll) {
+    const target = document.getElementById(`view-${id}`);
+    if (target) {
+      const top = target.getBoundingClientRect().top + window.scrollY - 16;
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      window.scrollTo({ top: Math.max(top, 0), behavior: reduceMotion ? 'auto' : 'smooth' });
+    }
+  }
+
   syncUrlState();
 }
 
@@ -4796,9 +4810,11 @@ function renderAccessPanels(errorMessage = '') {
     ? '<strong>Hosted upload/report access is locked.</strong> Add the private-beta token to use protected scans, reports, and diagnostics.'
     : access.requires_token
       ? '<strong>Hosted access is unlocked.</strong> Protected upload/report endpoints are available with the stored token.'
-      : access.mode === 'loopback'
-        ? '<strong>Local access is open.</strong> Loopback requests can use upload/report flows without a token.'
-        : '<strong>Upload/report access is restricted.</strong> This environment is not accepting unauthenticated hosted requests.';
+      : access.mode === 'demo'
+        ? '<strong>Public demo is open.</strong> Upload a room photo or video to run your own scan — no token required. Operator tools stay private.'
+        : access.mode === 'loopback'
+          ? '<strong>Local access is open.</strong> Loopback requests can use upload/report flows without a token.'
+          : '<strong>Upload/report access is restricted.</strong> This environment is not accepting unauthenticated hosted requests.';
 
   accessHelp.textContent = locked
     ? (errorMessage || 'Your token stays in this browser only and is sent as a Bearer token for protected Atlas-0 endpoints.')
@@ -4823,7 +4839,7 @@ function renderAccessPanels(errorMessage = '') {
   operatorPruneBtn.disabled = false;
 
   operatorPolicy.innerHTML = renderPolicyItems([
-    { label: 'Access mode', value: settings.access.mode === 'token' ? 'Token protected' : settings.access.mode === 'loopback' ? 'Loopback-friendly' : 'Restricted' },
+    { label: 'Access mode', value: settings.access.mode === 'token' ? 'Token protected' : settings.access.mode === 'demo' ? 'Public demo' : settings.access.mode === 'loopback' ? 'Loopback-friendly' : 'Restricted' },
     { label: 'Primary provider', value: settings.providers.primary_provider || 'unknown' },
     { label: 'Fallback provider', value: settings.providers.fallback_provider || 'None' },
     { label: 'Worker mode', value: settings.uploads.worker_mode || settings.system?.worker_mode || 'unknown' },
@@ -5165,7 +5181,8 @@ async function bootstrapApp() {
       showToast(error instanceof Error ? error.message : 'Could not open the shared report link.', 3600);
     }
   }
-  switchView(requestedView() || (activeJob()?.status === 'complete' ? 'report' : 'scan'));
+  // On first load keep the page at the landing hero; don't auto-scroll past it.
+  switchView(requestedView() || (activeJob()?.status === 'complete' ? 'report' : 'scan'), { scroll: false });
 }
 
 navButtons.forEach((button) => {

@@ -1670,10 +1670,14 @@
       color: var(--ink);
       box-shadow: var(--shadow-lift);
       transition: transform 0.2s ease;
+      /* Hidden state is a transform, not display:none, so without this the
+         off-screen banner would still intercept taps over the bottom nav. */
+      pointer-events: none;
     }
 
     .offline-banner.show {
       transform: translate(-50%, 0);
+      pointer-events: auto;
     }
 
     :root[data-theme="dark"] .mission-card {
@@ -4429,6 +4433,67 @@
 
       .scene-stage {
         min-height: 420px;
+      }
+
+      /* Turn the primary navigation into a thumb-reachable bottom tab bar so
+         the landing hero and the active view are the first things on screen,
+         instead of a full-height wall of navigation links. */
+      .sidebar {
+        /* backdrop-filter would make the sidebar the containing block for the
+           fixed nav below, pinning it to the sidebar instead of the viewport. */
+        backdrop-filter: none;
+      }
+
+      .nav-stack {
+        position: fixed;
+        inset: auto 0 0 0;
+        z-index: 60;
+        display: flex;
+        gap: 2px;
+        margin: 0;
+        padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+        background: var(--bg-soft);
+        border-top: 1px solid var(--line);
+        box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.14);
+        backdrop-filter: blur(18px);
+      }
+
+      .nav-btn {
+        flex: 1 1 0;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        padding: 9px 4px;
+        text-align: center;
+      }
+
+      .nav-btn > span:first-child {
+        display: contents;
+      }
+
+      .nav-btn > span:first-child > strong {
+        font-size: 0.78rem;
+        letter-spacing: 0.01em;
+      }
+
+      .nav-btn > span:first-child > span,
+      .nav-btn .tip,
+      .nav-btn .settings-icon {
+        display: none;
+      }
+
+      /* Reserve space so the fixed bar never covers the footer or toasts. */
+      body {
+        padding-bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+      }
+
+      .toast {
+        bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+      }
+
+      .offline-banner {
+        bottom: calc(84px + env(safe-area-inset-bottom, 0px));
       }
     }
 

@@ -37,6 +37,7 @@ def reset_upload_jobs(tmp_path: Path):
         "access_token": _api_cfg.access_token,
         "allow_unauthenticated_loopback": _api_cfg.allow_unauthenticated_loopback,
         "enable_job_listing": _api_cfg.enable_job_listing,
+        "public_demo": _api_cfg.public_demo,
         "rate_limit_window_seconds": _api_cfg.rate_limit_window_seconds,
         "rate_limit_public_requests": _api_cfg.rate_limit_public_requests,
         "rate_limit_upload_requests": _api_cfg.rate_limit_upload_requests,
@@ -88,6 +89,7 @@ def reset_upload_jobs(tmp_path: Path):
     _api_cfg.access_token = api_snapshot["access_token"]
     _api_cfg.allow_unauthenticated_loopback = api_snapshot["allow_unauthenticated_loopback"]
     _api_cfg.enable_job_listing = api_snapshot["enable_job_listing"]
+    _api_cfg.public_demo = api_snapshot["public_demo"]
     _api_cfg.rate_limit_window_seconds = api_snapshot["rate_limit_window_seconds"]
     _api_cfg.rate_limit_public_requests = api_snapshot["rate_limit_public_requests"]
     _api_cfg.rate_limit_upload_requests = api_snapshot["rate_limit_upload_requests"]
@@ -197,6 +199,49 @@ def test_operator_access_is_public() -> None:
 
     assert response.status_code == 200
     assert response.json()["mode"] in {"loopback", "token"}
+
+
+def test_public_demo_opens_uploads_but_keeps_operator_private() -> None:
+    from atlas.api.analytics import (
+        _operator_access_descriptor,
+        _require_demo_access,
+        _require_private_access,
+    )
+    from fastapi import HTTPException
+
+    def _remote_request() -> SimpleNamespace:
+        # A non-loopback peer (TEST-NET-3) so the loopback exemption never applies.
+        return SimpleNamespace(
+            client=SimpleNamespace(host="203.0.113.5"),
+            headers={},
+            query_params={},
+        )
+
+    # Off by default: a non-loopback visitor cannot reach the upload gate.
+    _api_cfg.public_demo = False
+    with pytest.raises(HTTPException) as not_demo:
+        _require_demo_access(_remote_request())
+    assert not_demo.value.status_code == 403
+
+    # Demo mode opens the visitor-facing endpoints without a token...
+    _api_cfg.public_demo = True
+    _require_demo_access(_remote_request())  # does not raise
+
+    # ...but operator endpoints stay private even in demo mode.
+    with pytest.raises(HTTPException) as operator:
+        _require_private_access(_remote_request())
+    assert operator.value.status_code == 403
+
+    descriptor = _operator_access_descriptor()
+    assert descriptor["mode"] == "demo"
+    assert descriptor["public_demo"] is True
+
+    # A configured token still wins: demo mode never overrides an explicit token.
+    _api_cfg.access_token = "secret-token"
+    with pytest.raises(HTTPException) as tokened:
+        _require_demo_access(_remote_request())
+    assert tokened.value.status_code == 401
+    assert _operator_access_descriptor()["mode"] == "token"
 
 
 def test_product_privacy_is_public() -> None:

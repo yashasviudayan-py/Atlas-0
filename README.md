@@ -257,6 +257,55 @@ python scripts/check_deployment.py
 
 ---
 
+## 🌐 Host it as a website
+
+The fastest way to put ATLAS-0 online is the **slim single-container web image**
+([`docker/Dockerfile.web`](docker/Dockerfile.web)) — Python only, no Rust build
+and no Ollama required. With no VLM provider reachable the pipeline falls back to
+heuristic analysis, so the landing page and the built-in **sample Safety Brief**
+work with zero configuration.
+
+```bash
+docker build -f docker/Dockerfile.web -t atlas0-web .
+docker run -p 8420:8420 atlas0-web
+```
+
+Then open **`http://localhost:8420/`** — the bare host now redirects to the web
+app at `/app/`.
+
+**Deploy to a PaaS (Render · Railway · Fly.io).** Point the platform at
+`docker/Dockerfile.web`. The container honors the platform-provided `$PORT`, and
+`GET /health` is the readiness/liveness probe. No build command or start command
+overrides are needed.
+
+### Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PORT` | `8420` | Listen port (set automatically by most PaaS hosts). |
+| `ATLAS_API_PUBLIC_DEMO` | `false` | Open the visitor-facing **upload/report** endpoints to anonymous hosted requests so anyone can run their own scan. Operator tools (job listing, deletion, evaluation) stay private. The pre-built web image sets this `true`. |
+| `ATLAS_API_ACCESS_TOKEN` | _(unset)_ | Bearer token gating **upload/report** endpoints. A configured token always wins over `ATLAS_API_PUBLIC_DEMO`, so set a long random value to lock the instance down to a private beta. |
+| `ATLAS_API_ENABLE_JOB_LISTING` | `false` | Allow listing all jobs via `GET /jobs`. Keep `false` in public hosting. |
+| `ATLAS_UPLOADS_WORKER_MODE` | `in_process` | `in_process` for single-container hosting; `external` to run a detached worker (see Compose). |
+| `ATLAS_UPLOADS_STORAGE_DIR` | `/data/uploads` | Where job manifests and artifacts persist (mount a volume). |
+| `ATLAS_UPLOADS_STRICT_STARTUP_CHECKS` | `false` | Set `true` once storage and provider settings are final to fail fast on misconfiguration. |
+| `ATLAS_VLM_PROVIDER` | `ollama` | Optional: `openai` or `anthropic` for richer object labels (also set the matching API key and install the extra). |
+
+> [!NOTE]
+> **What works for anonymous visitors.** The landing page, guided capture,
+> journal/settings, and the public **sample report** always work with no token.
+> For real uploads you choose the posture:
+> - **Public demo** (`ATLAS_API_PUBLIC_DEMO=true`, the pre-built web image's
+>   default) — anyone can upload a room photo/video and get their own report;
+>   operator tools stay private.
+> - **Private beta** (`ATLAS_API_ACCESS_TOKEN=…`) — uploads require the token;
+>   paste it into **Settings → operator access** in the app. A token always wins
+>   over demo mode.
+>
+> Running locally (loopback) uploads work without either setting.
+
+---
+
 ## 🔌 Core API surface
 
 <details>

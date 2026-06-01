@@ -15,6 +15,7 @@ from atlas.api.analytics import (
     _auto_benchmark_label,
     _compare_job_to_benchmark,
     _request_host,
+    _require_demo_access,
     _require_private_access,
     _review_ready_for_eval,
     _storage_route_id,
@@ -63,7 +64,7 @@ async def upload_media(request: Request) -> UploadJobStatus:
     Supported image formats: JPEG, PNG, WEBP, GIF.
     Accepts both ``multipart/form-data`` browser uploads and raw file bodies.
     """
-    _require_private_access(request)
+    _require_demo_access(request)
 
     if _active_upload_job_count() >= _upload_cfg.max_queue_depth:
         raise HTTPException(
@@ -208,7 +209,7 @@ def get_upload_job(job_id: str, request: Request) -> UploadJobStatus:
     Raises:
         HTTPException: 404 if the job is not found.
     """
-    _require_private_access(request)
+    _require_demo_access(request)
     job_id = _storage_route_id(job_id, "job_id")
     _refresh_upload_jobs_from_disk()
     if job_id not in _upload_jobs:
@@ -223,7 +224,7 @@ def record_job_follow_up(
     request: Request,
 ) -> UploadJobStatus:
     """Store a persistent follow-up state for one completed report finding."""
-    _require_private_access(request)
+    _require_demo_access(request)
     job_id = _storage_route_id(job_id, "job_id")
     _refresh_upload_jobs_from_disk()
     job = _upload_jobs.get(job_id)
@@ -287,7 +288,7 @@ def record_job_feedback(
     request: Request,
 ) -> UploadJobStatus:
     """Store user feedback for one finding in a completed upload report."""
-    _require_private_access(request)
+    _require_demo_access(request)
     job_id = _storage_route_id(job_id, "job_id")
     _refresh_upload_jobs_from_disk()
     job = _upload_jobs.get(job_id)
@@ -478,7 +479,7 @@ def export_eval_candidate(
 @router.get("/jobs/{job_id}/evidence/{evidence_id}")
 def download_evidence(job_id: str, evidence_id: str, request: Request) -> Response:
     """Download one persisted evidence crop for a completed report."""
-    _require_private_access(request)
+    _require_demo_access(request)
     job_id = _storage_route_id(job_id, "job_id")
     evidence_id = _storage_route_id(evidence_id, "evidence_id")
     _refresh_upload_jobs_from_disk()
@@ -506,7 +507,7 @@ async def download_sample_evidence(evidence_id: str) -> Response:
 @router.get("/jobs/{job_id}/replays/{replay_id}")
 def download_finding_replay(job_id: str, replay_id: str, request: Request) -> Response:
     """Download one persisted finding replay for a completed report."""
-    _require_private_access(request)
+    _require_demo_access(request)
     job_id = _storage_route_id(job_id, "job_id")
     replay_id = _storage_route_id(replay_id, "replay_id")
     _refresh_upload_jobs_from_disk()
@@ -554,7 +555,7 @@ def delete_upload_job(job_id: str, request: Request) -> Response:
 @router.get("/reports/{job_id}.pdf")
 def download_report(job_id: str, request: Request) -> Response:
     """Download a generated PDF report for a completed scan job."""
-    _require_private_access(request)
+    _require_demo_access(request)
     job_id = _storage_route_id(job_id, "job_id")
     _refresh_upload_jobs_from_disk()
     job = _upload_jobs.get(job_id)

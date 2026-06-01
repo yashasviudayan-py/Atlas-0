@@ -87,6 +87,7 @@ class OperatorAccessResponse(BaseModel):
     requires_token: bool
     allow_unauthenticated_loopback: bool
     enable_job_listing: bool
+    public_demo: bool = False
     mode: str
 
 

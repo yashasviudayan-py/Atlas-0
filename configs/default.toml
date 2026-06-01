@@ -99,6 +99,11 @@ access_token = ""
 allow_unauthenticated_loopback = true
 # Listing all jobs is disabled by default to avoid exposing room reports broadly.
 enable_job_listing = false
+# Public demo mode: open the visitor-facing upload/report endpoints to anonymous
+# hosted requests so anyone can run their own scan (great for a public demo site).
+# Operator endpoints (job listing, deletion, evaluation, eval export) stay private.
+# Keep this false for private-beta deployments; enable via ATLAS_API_PUBLIC_DEMO=true.
+public_demo = false
 # Lightweight per-client write-rate limiting for public product endpoints.
 # Set a limit to 0 to disable that bucket, e.g. for trusted internal load tests.
 rate_limit_window_seconds = 60.0
