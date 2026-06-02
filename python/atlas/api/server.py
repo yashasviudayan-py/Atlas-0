@@ -269,6 +269,7 @@ if _FRONTEND_DIR.exists():
         """Serve the app icon for browsers requesting a root favicon."""
         return RedirectResponse(url="/app/atlas-icon.svg", status_code=307)
 
+
 app.include_router(core_router.router)
 app.include_router(product_router.router)
 app.include_router(operator_router.router)
