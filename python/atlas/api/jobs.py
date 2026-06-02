@@ -91,12 +91,27 @@ def _effective_active_worker_count() -> int:
     return int(_state.get("active_upload_workers", 0) or 0)
 
 
+def _queued_job_count() -> int:
+    """Return the number of queued jobs from the in-memory job map.
+
+    This is the gauge-refresh fast path: it deliberately avoids reloading and
+    re-deriving every persisted job from disk (which ``_job_status_counts``
+    does), since this runs on every job state transition and heartbeat.
+    """
+    return sum(1 for job in _upload_jobs.values() if str(job.get("status", "")).lower() == "queued")
+
+
 def _refresh_operational_metrics() -> None:
-    """Refresh gauges derived from queue depth and persisted storage."""
-    queue_depth = _job_status_counts().get("queued", 0)
-    upload_queue_depth.set(queue_depth)
+    """Refresh gauges derived from queue depth and persisted storage.
+
+    Hot path: called on every job save, worker-activity change, and heartbeat.
+    Queue depth comes from the in-memory job map and the storage summary is
+    served from a short TTL cache so a single upload does not trigger repeated
+    full job reloads and artifact-tree walks.
+    """
+    upload_queue_depth.set(_queued_job_count())
     upload_workers_active.set(_effective_active_worker_count())
-    storage = _upload_store.storage_summary()
+    storage = _upload_store.storage_summary(max_age_seconds=_upload_cfg.metrics_cache_seconds)
     storage_bytes.set(int(storage.get("bytes_used", 0) or 0))
 
 
@@ -105,8 +120,9 @@ def _refresh_upload_jobs_from_disk() -> None:
     persisted = _upload_store.load_jobs()
     for job_id, payload in persisted.items():
         _upload_jobs[job_id] = payload
+    room_index = _build_room_index()
     for job in _upload_jobs.values():
-        _ensure_job_derived_fields(job)
+        _ensure_job_derived_fields(job, room_index=room_index)
         if _upload_store.manifest_path(str(job.get("job_id") or "")).exists():
             _refresh_job_artifacts(job)
 
@@ -530,8 +546,41 @@ def _room_score_payload(job: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _room_history(job: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return recent completed scans for the same labeled room."""
+RoomIndex = dict[tuple[str, str], list[dict[str, Any]]]
+
+
+def _build_room_index() -> RoomIndex:
+    """Group completed jobs by ``(room_label, audience_mode)``, newest first.
+
+    Built once per bulk reload so each job's history/comparison is O(group)
+    instead of re-scanning every job — which made bulk reloads O(N^2).
+    """
+    index: RoomIndex = {}
+    for candidate in _upload_jobs.values():
+        if str(candidate.get("status")) != "complete":
+            continue
+        room_label = _normalize_room_label(
+            candidate.get("room_label") or (candidate.get("summary") or {}).get("room_label")
+        )
+        if room_label is None:
+            continue
+        audience_mode = normalize_audience_mode(candidate.get("audience_mode"))
+        index.setdefault((room_label, audience_mode), []).append(candidate)
+    for group in index.values():
+        group.sort(key=_iso_sort_key, reverse=True)
+    return index
+
+
+def _room_history(
+    job: dict[str, Any],
+    *,
+    room_index: RoomIndex | None = None,
+) -> list[dict[str, Any]]:
+    """Return recent completed scans for the same labeled room.
+
+    When *room_index* is supplied (bulk reload), siblings are looked up in the
+    pre-sorted index instead of scanning every job.
+    """
     room_label = _normalize_room_label(
         job.get("room_label") or (job.get("summary") or {}).get("room_label")
     )
@@ -539,18 +588,25 @@ def _room_history(job: dict[str, Any]) -> list[dict[str, Any]]:
         return []
     audience_mode = normalize_audience_mode(job.get("audience_mode"))
 
-    siblings = [
-        candidate
-        for candidate in _upload_jobs.values()
-        if str(candidate.get("status")) == "complete"
-        and candidate.get("job_id") != job.get("job_id")
-        and normalize_audience_mode(candidate.get("audience_mode")) == audience_mode
-        and _normalize_room_label(
-            candidate.get("room_label") or (candidate.get("summary") or {}).get("room_label")
-        )
-        == room_label
-    ]
-    siblings.sort(key=_iso_sort_key, reverse=True)
+    if room_index is not None:
+        siblings = [
+            candidate
+            for candidate in room_index.get((room_label, audience_mode), [])
+            if candidate.get("job_id") != job.get("job_id")
+        ]
+    else:
+        siblings = [
+            candidate
+            for candidate in _upload_jobs.values()
+            if str(candidate.get("status")) == "complete"
+            and candidate.get("job_id") != job.get("job_id")
+            and normalize_audience_mode(candidate.get("audience_mode")) == audience_mode
+            and _normalize_room_label(
+                candidate.get("room_label") or (candidate.get("summary") or {}).get("room_label")
+            )
+            == room_label
+        ]
+        siblings.sort(key=_iso_sort_key, reverse=True)
     history: list[dict[str, Any]] = []
     for candidate in siblings[:4]:
         candidate_summary = dict(candidate.get("summary") or {})
@@ -593,9 +649,19 @@ def _comparison_evidence_snapshot(job: dict[str, Any]) -> list[dict[str, Any]]:
     return snapshot
 
 
-def _room_comparison(job: dict[str, Any]) -> dict[str, Any] | None:
-    """Compare the current room scan to the most recent previous scan."""
-    history = _room_history(job)
+def _room_comparison(
+    job: dict[str, Any],
+    *,
+    history: list[dict[str, Any]] | None = None,
+    room_index: RoomIndex | None = None,
+) -> dict[str, Any] | None:
+    """Compare the current room scan to the most recent previous scan.
+
+    Reuses an already-computed *history* when given so the sibling scan is not
+    repeated; otherwise computes it (optionally via *room_index*).
+    """
+    if history is None:
+        history = _room_history(job, room_index=room_index)
     if not history:
         return None
 
@@ -633,7 +699,11 @@ def _room_comparison(job: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _ensure_job_derived_fields(job: dict[str, Any]) -> dict[str, Any]:
+def _ensure_job_derived_fields(
+    job: dict[str, Any],
+    *,
+    room_index: RoomIndex | None = None,
+) -> dict[str, Any]:
     """Populate lightweight derived fields for older or manually inserted jobs."""
     if job.get("risks") is not None:
         _apply_follow_up_events(job)
@@ -661,8 +731,9 @@ def _ensure_job_derived_fields(job: dict[str, Any]) -> dict[str, Any]:
         summary["artifact_expires_at"] = _job_expiry_iso(job)
         summary["retention_days"] = _upload_cfg.retention_days
         job["summary"] = summary
-        job["room_history"] = _room_history(job)
-        job["room_comparison"] = _room_comparison(job)
+        history = _room_history(job, room_index=room_index)
+        job["room_history"] = history
+        job["room_comparison"] = _room_comparison(job, history=history, room_index=room_index)
         job["weekend_fix_list"] = build_weekend_fix_list(
             list(job.get("risks") or []),
             audience_mode=audience_mode,
@@ -694,5 +765,6 @@ def _job_status_counts() -> dict[str, int]:
 # Rebuild artifact pointers and derived fields for jobs loaded from disk.
 for _job in _upload_jobs.values():
     _refresh_job_artifacts(_job)
+_room_index = _build_room_index()
 for _job in _upload_jobs.values():
-    _ensure_job_derived_fields(_job)
+    _ensure_job_derived_fields(_job, room_index=_room_index)

@@ -6,7 +6,6 @@ import json
 import math
 import re
 import time
-from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -67,6 +66,8 @@ class UploadStore:
         self._max_persisted_jobs = max_persisted_jobs
         self._retention_days = retention_days
         self._max_storage_bytes = max_storage_bytes
+        self._storage_summary_cache: dict[str, int] | None = None
+        self._storage_summary_cached_at = 0.0
         self.root_dir.mkdir(parents=True, exist_ok=True)
 
     def meta_dir(self) -> Path:
@@ -172,10 +173,13 @@ class UploadStore:
         job_dir = self.job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
 
-        serializable = deepcopy(job)
+        # No deepcopy: ``json.dumps`` runs synchronously with no ``await``, so
+        # under single-threaded asyncio the manifest cannot mutate mid-serialize.
+        # Skipping the copy avoids cloning large nested payloads (point clouds,
+        # evidence, risks) on every job state transition.
         tmp_path = self.manifest_path(job_id).with_suffix(".json.tmp")
         tmp_path.write_text(
-            json.dumps(serializable, indent=2, sort_keys=True),
+            json.dumps(job, indent=2, sort_keys=True),
             encoding="utf-8",
         )
         tmp_path.replace(self.manifest_path(job_id))
@@ -478,8 +482,20 @@ class UploadStore:
             "url": self._artifact_url(storage_key, url),
         }
 
-    def storage_summary(self) -> dict[str, int]:
-        """Return a coarse storage summary for operator diagnostics."""
+    def storage_summary(self, *, max_age_seconds: float = 0.0) -> dict[str, int]:
+        """Return a coarse storage summary for operator diagnostics.
+
+        Walking the full artifact tree is O(files), so the hot metrics path may
+        pass ``max_age_seconds`` to reuse a recent result instead of re-walking
+        on every gauge refresh. ``0`` (the default) always computes fresh.
+        """
+        if (
+            max_age_seconds > 0.0
+            and self._storage_summary_cache is not None
+            and (time.time() - self._storage_summary_cached_at) < max_age_seconds
+        ):
+            return dict(self._storage_summary_cache)
+
         persisted_jobs = 0
         bytes_used = 0
         queued_inputs = 0
@@ -534,7 +550,7 @@ class UploadStore:
         meta_bytes = sum(
             path.stat().st_size for path in self.meta_dir().rglob("*") if path.is_file()
         )
-        return {
+        summary = {
             "persisted_jobs": persisted_jobs,
             "bytes_used": bytes_used + meta_bytes,
             "byte_budget": self._max_storage_bytes,
@@ -552,6 +568,9 @@ class UploadStore:
             "waitlist_entries": len(self.load_waitlist_entries()),
             "eval_candidates": len(self.load_eval_candidates()),
         }
+        self._storage_summary_cache = summary
+        self._storage_summary_cached_at = time.time()
+        return dict(summary)
 
     def prune(self) -> dict[str, int]:
         """Run retention pruning immediately and return a coarse diff summary."""

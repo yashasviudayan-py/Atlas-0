@@ -313,6 +313,9 @@ class UploadsConfig(BaseModel):
     max_redacted_regions_per_frame: int = 2
     strict_startup_checks: bool = False
     job_failure_log_limit: int = 20
+    # Max age (seconds) for the cached on-disk storage summary used by the
+    # operational-metrics hot path. 0 disables caching (always walk the tree).
+    metrics_cache_seconds: float = Field(default=5.0, ge=0.0)
 
     @field_validator(
         "max_persisted_jobs",
