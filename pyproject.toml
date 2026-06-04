@@ -5,49 +5,49 @@ description = "Spatial Reasoning & Physical World-Model Engine"
 requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
-    "fastapi==0.115.6",
-    "uvicorn[standard]==0.34.0",
-    "pydantic==2.10.4",
-    "structlog==24.4.0",
+    "fastapi==0.136.3",
+    "uvicorn[standard]==0.49.0",
+    "pydantic==2.13.4",
+    "structlog==25.5.0",
     "httpx==0.28.1",
-    "numpy==2.2.1",
-    "Pillow==11.1.0",
-    "protobuf==5.29.3",
-    "scikit-learn==1.6.0",
-    "prometheus-client==0.21.0",
-    "python-multipart==0.0.20",
+    "numpy==2.4.6",
+    "Pillow==12.2.0",
+    "protobuf==7.35.0",
+    "scikit-learn==1.9.0",
+    "prometheus-client==0.25.0",
+    "python-multipart==0.0.30",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest==8.3.4",
-    "pytest-asyncio==0.24.0",
-    "pytest-benchmark==5.1.0",
-    "ruff==0.8.6",
-    "mypy==1.14.1",
+    "pytest==9.0.3",
+    "pytest-asyncio==1.4.0",
+    "pytest-benchmark==5.2.3",
+    "ruff==0.15.15",
+    "mypy==2.1.0",
 ]
 ml = [
-    "torch==2.11.0",
-    "torchvision==0.26.0",
-    "transformers==5.5.0",
-    "ollama==0.6.1",
+    "torch==2.12.0",
+    "torchvision==0.27.0",
+    "transformers==5.10.1",
+    "ollama==0.6.2",
 ]
 # VLM cloud providers — install the one matching your ATLAS_VLM_PROVIDER setting.
 claude = [
-    "anthropic==0.40.0",
+    "anthropic==0.105.2",
 ]
 openai = [
-    "openai==1.50.0",
+    "openai==2.41.0",
 ]
 # Video file ingestion (MP4, MOV, WEBM) via PyAV (ffmpeg bindings).
 video = [
-    "av==14.0.0",
+    "av==17.0.1",
 ]
 # All optional extras bundled together.
 all = [
-    "anthropic==0.40.0",
-    "openai==1.50.0",
-    "av==14.0.0",
+    "anthropic==0.105.2",
+    "openai==2.41.0",
+    "av==17.0.1",
 ]
 
 [tool.ruff]
@@ -69,7 +69,7 @@ warn_return_any = true
 warn_unused_configs = true
 
 [build-system]
-requires = ["setuptools==81.0.0"]
+requires = ["setuptools==82.0.1"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
