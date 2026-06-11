@@ -113,7 +113,9 @@ _RELATION_KEYWORDS: list[tuple[str, str]] = sorted(
 )
 
 _ARTICLE_RE = re.compile(r"^(?:the|a|an)\s+")
-_TRAILING_PUNCT_RE = re.compile(r"[?!.,;]+$")
+# Trailing punctuation to strip. Handled with str.rstrip rather than a regex:
+# an anchored ``[…]+$`` pattern backtracks in polynomial time on adversarial input.
+_TRAILING_PUNCT = "?!.,;"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -121,7 +123,7 @@ _TRAILING_PUNCT_RE = re.compile(r"[?!.,;]+$")
 
 def _strip(text: str) -> str:
     """Strip trailing punctuation and lower-case *text*."""
-    return _TRAILING_PUNCT_RE.sub("", text.strip().lower())
+    return text.strip().lower().rstrip(_TRAILING_PUNCT)
 
 
 def _extract_object_name(query: str) -> str:
@@ -138,21 +140,24 @@ def _extract_object_name(query: str) -> str:
     """
     cleaned = _strip(query)
 
+    # Capture groups start (and, where needed, end) with ``\S`` so they cannot
+    # overlap the adjacent ``\s+``/literal — this keeps the patterns linear-time.
+
     # "where is [the] OBJECT" / "find [the] OBJECT" / "position of [the] OBJECT"
     m = re.search(
-        r"(?:where\s+is|find|location\s+of|position\s+of)\s+(?:the\s+)?(.+)$",
+        r"(?:where\s+is|find|location\s+of|position\s+of)\s+(?:the\s+)?(\S.*)$",
         cleaned,
     )
     if m:
         return m.group(1).strip()
 
     # "what is [the] OBJECT made of"
-    m = re.search(r"what\s+is\s+(?:the\s+)?(.+?)\s+made\s+of", cleaned)
+    m = re.search(r"what\s+is\s+(?:the\s+)?(\S(?:.*\S)?)\s+made\s+of", cleaned)
     if m:
         return m.group(1).strip()
 
     # "what is [the] OBJECT's PROPERTY"
-    m = re.search(r"what\s+is\s+(?:the\s+)?(.+?)(?:'s|\s+of\b)", cleaned)
+    m = re.search(r"what\s+is\s+(?:the\s+)?(\S(?:.*\S)?)(?:'s|\s+of\b)", cleaned)
     if m:
         return m.group(1).strip()
 
@@ -183,7 +188,7 @@ def _extract_relation(query: str) -> tuple[str, str]:
         if phrase in lower:
             idx = lower.find(phrase) + len(phrase)
             remainder = _ARTICLE_RE.sub("", lower[idx:].strip())
-            remainder = _TRAILING_PUNCT_RE.sub("", remainder)
+            remainder = remainder.rstrip(_TRAILING_PUNCT)
             return rel_type, remainder
     return "", ""
 
